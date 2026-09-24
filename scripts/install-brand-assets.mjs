@@ -50,9 +50,10 @@ function replaceIconLink(contents, file) {
  * and key order is not a contract. The entry still has to exist.
  * @param contents - manifest source.
  * @param file - path shown in the failure message.
+ * @param iconContents - PNG bytes copied into the frontend.
  * @returns manifest JSON with the desktop icon.
  */
-function replaceManifestIcon(contents, file) {
+function replaceManifestIcon(contents, file, iconContents) {
   const manifest = JSON.parse(contents)
   const icons = Array.isArray(manifest.icons) ? manifest.icons : []
   const target = icons.find((icon) => icon?.src === '/dsh-desktop-logo.png')
@@ -61,12 +62,23 @@ function replaceManifestIcon(contents, file) {
     throw new Error(`Could not update DSH Desktop branding in ${file}: no icon entry to replace`)
   }
   target.src = '/dsh-desktop-logo.png'
-  target.sizes = '1254x1254'
+  const icon = readPngDimensions(iconContents, source)
+  target.sizes = `${String(icon.width)}x${String(icon.height)}`
   target.type = 'image/png'
   return `${JSON.stringify(manifest, null, 2)}\n`
 }
 
+/** Read the dimensions recorded in a PNG's IHDR chunk. */
+function readPngDimensions(contents, file) {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  if (contents.length < 24 || !contents.subarray(0, 8).equals(signature)) {
+    throw new Error(`Could not update BISHENG Work branding: ${file} is not a PNG`)
+  }
+  return { width: contents.readUInt32BE(16), height: contents.readUInt32BE(20) }
+}
+
 await mkdir(destinationDirectory, { recursive: true })
+const iconContents = await readFile(source)
 await copyFile(source, destination)
 await copyFile(lightSource, lightDestination)
 await copyFile(darkSource, darkDestination)
@@ -77,10 +89,10 @@ await writeFile(indexPath, replaceIconLink(index, path.relative(projectRoot, ind
 const manifest = await readFile(manifestPath, 'utf8')
 await writeFile(
   manifestPath,
-  replaceManifestIcon(manifest, path.relative(projectRoot, manifestPath))
+  replaceManifestIcon(manifest, path.relative(projectRoot, manifestPath), iconContents)
 )
 
-console.log(`Installed DSH Desktop brand assets: ${[
+console.log(`Installed BISHENG Work brand assets: ${[
   destination,
   lightDestination,
   darkDestination
