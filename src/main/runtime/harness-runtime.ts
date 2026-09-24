@@ -27,6 +27,7 @@ export interface HarnessRuntimeOptions {
   ): HarnessChildProcess
   preferredPort?: number
   startupTimeoutMs?: number
+  extraEnvironment?: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv)
   /** Mirror log lines to the console (development builds only). */
   echoLogs?: boolean
   onChanged(snapshot: RuntimeSnapshot): void
@@ -286,6 +287,13 @@ export function resolveEnvironmentPath(
   return ''
 }
 
+function resolveExtraEnvironment(
+  extraEnvironment?: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv)
+): NodeJS.ProcessEnv {
+  if (!extraEnvironment) return {}
+  return typeof extraEnvironment === 'function' ? extraEnvironment() : extraEnvironment
+}
+
 export function buildHarnessSpawnOptions(
   launchDirectory: string,
   dshHome: string,
@@ -474,7 +482,7 @@ export class HarnessRuntime {
       ? this.options.dshSafePatchPath
       : this.options.dshPatchPath
     if (!existsSync(patchPath)) {
-      this.setState('failed', `DSH Desktop patch was not found: ${patchPath}`)
+      this.setState('failed', `BISHENG Work patch was not found: ${patchPath}`)
       return
     }
     const marketPatchPath = this.options.dshMarketPatchPath
@@ -528,7 +536,10 @@ export class HarnessRuntime {
           launchDirectory,
           this.options.dshHome,
           process.platform,
-          shellEnvironment,
+          {
+            ...shellEnvironment,
+            ...resolveExtraEnvironment(this.options.extraEnvironment)
+          },
           profile
         )
       )

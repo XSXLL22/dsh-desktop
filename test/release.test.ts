@@ -6,9 +6,9 @@ import { describe, expect, it } from 'vitest'
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
 const releaseAssets = [
-  'dsh-desktop-mac-arm64.dmg',
-  'dsh-desktop-mac-x64.dmg',
-  'dsh-desktop-windows-x64-setup.exe'
+  'bisheng-work-mac-arm64.dmg',
+  'bisheng-work-mac-x64.dmg',
+  'bisheng-work-windows-x64-setup.exe'
 ]
 
 /** The exact Harness build every `@deepseek-ai/dsh-*` production dep is pinned to. */
@@ -171,7 +171,7 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(packageJson.build.artifactName).toBe('dsh-desktop-${os}-${arch}.${ext}')
+    expect(packageJson.build.artifactName).toBe('bisheng-work-${os}-${arch}.${ext}')
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/app-icon.png',
       to: 'icon.png'
@@ -218,7 +218,7 @@ describe('GitHub release contract', () => {
       to: 'web-import.html'
     })
     expect(packageJson.build.nsis.artifactName).toBe(
-      'dsh-desktop-windows-${arch}-setup.${ext}'
+      'bisheng-work-windows-${arch}-setup.${ext}'
     )
     expect(packageJson.build.nsis.include).toBe('build/installer.nsh')
     expect(packageJson.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
@@ -254,7 +254,7 @@ describe('GitHub release contract', () => {
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
-      { provider: 'generic', url: 'https://dshdesktop.com/updates/latest/' }
+      { provider: 'github', owner: 'dataelement', repo: 'bisheng-work' }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(false)
     for (const asset of [
@@ -262,9 +262,9 @@ describe('GitHub release contract', () => {
       'latest-mac-x64.yml',
       'latest-mac.yml',
       'latest.yml',
-      'dsh-desktop-mac-arm64.zip.blockmap',
-      'dsh-desktop-mac-x64.zip.blockmap',
-      'dsh-desktop-windows-x64-setup.exe.blockmap'
+      'bisheng-work-mac-arm64.zip.blockmap',
+      'bisheng-work-mac-x64.zip.blockmap',
+      'bisheng-work-windows-x64-setup.exe.blockmap'
     ]) {
       expect(workflow).toContain(asset)
     }
@@ -313,12 +313,12 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('verify-target.mjs win32 x64')
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
-    expect(developmentConfig.appId).toBe('io.dsh.desktop.dev')
-    expect(developmentConfig.productName).toBe('DSH Desktop Dev')
+    expect(developmentConfig.appId).toBe('io.bisheng.work.dev')
+    expect(developmentConfig.productName).toBe('BISHENG Work Dev')
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
-    expect(developmentConfig.artifactName).toBe('dsh-desktop-dev-${os}-${arch}.${ext}')
-    expect(developmentConfig.nsis.artifactName).toBe('dsh-desktop-dev-windows-${arch}-setup.${ext}')
+    expect(developmentConfig.artifactName).toBe('bisheng-work-dev-${os}-${arch}.${ext}')
+    expect(developmentConfig.nsis.artifactName).toBe('bisheng-work-dev-windows-${arch}-setup.${ext}')
   })
 
   it('builds and publishes every supported platform', async () => {
@@ -327,8 +327,12 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(workflow).toContain('runs-on: macos-15')
-    expect(workflow).toContain('runs-on: macos-15-intel')
+    expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(3)
+    expect(workflow).toContain('architecture: arm64')
+    expect(workflow).toContain('architecture: x64')
+    expect(workflow).toContain('shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}')
+    expect(workflow).toContain('arch -x86_64 /usr/bin/true')
+    expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
     expect(workflow).toContain('Smoke test packaged Windows Harness')
@@ -337,7 +341,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('$executable = Join-Path $isolatedApp $sourceExecutable.Name')
     expect(workflow).toContain('-WorkingDirectory $isolatedApp')
     expect(workflow).toContain('Packaged koffi native binding failed.')
-    expect(workflow).toContain("'dist-dev\\win-unpacked\\DSH Desktop Dev.exe'")
+    expect(workflow).toContain("'dist-dev\\win-unpacked\\BISHENG Work Dev.exe'")
     expect(workflow).toContain('if (-not [string]::IsNullOrEmpty($log))')
     expect(workflow).toContain("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?token=[^\\s]+)")
     expect(workflow).toContain('-SessionVariable harnessSession')
@@ -352,7 +356,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('mode:')
     expect(workflow).toContain('--prerelease')
     expect(workflow).toContain('name: windows-x64-dev')
-    expect(workflow).toContain('dist-dev/dsh-desktop-dev-windows-x64-setup.exe')
+    expect(workflow).toContain('dist-dev/bisheng-work-dev-windows-x64-setup.exe')
     for (const asset of releaseAssets) expect(workflow).toContain(asset)
     expect(
       workflow.match(
@@ -383,10 +387,10 @@ describe('GitHub release contract', () => {
     expect(workflow.match(/CSC_IDENTITY_AUTO_DISCOVERY: 'false'/g)).toHaveLength(2)
     expect(workflow).not.toContain("CSC_LINK: ''")
     expect(workflow).toMatch(
-      /macos-apple-silicon:\r?\n\s+name: macOS Apple Silicon\r?\n(?:[\s\S]*?)runs-on: macos-15\r?\n\s+steps:/
+      /macos-apple-silicon:\r?\n\s+name: macOS Apple Silicon\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
-      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: macos-15-intel\r?\n\s+steps:/
+      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+defaults:/
     )
     expect(workflow).toMatch(
       /windows-x64:\r?\n\s+name: Windows x64\r?\n(?:[\s\S]*?)runs-on: windows-2022\r?\n\s+steps:/
@@ -494,9 +498,11 @@ describe('prerelease parity workflow', () => {
     ).toHaveLength(4)
   })
 
-  it('mirrors a prerelease to an isolated ModelScope directory', async () => {
+  it('publishes prereleases without the legacy update mirror', async () => {
     const yml = await load()
-    expect(yml).toContain('releases/prerelease/')
+    expect(yml).toContain('gh release create "$RELEASE_TAG" release-assets/*')
+    expect(yml).toContain('--prerelease')
+    expect(yml).not.toContain('MODELSCOPE_TOKEN')
   })
 
   it('parametrises the Windows smoke test executable', async () => {
@@ -506,15 +512,15 @@ describe('prerelease parity workflow', () => {
   })
 })
 
-describe('rollback catalog publication', () => {
-  it('archives each release and rebuilds the version index', async () => {
+describe('GitHub-only update publication', () => {
+  it('does not publish legacy archives or configure DSH rollout', async () => {
     const yml = await readFile(
       path.join(projectRoot, '.github/workflows/release.yml'),
       'utf8'
     )
-    expect(yml).toContain('releases/archive/')
-    expect(yml).toContain('scripts/build-version-index.mjs')
-    expect(yml).toContain('releases/versions.json')
+    expect(yml).not.toContain('releases/archive/')
+    expect(yml).not.toContain('releases/versions.json')
+    expect(yml).not.toContain('CRASH_ADMIN_TOKEN')
   })
 })
 

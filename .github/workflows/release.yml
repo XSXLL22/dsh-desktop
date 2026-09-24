@@ -70,7 +70,7 @@ jobs:
                 exit 1
               fi
               if [ "$TARGET" != "all" ]; then
-                echo "::notice::target=$TARGET with prerelease mode will sign only and skip GitHub/ModelScope publish"
+                echo "::notice::target=$TARGET with prerelease mode will sign only and skip GitHub publish"
               fi
               ;;
             signed)
@@ -100,7 +100,7 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'macos'))
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,6 +108,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: arm64
           cache: npm
       - name: Set app version from release tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -175,7 +176,7 @@ jobs:
         env:
           CSC_KEYCHAIN: ${{ steps.signing_keychain.outputs.keychain }}
         run: |
-          dmg_path="dist/dsh-desktop-mac-arm64.dmg"
+          dmg_path="dist/bisheng-work-mac-arm64.dmg"
           identity="$(security find-identity -v -p codesigning "$CSC_KEYCHAIN" | awk '/Developer ID Application/ { print $2; exit }')"
           test -n "$identity" || { echo "::error::Developer ID Application identity not found"; exit 1; }
           codesign --keychain "$CSC_KEYCHAIN" --sign "$identity" --timestamp --force "$dmg_path"
@@ -207,21 +208,21 @@ jobs:
       - name: Verify signed and notarized Apple Silicon app
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         run: |
-          app_path="dist/mac-arm64/DSH Desktop.app"
+          app_path="dist/mac-arm64/BISHENG Work.app"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
-          codesign --verify --verbose=2 dist/dsh-desktop-mac-arm64.dmg
-          spctl --assess --type open --context context:primary-signature --verbose=4 dist/dsh-desktop-mac-arm64.dmg
-          xcrun stapler validate dist/dsh-desktop-mac-arm64.dmg
+          codesign --verify --verbose=2 dist/bisheng-work-mac-arm64.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-arm64.dmg
+          xcrun stapler validate dist/bisheng-work-mac-arm64.dmg
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         with:
           name: macos-apple-silicon
           path: |
-            dist/dsh-desktop-mac-arm64.dmg
-            dist/dsh-desktop-mac-arm64.zip
-            dist/dsh-desktop-mac-arm64.zip.blockmap
+            dist/bisheng-work-mac-arm64.dmg
+            dist/bisheng-work-mac-arm64.zip
+            dist/bisheng-work-mac-arm64.zip.blockmap
             dist/latest-mac-arm64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -229,9 +230,9 @@ jobs:
         with:
           name: macos-apple-silicon-dev
           path: |
-            dist-dev/dsh-desktop-dev-mac-arm64.dmg
-            dist-dev/dsh-desktop-dev-mac-arm64.zip
-            dist-dev/dsh-desktop-dev-mac-arm64.zip.blockmap
+            dist-dev/bisheng-work-dev-mac-arm64.dmg
+            dist-dev/bisheng-work-dev-mac-arm64.zip
+            dist-dev/bisheng-work-dev-mac-arm64.zip.blockmap
           if-no-files-found: error
 
   macos-intel:
@@ -240,15 +241,28 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'macos'))
-    runs-on: macos-15-intel
+    runs-on: [self-hosted, macOS, ARM64]
+    defaults:
+      run:
+        shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}
     steps:
+      - name: Require Rosetta for Intel packaging
+        shell: bash
+        run: |
+          if ! arch -x86_64 /usr/bin/true; then
+            echo "::error::Rosetta 2 is required for Intel packaging on this ARM64 runner"
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          architecture: x64
           cache: npm
+      - name: Verify Intel Node runtime
+        run: test "$(node -p 'process.arch')" = x64
       - name: Set app version from release tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: npm version --no-git-tag-version --allow-same-version "${{ github.ref_name }}"
@@ -315,7 +329,7 @@ jobs:
         env:
           CSC_KEYCHAIN: ${{ steps.signing_keychain.outputs.keychain }}
         run: |
-          dmg_path="dist/dsh-desktop-mac-x64.dmg"
+          dmg_path="dist/bisheng-work-mac-x64.dmg"
           identity="$(security find-identity -v -p codesigning "$CSC_KEYCHAIN" | awk '/Developer ID Application/ { print $2; exit }')"
           test -n "$identity" || { echo "::error::Developer ID Application identity not found"; exit 1; }
           codesign --keychain "$CSC_KEYCHAIN" --sign "$identity" --timestamp --force "$dmg_path"
@@ -347,21 +361,21 @@ jobs:
       - name: Verify signed and notarized Intel app
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         run: |
-          app_path="dist/mac/DSH Desktop.app"
+          app_path="dist/mac/BISHENG Work.app"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
-          codesign --verify --verbose=2 dist/dsh-desktop-mac-x64.dmg
-          spctl --assess --type open --context context:primary-signature --verbose=4 dist/dsh-desktop-mac-x64.dmg
-          xcrun stapler validate dist/dsh-desktop-mac-x64.dmg
+          codesign --verify --verbose=2 dist/bisheng-work-mac-x64.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-x64.dmg
+          xcrun stapler validate dist/bisheng-work-mac-x64.dmg
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         with:
           name: macos-intel
           path: |
-            dist/dsh-desktop-mac-x64.dmg
-            dist/dsh-desktop-mac-x64.zip
-            dist/dsh-desktop-mac-x64.zip.blockmap
+            dist/bisheng-work-mac-x64.dmg
+            dist/bisheng-work-mac-x64.zip
+            dist/bisheng-work-mac-x64.zip.blockmap
             dist/latest-mac-x64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -369,9 +383,9 @@ jobs:
         with:
           name: macos-intel-dev
           path: |
-            dist-dev/dsh-desktop-dev-mac-x64.dmg
-            dist-dev/dsh-desktop-dev-mac-x64.zip
-            dist-dev/dsh-desktop-dev-mac-x64.zip.blockmap
+            dist-dev/bisheng-work-dev-mac-x64.dmg
+            dist-dev/bisheng-work-dev-mac-x64.zip
+            dist-dev/bisheng-work-dev-mac-x64.zip.blockmap
           if-no-files-found: error
 
   windows-x64:
@@ -424,8 +438,8 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
-          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\DSH Desktop.exe' || 'dist-dev\win-unpacked\DSH Desktop Dev.exe' }}
-          SMOKE_USERDATA: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dsh-desktop' || 'dsh-desktop-dev' }}
+          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\BISHENG Work.exe' || 'dist-dev\win-unpacked\BISHENG Work Dev.exe' }}
+          SMOKE_USERDATA: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'bisheng-work' || 'bisheng-work-dev' }}
         run: |
           $userData = Join-Path $env:APPDATA $env:SMOKE_USERDATA
           $logPath = Join-Path $userData 'logs\harness.log'
@@ -450,7 +464,7 @@ jobs:
             $endpoint = $null
             while ((Get-Date) -lt $deadline) {
               if ($desktop.HasExited) {
-                throw "DSH Desktop Dev exited before Harness was ready (exit code $($desktop.ExitCode))."
+                throw "BISHENG Work Dev exited before Harness was ready (exit code $($desktop.ExitCode))."
               }
               if (Test-Path $logPath) {
                 $log = Get-Content -Raw $logPath
@@ -516,7 +530,7 @@ jobs:
               throw 'Harness process exited after workspace and session creation.'
             }
             if ($desktop.HasExited) {
-              throw "DSH Desktop Dev exited after workspace and session creation (exit code $($desktop.ExitCode))."
+              throw "BISHENG Work Dev exited after workspace and session creation (exit code $($desktop.ExitCode))."
             }
             Write-Host 'Packaged Windows Harness smoke test passed.'
           } finally {
@@ -536,9 +550,9 @@ jobs:
         with:
           name: windows-x64-unsigned
           path: |
-            dist/dsh-desktop-windows-x64-setup.exe
+            dist/bisheng-work-windows-x64-setup.exe
             dist/win-unpacked.tar.gz
-            dist/dsh-desktop-windows-x64-setup.exe.blockmap
+            dist/bisheng-work-windows-x64-setup.exe.blockmap
             dist/latest.yml
           if-no-files-found: error
           retention-days: 1
@@ -547,8 +561,8 @@ jobs:
         with:
           name: windows-x64-dev
           path: |
-            dist-dev/dsh-desktop-dev-windows-x64-setup.exe
-            dist-dev/dsh-desktop-dev-windows-x64-setup.exe.blockmap
+            dist-dev/bisheng-work-dev-windows-x64-setup.exe
+            dist-dev/bisheng-work-dev-windows-x64-setup.exe.blockmap
             dist-dev/latest.yml
           if-no-files-found: error
 
@@ -668,7 +682,7 @@ jobs:
             --tsmode RFC3161 \
             --tsretries 3 \
             --tsretrywait 10 \
-            --name 'DSH Desktop' \
+            --name 'BISHENG Work' \
             --url https://www.dshdesktop.com \
             --verbose \
             "$installer"
@@ -699,8 +713,8 @@ jobs:
         with:
           name: windows-x64
           path: |
-            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/dsh-desktop-windows-x64-setup.exe
-            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/dsh-desktop-windows-x64-setup.exe.blockmap
+            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe
+            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe.blockmap
             ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/latest.yml
           if-no-files-found: error
       - name: Remove local signing files
@@ -803,98 +817,9 @@ jobs:
             gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
               --notes-file "$notes" \
-              --title "DSH Desktop $RELEASE_TAG" \
+              --title "BISHENG Work $RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY"
           fi
-      - name: Mirror release assets to ModelScope
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
-        run: |
-          set -euo pipefail
-          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
-          python3 -m venv "$RUNNER_TEMP/ms-env"
-          "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope
-          "$RUNNER_TEMP/ms-env/bin/python3" <<'PY'
-          import os, pathlib
-          from modelscope.hub.api import HubApi
-
-          api = HubApi()
-          token = os.environ["MODELSCOPE_TOKEN"]
-          repo_id = os.environ["MODELSCOPE_REPO_ID"]
-          tag = os.environ.get("GITHUB_REF_NAME", "unknown")
-          src = pathlib.Path("release-assets")
-
-          version = tag[1:] if tag.startswith("v") else tag
-
-          api.upload_folder(
-              repo_id=repo_id,
-              folder_path=str(src),
-              path_in_repo="releases/latest",
-              commit_message=f"Release {tag}",
-              token=token,
-          )
-          print(f"✅ Uploaded {src} -> {repo_id}/releases/latest")
-
-          # Immutable per-version archive so the desktop client can roll back.
-          api.upload_folder(
-              repo_id=repo_id,
-              folder_path=str(src),
-              path_in_repo=f"releases/archive/{version}",
-              commit_message=f"Archive {tag}",
-              token=token,
-          )
-          print(f"✅ Archived {src} -> {repo_id}/releases/archive/{version}")
-
-          # Rebuild the rollback index from the versions we know exist: whatever
-          # the current published index lists, plus the one just archived. This
-          # avoids a read-modify-write race and any dependency on directory
-          # listing.
-          import json, subprocess, tempfile, urllib.request
-
-          known = {version}
-          try:
-              with urllib.request.urlopen(
-                  "https://dshdesktop.com/updates/versions.json", timeout=15
-              ) as response:
-                  current = json.load(response)
-              for entry in current.get("versions", []):
-                  name = entry.get("version")
-                  if isinstance(name, str) and name:
-                      known.add(name)
-          except Exception as error:  # first release, or index temporarily missing
-              print(f"⚠️ Could not read existing version index: {error}")
-
-          with tempfile.TemporaryDirectory() as work:
-              names_file = pathlib.Path(work) / "names.json"
-              index_file = pathlib.Path(work) / "versions.json"
-              names_file.write_text(json.dumps(sorted(known)))
-              subprocess.run(
-                  ["node", "scripts/build-version-index.mjs", str(names_file), str(index_file)],
-                  check=True,
-              )
-              api.upload_file(
-                  path_or_fileobj=str(index_file),
-                  path_in_repo="releases/versions.json",
-                  repo_id=repo_id,
-                  commit_message=f"Version index after {tag}",
-                  token=token,
-              )
-          print("✅ Rebuilt releases/versions.json")
-          PY
-
-      - name: Configure initial 5% rollout on crash service
-        env:
-          CRASH_ADMIN_TOKEN: ${{ secrets.CRASH_ADMIN_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CRASH_ADMIN_TOKEN:-}" ]; then
-            echo "⚠️ CRASH_ADMIN_TOKEN secret not set; skipping rollout configuration."
-            exit 0
-          fi
-          node scripts/configure-rollout.mjs "${RELEASE_TAG#v}" 5
-
       - name: Build Feishu release note prompt
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -1006,40 +931,9 @@ jobs:
               --prerelease \
               --target "$GITHUB_SHA" \
               --generate-notes \
-              --title "DSH Desktop $RELEASE_TAG（预发布）" \
+              --title "BISHENG Work $RELEASE_TAG（预发布）" \
               --repo "$GITHUB_REPOSITORY"
           fi
-      - name: Mirror pre-release assets to ModelScope
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          MODELSCOPE_REPO_ID: alexyaojin/dsh-desktop
-          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
-        run: |
-          set -euo pipefail
-          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
-          python3 -m venv "$RUNNER_TEMP/ms-env"
-          "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope
-          "$RUNNER_TEMP/ms-env/bin/python3" <<'PY'
-          import os, pathlib
-          from modelscope.hub.api import HubApi
-
-          api = HubApi()
-          token = os.environ["MODELSCOPE_TOKEN"]
-          repo_id = os.environ["MODELSCOPE_REPO_ID"]
-          tag = os.environ["PRERELEASE_TAG"]
-          src = pathlib.Path("release-assets")
-
-          for path_in_repo in (f"releases/prerelease/{tag}", "releases/prerelease/latest"):
-              api.upload_folder(
-                  repo_id=repo_id,
-                  folder_path=str(src),
-                  path_in_repo=path_in_repo,
-                  commit_message=f"Pre-release {tag}",
-                  token=token,
-              )
-              print(f"✅ Uploaded {src} -> {repo_id}/{path_in_repo}")
-          PY
-
       - name: Build Feishu prerelease note prompt
         env:
           RELEASE_TAG: ${{ inputs.prerelease_tag }}

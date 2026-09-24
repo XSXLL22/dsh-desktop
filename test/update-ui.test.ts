@@ -52,23 +52,6 @@ describe('desktop update card visibility', () => {
   })
 })
 
-describe('downgrade copy', () => {
-  it('names the downgrade in both locales', () => {
-    const status: UpdateStatus = {
-      phase: 'downloading',
-      currentVersion: '1.5.0',
-      availableVersion: '1.2.0',
-      manual: true,
-      downgrade: true,
-      percent: 30
-    }
-    expect(updateHeadline(status, 'zh').title).toContain('降级')
-    expect(updateMessage(status, 'zh')).toContain('1.2.0')
-    expect(updateHeadline(status, 'en').title.toLowerCase()).toContain('downgrad')
-    expect(updateMessage(status, 'en')).toContain('1.2.0')
-  })
-})
-
 describe('accepting an update is what starts the download', () => {
   it('asks rather than announcing a download already under way', () => {
     const available: UpdateStatus = {
@@ -78,7 +61,25 @@ describe('accepting an update is what starts the download', () => {
       manual: false
     }
     expect(updateMessage(available, 'zh')).toBe('发现新版本 0.4.4，是否更新？')
-    expect(updateMessage(available, 'en')).toBe('DSH Desktop 0.4.4 is available. Update now?')
+    expect(updateMessage(available, 'en')).toBe('BISHENG Work 0.4.4 is available. Update now?')
+  })
+
+  it('says online updates are not offered yet', () => {
+    const unsupported: UpdateStatus = {
+      phase: 'unsupported',
+      currentVersion: '1.0.0',
+      manual: true,
+      message: 'BISHENG Work does not offer online updates yet.'
+    }
+    expect(updateHeadline(unsupported, 'zh')).toEqual({
+      title: '暂未提供在线更新',
+      description: 'BISHENG Work 暂未提供在线更新。'
+    })
+    expect(updateHeadline(unsupported, 'en')).toEqual({
+      title: 'Online updates are not available',
+      description: 'BISHENG Work does not offer online updates yet.'
+    })
+    expect(updateMessage(unsupported, 'zh')).toBe('BISHENG Work 暂未提供在线更新。')
+    expect(updateMessage(unsupported, 'en')).toBe('BISHENG Work does not offer online updates yet.')
   })
 })
-
