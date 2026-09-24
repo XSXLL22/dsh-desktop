@@ -197,9 +197,14 @@ describe('GitHub release contract', () => {
       from: 'build/splash.html',
       to: 'splash.html'
     })
-    expect(packageJson.build.extraResources).not.toContainEqual(
-      expect.objectContaining({ to: expect.stringMatching(/dsh-loader.*\.gif$/) })
-    )
+    expect(packageJson.build.extraResources).toContainEqual({
+      from: 'build/dsh-loader.gif',
+      to: 'dsh-loader.gif'
+    })
+    expect(packageJson.build.extraResources).toContainEqual({
+      from: 'build/dsh-loader-dark.gif',
+      to: 'dsh-loader-dark.gif'
+    })
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/dsh-desktop.patch.yml',
       to: 'dsh-desktop.patch.yml'

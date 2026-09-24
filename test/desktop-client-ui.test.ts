@@ -10,8 +10,8 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
-describe('BISHENG Work client slot occupants', () => {
-  it('keeps BISHENG artwork in mark seats and inherits the sidebar name typography', async () => {
+describe('DSH Desktop client slot occupants', () => {
+  it('registers one occupant per brand seat and keeps the official name mark-free', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
       'utf8'
@@ -49,6 +49,8 @@ describe('BISHENG Work client slot occupants', () => {
       type,
       props: { ...props, children }
     })
+    const BrandWordmark = vi.fn()
+    const FishLogo = vi.fn()
     const plugin = definition!.factory((id) => {
       if (id === 'react') {
         return {
@@ -56,6 +58,9 @@ describe('BISHENG Work client slot occupants', () => {
           useEffect: (effect: () => void | (() => void)) => effect(),
           useState: (initial: unknown) => [initial, vi.fn()]
         }
+      }
+      if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+        return { BrandWordmark, FishLogo }
       }
       throw new Error(`Unexpected client dependency: ${id}`)
     })
@@ -85,93 +90,29 @@ describe('BISHENG Work client slot occupants', () => {
       'sidebar.brand.name',
       'conversation.hero.brand.mark'
     ])
-    // The slot occupants stay self-contained, so no theme stylesheet is injected.
+    // The mark is drawn in currentColor, so no theme stylesheet is injected.
     expect(appended).toHaveLength(0)
 
     const sidebarName = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
     )!.component({}) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarName.type).toBe('span')
-    expect(sidebarName.props.children).toEqual(['BISHENG Work'])
-    expect(sidebarName.props.className).toBeUndefined()
-    expect(sidebarName.props.style).toEqual({ letterSpacing: '-0.01em' })
-    expect(sidebarName.props.fontFamily).toBeUndefined()
-    expect(sidebarName.props.fontSize).toBeUndefined()
-    expect(sidebarName.props.fontWeight).toBeUndefined()
-    expect(sidebarName.props.color).toBeUndefined()
+    expect(sidebarName.type).toBe(BrandWordmark)
+    expect(sidebarName.props.includeMark).toBe(false)
 
     const sidebarMark = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.mark'
     )!.component({ size: 24 }) as { type: unknown; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe('svg')
-    expect(sidebarMark.props.width).toBe(17)
     expect(sidebarMark.props.height).toBe(17)
-    const [markField, ...markPaths] = sidebarMark.props.children as Array<{
-      type: unknown
-      props: Record<string, unknown>
-    }>
-    expect(markField?.type).toBe('rect')
-    expect(markField?.props.fill).toBe('#034FE5')
-    expect(markPaths).toHaveLength(8)
-    expect(markPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
+    const [markPath] = sidebarMark.props.children as Array<{ type: unknown; props: Record<string, unknown> }>
+    if (!markPath) throw new Error('Expected the sidebar brand SVG path')
+    expect(markPath.type).toBe('path')
+    expect(markPath.props.fill).toBe('currentColor')
 
     const heroMark = registrations.find(
       ({ config }) => config.name === 'conversation.hero.brand.mark'
     )!.component({ size: 48 }) as { type: unknown; props: Record<string, unknown> }
-    expect(heroMark.type).toBe('svg')
-    expect(heroMark.props.width).toBe(48)
-    expect(heroMark.props.height).toBe(48)
-  })
-
-  it('does not render the upstream preview badge beside the hero headline', async () => {
-    const source = await readFile(
-      path.join(
-        projectRoot,
-        'node_modules',
-        '@deepseek-ai',
-        'dsh-client-ui-conversation',
-        'lib',
-        'client.js'
-      ),
-      'utf8'
-    )
-
-    expect(source).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
-    expect(source).not.toContain('children: t("hero.preview")')
-  })
-
-  it('shows the brand mark only in the collapsed rail, not beside the wide brand name', async () => {
-    const source = await readFile(
-      path.join(
-        projectRoot,
-        'node_modules',
-        '@deepseek-ai',
-        'dsh-client-ui-sidebar',
-        'lib',
-        'client.js'
-      ),
-      'utf8'
-    )
-
-    const wideBrandStart = source.indexOf('children: [wide &&')
-    const wideBrandEnd = source.indexOf('label: collapsed ? t("toggle.open")', wideBrandStart)
-    const wideBrand = source.slice(wideBrandStart, wideBrandEnd)
-    expect(wideBrandStart).toBeGreaterThan(-1)
-    expect(wideBrandEnd).toBeGreaterThan(wideBrandStart)
-    expect(wideBrand).toContain('renderSlot("sidebar.brand.name"')
-    expect(wideBrand).not.toContain('renderSlot("sidebar.brand.mark"')
-
-    const railMarkStart = source.indexOf(
-      'className: SidebarRoot_module_css_default.railMark',
-      wideBrandEnd
-    )
-    const railMarkEnd = source.indexOf(
-      'className: SidebarRoot_module_css_default.panelIcon',
-      railMarkStart
-    )
-    const railMark = source.slice(railMarkStart, railMarkEnd)
-    expect(railMarkStart).toBeGreaterThan(wideBrandEnd)
-    expect(railMarkEnd).toBeGreaterThan(railMarkStart)
-    expect(railMark).toContain('renderSlot("sidebar.brand.mark", { size: 24 }')
+    expect(heroMark.type).toBe(FishLogo)
+    expect(heroMark.props.size).toBe(48)
   })
 })

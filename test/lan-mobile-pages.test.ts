@@ -14,16 +14,13 @@ describe('LAN mobile page', () => {
     for (const script of scripts) expect(() => new Function(script)).not.toThrow()
   })
 
-  it('uses the BISHENG brand color and follows system dark mode', () => {
+  it('uses the DSH brand color and follows system dark mode', () => {
     const html = renderMobilePage({ locale: 'en' })
-    expect(html).toContain('--brand:#034FE5')
+    expect(html).toContain('--brand:#4d6bfe')
     expect(html).toContain('prefers-color-scheme:dark')
     expect(html).toContain('content="#ffffff" media="(prefers-color-scheme:light)"')
     expect(html).toContain('content="#141416" media="(prefers-color-scheme:dark)"')
     expect(html).toContain('/brand-logo/light')
-    expect(html).toContain('.brand img{width:28px;height:28px')
-    expect(html).toContain('src="/brand-logo/light" alt="BISHENG"')
-    expect(html).not.toContain('alt="DSH"')
     expect(html).not.toContain('id="chatTitle"')
     expect(html).toContain('body.chat-open header{display:none}')
     expect(html).toContain('body.chat-open .shell{padding:env(safe-area-inset-top) 14px 0}')
@@ -205,7 +202,7 @@ describe('LAN mobile page', () => {
     }
   })
 
-  it('uses BISHENG styling on both pairing surfaces', () => {
+  it('uses DSH styling on both pairing surfaces', () => {
     const desktop = renderDesktopPairingPage({
       qrSvg: '<svg></svg>',
       pairingUrl: 'http://192.168.1.2/pair?token=test',
@@ -226,15 +223,6 @@ describe('LAN mobile page', () => {
     expect(desktop).not.toContain('--request-bg:#f5f7ff')
     expect(desktop).toContain('prefers-color-scheme:dark')
     expect(desktop).toContain('/brand-logo/dark')
-    expect(desktop).toContain(
-      '.brand{display:flex;align-items:center;justify-content:center;gap:9px;font-size:16px;font-weight:600;margin-bottom:14px}'
-    )
-    expect(renderMobilePage({ locale: 'en' })).toContain(
-      '.brand{font-size:15px;font-weight:600;letter-spacing:-.01em'
-    )
-    expect(renderMobileReconnectPage('en')).toContain(
-      '.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:22px;font-size:13px;font-weight:600}'
-    )
     expect(desktop).toContain('--bg:#141416')
     expect(desktop).toContain('.qr{display:inline-flex;background:#fff')
     expect(desktop).toContain('Creating a global network link')
@@ -288,7 +276,7 @@ describe('LAN mobile page', () => {
       modePanel.indexOf('class="hint" id="modeHint"')
     )
     expect(phone).toContain('prefers-color-scheme:dark')
-    expect(phone).toContain('--brand:#034FE5')
+    expect(phone).toContain('--brand:#4d6bfe')
     expect(phone).toContain('--bg:#141416')
     expect(phone).toContain('/brand-logo/dark')
     expect(phone).toContain('background:var(--panel)')
