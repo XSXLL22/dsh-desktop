@@ -58,7 +58,8 @@ function PersonalTemplateManager({ client, mode, sessionId, state, choose, t, mu
     const current = generation.current;
     const next = await client.call('state');
     if (!alive.current || generation.current !== current) return;
-    mode.setTemplateState(sessionId, next);
+    if (client.bound === true) mode.setTemplateState(sessionId, next);
+    else mode.setTemplates(sessionId, next.templates ?? []);
   }
   async function act(work, close = false) {
     if (busy) return;

@@ -15,7 +15,10 @@ function slice(source, start, end) {
 function normalizedStoreSource(source) {
   return slice(source, 'const STAGED_MODE_KEY', 'function useMode')
     .replace(/\r\n/g, '\n')
-    .replace('constructor() {\n\t\t\t\tthis.states = /* @__PURE__ */ new Map();\n\t\t\t\tthis.listeners = /* @__PURE__ */ new Map();\n\t\t\t}', 'states = /* @__PURE__ */ new Map();\n\t\t\tlisteners = /* @__PURE__ */ new Map();')
+    .replace(
+      /^([ \t]*)constructor\(\) \{\n\1[ \t]+this\.states = \/\* @__PURE__ \*\/ new Map\(\);\n\1[ \t]+this\.listeners = \/\* @__PURE__ \*\/ new Map\(\);\n\1\}/m,
+      '$1states = /* @__PURE__ */ new Map();\n$1listeners = /* @__PURE__ */ new Map();'
+    )
 }
 
 const Store = new Function(`${slice(adapter, 'const STAGED_MODE_KEY', 'function useMode')}\nreturn OfficePptHeroStore;`)()
