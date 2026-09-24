@@ -12,6 +12,7 @@ import {
   sweepRegistry
 } from 'dsh-desktop-market-installer/generations/registry'
 import { projectGenerations } from 'dsh-desktop-market-installer/generations/projection'
+import { sweepEnterpriseGenerations } from './enterprise-generation-sweep'
 
 /**
  * The launch-process half of the generation model. The market plugin installs
@@ -27,19 +28,42 @@ type Note = (line: string) => void
 /**
  * Run once per launch while Harness is stopped: physically remove staging
  * leftovers and generations neither pointer references, then reproject so the
- * profile's `node_modules` links match `desired`. Stopped Harness is the only
- * moment a removal is safe — a plugin could still be importing from a
- * generation while it runs.
+ * profile's `node_modules` links match `desired`. Enterprise generations are
+ * swept in the same window, from account install records rather than `desired`.
+ * Stopped Harness is the only moment a removal is safe — a plugin could still
+ * be importing from a generation while it runs.
  */
 export async function prepareGenerationsForLaunch(dshHome: string, note: Note): Promise<void> {
-  const { removed, failed } = await sweepRegistry(dshHome)
-  if (removed.length > 0) {
-    note(`[desktop] swept ${removed.length} unreferenced plugin generation(s)`)
+  let registryError: unknown
+  try {
+    const { removed, failed } = await sweepRegistry(dshHome)
+    if (removed.length > 0) {
+      note(`[desktop] swept ${removed.length} unreferenced plugin generation(s)`)
+    }
+    if (failed.length > 0) {
+      // Inert — nothing resolves against them; the next cold start retries.
+      note(`[desktop] ${failed.length} generation(s) could not be removed yet, will retry`)
+    }
+  } catch (error) {
+    registryError = error
   }
-  if (failed.length > 0) {
-    // Inert — nothing resolves against them; the next cold start retries.
-    note(`[desktop] ${failed.length} generation(s) could not be removed yet, will retry`)
+  try {
+    const enterprise = await sweepEnterpriseGenerations(dshHome)
+    if (enterprise.skipped) {
+      note('[desktop] enterprise generation cleanup skipped; account records were unreadable')
+    } else {
+      if (enterprise.removed.length > 0) {
+        note(`[desktop] swept ${enterprise.removed.length} unreferenced enterprise generation(s)`)
+      }
+      if (enterprise.failed.length > 0) {
+        note(`[desktop] ${enterprise.failed.length} enterprise generation(s) could not be removed yet, will retry`)
+      }
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    note(`[desktop] enterprise generation cleanup failed: ${detail}`)
   }
+  if (registryError !== undefined) throw registryError
   // Projection must not invent an empty profile manifest. On a first launch,
   // doing so prevents app-boot from installing the shipped web bundles and
   // leaves Desktop overlays waiting forever for services such as connection.
