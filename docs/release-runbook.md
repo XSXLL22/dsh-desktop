@@ -18,6 +18,8 @@ Online update checks remain disabled while `dataelement/bisheng-work` is private
 
 Local `npm test` and `package:*` commands still prepare their own inputs. Already compressed installer artifacts use `compression-level: 0` during upload to avoid redundant compression.
 
+GitHub Actions keeps new development installers for 3 days and other new workflow artifacts and logs for 7 days. The unsigned Windows signing handoff stays at 1 day. Complete signing and publication before those handoff artifacts expire; published GitHub Release assets are the durable distribution copy. The repository retention setting does not shorten artifacts created before it changed.
+
 The self-hosted signer downloads artifacts in six concurrent 32 MiB ranges through `gh`, retries bounded requests, and checks the complete archive against GitHub's SHA-256 digest before extraction. A short response, failed transfer or digest mismatch leaves an existing verified output untouched and removes temporary parts.
 
 PPT packages are generated under `.build/ppt-runtime/packages/` and overlaid into the Electron package. The `afterPack` gate checks the physical `dsh-ppt` and `dsh-ppt-composer` directories, including native imports and template previews. A successful source build alone does not verify the packaged paths.
