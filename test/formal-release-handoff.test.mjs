@@ -21,7 +21,7 @@ it('uses a draft release for formal handoff and publishes ModelScope only after 
   }
   for (const job of ['macos-apple-silicon', 'macos-intel', 'windows-x64', 'sign-windows']) {
     for (const item of jobs[job].steps.filter(item => item.uses?.startsWith('actions/upload-artifact@'))) {
-      expect(item.if?.includes('github.event_name') || item.if?.includes('!startsWith')).toBe(true)
+      expect(item.if).toContain("github.event_name == 'workflow_dispatch'")
     }
   }
 
