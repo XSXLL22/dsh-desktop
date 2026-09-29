@@ -34,4 +34,4 @@ node scripts/pack-enterprise-plugin.mjs release.json plugin.zip
 - 退出和授权到期立即使在途与排队操作失效，状态清理、同步、安装和 Loader 操作共用串行队列。在途请求由 Broker 超时限制结束后清理。目录查询最多 100 页、10,000 条，响应必须包含有效总数，空页结束查找。
 - 企业包显式声明 Loader、市场安装器和 SemVer 依赖。隔离测试把声明依赖复制到仓库外，子进程使用真实 Loader 验证安装、停用、启用和更新失败回退；另使用打包 Node 24.9.0、全新 DSH_HOME 启动真实 Harness 并验证市场状态路由。
 
-上述测试使用本地签名测试数据与隔离 Profile。真实企业账号登录、正式安装包、Windows 原生路径及文件占用验收仍为 `NOT_RUN`。Windows 非法路径拒绝用例在 macOS 上运行，可验证校验规则；Windows 文件系统行为需对应环境验证。旧 generation 目录回收保留为后续工作。
+上述测试使用本地签名测试数据与隔离 Profile。真实企业账号登录、正式安装包、Windows 原生路径及文件占用验收仍为 `NOT_RUN`。Windows 非法路径拒绝用例在 macOS 上运行，可验证校验规则；Windows 文件系统行为需对应环境验证。卸载和更新只改账号安装记录；下次冷启动在 Harness 拉起前，按全部企业账号的 `installed` 回收 `profiles/.enterprise-generations` 与 `.enterprise-staging` 中不再被引用的目录。停用版本、其他账号仍安装的版本、tombstone 和审计日志保留。
