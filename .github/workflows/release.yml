@@ -41,7 +41,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_NOTES_MODEL: gpt-5.6-terra
+  RELEASE_NOTES_MODEL: gpt-6-luna
 
 concurrency:
   group: desktop-release-${{ github.ref }}
