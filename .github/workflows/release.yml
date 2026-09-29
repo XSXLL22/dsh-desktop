@@ -603,24 +603,6 @@ jobs:
             }
             if (-not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force }
           }
-      - uses: actions/setup-python@v5
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        with:
-          python-version: '3.11'
-      - name: Publish checked Windows Dev installer to ModelScope
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        shell: pwsh
-        env:
-          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BUILD_SHA: ${{ github.sha }}
-        run: |
-          if (-not $env:MODELSCOPE_TOKEN) { throw 'MODELSCOPE_TOKEN is required for PR package downloads.' }
-          python -m pip install -q modelscope
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/publish-dev-package-modelscope.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Archive unpacked Windows release for inner binary signing
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         shell: pwsh
