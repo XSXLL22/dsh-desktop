@@ -205,6 +205,18 @@ describe('DSH Desktop enterprise package', () => {
     expect(formatSettingsError('账户额度不足，请联系服务商咨询用量限制。', undefined, zhT))
       .toBe('账户额度不足，请联系服务商咨询用量限制。')
     expect(formatSettingsError('seat revoked', undefined, enT)).toBe('Seat revoked')
+    const zhCopy = new Function(`return ${client.match(/const zh = (\{[\s\S]*?\n    \})/)?.[1]}`)() as Record<string, string>
+    const enCopy = new Function(`return ${client.match(/const en = (\{[\s\S]*?\n    \})/)?.[1]}`)() as Record<string, string>
+    for (const [copy, expected] of [
+      [zhCopy, '你尚未获得 DSH 使用席位，请联系管理员分配后重新登录。'],
+      [enCopy, 'You have not been assigned a DSH seat. Ask your administrator to assign one, then sign in again.']
+    ] as const) {
+      const t = (key: string) => copy[key] ?? key
+      expect(formatSettingsError('upstream message', 'seat_not_assigned', t)).toBe(expected)
+      expect(formatSettingsError('seat not assigned', undefined, t)).toBe(expected)
+      expect(formatSettingsError(' Seat not assigned. ', undefined, t)).toBe(expected)
+      expect(formatSettingsError('other failure', 'unknown_error', t)).toBe('other failure')
+    }
   })
 
   it('waits for connection and llm before applying the Harness adapter', () => {
