@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - V0.9.1
+      - V1.0.1
   workflow_dispatch:
     inputs:
       target:
@@ -106,6 +107,23 @@ jobs:
             exit 1
           }
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
+      - name: Prepare draft release for formal build handoff
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true || {
+              echo "::error::Refusing to replace an already published release"
+              exit 1
+            }
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "BISHENG Work $GITHUB_REF_NAME" \
+              --notes 'Release build in progress.' \
+              --repo "$GITHUB_REPOSITORY"
+          fi
 
   macos-apple-silicon:
     name: macOS Apple Silicon
@@ -228,8 +246,19 @@ jobs:
           codesign --verify --verbose=2 dist/bisheng-work-mac-arm64.dmg
           spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-arm64.dmg
           xcrun stapler validate dist/bisheng-work-mac-arm64.dmg
+      - name: Stage signed Apple Silicon assets in draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/bisheng-work-mac-arm64.dmg \
+            dist/bisheng-work-mac-arm64.zip \
+            dist/bisheng-work-mac-arm64.zip.blockmap \
+            dist/latest-mac-arm64.yml \
+            --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
+        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease')
         with:
           name: macos-apple-silicon
           retention-days: 7
@@ -240,7 +269,7 @@ jobs:
             dist/latest-mac-arm64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'development'
         with:
           name: macos-apple-silicon-dev
           retention-days: 3
@@ -383,8 +412,19 @@ jobs:
           codesign --verify --verbose=2 dist/bisheng-work-mac-x64.dmg
           spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-x64.dmg
           xcrun stapler validate dist/bisheng-work-mac-x64.dmg
+      - name: Stage signed Intel assets in draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/bisheng-work-mac-x64.dmg \
+            dist/bisheng-work-mac-x64.zip \
+            dist/bisheng-work-mac-x64.zip.blockmap \
+            dist/latest-mac-x64.yml \
+            --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
+        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease')
         with:
           name: macos-intel
           retention-days: 7
@@ -395,7 +435,7 @@ jobs:
             dist/latest-mac-x64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'development'
         with:
           name: macos-intel-dev
           retention-days: 3
@@ -438,7 +478,7 @@ jobs:
       - name: Check recovery UI on native Windows at three display scales
         run: node scripts/check-recovery-ui.mjs
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && github.event_name == 'workflow_dispatch'
         with:
           name: windows-recovery-ui
           retention-days: 7
@@ -468,11 +508,12 @@ jobs:
           New-Item -ItemType Directory -Path $isolatedApp | Out-Null
           Copy-Item -Path (Join-Path $sourceExecutable.Directory.FullName '*') -Destination $isolatedApp -Recurse
           $executable = Join-Path $isolatedApp $sourceExecutable.Name
-          $packagedNode = Join-Path $isolatedApp 'resources\app\node_modules\node\bin\node.exe'
+          $appRoot = Join-Path $isolatedApp 'resources\app.asar.unpacked'
+          $packagedNode = Join-Path $appRoot 'node_modules\node\bin\node.exe'
           if (-not (Test-Path $packagedNode)) { throw 'Packaged Windows node.exe is missing.' }
           # Exercise the actual native binding too; the best-effort fallback
           # must not hide a missing or broken packaged koffi dependency.
-          & $packagedNode --input-type=module -e "import { createRequire } from 'node:module'; import { pathToFileURL } from 'node:url'; const require = createRequire(pathToFileURL(process.argv[1])); const resolved = require.resolve('koffi'); if (!resolved.startsWith(process.argv[2])) throw new Error('koffi resolved outside packaged app: ' + resolved); const koffi = require('koffi'); const getCurrentProcessId = koffi.load('kernel32.dll').func('GetCurrentProcessId', 'uint32', []); if (getCurrentProcessId() !== process.pid) throw new Error('Native koffi smoke failed'); console.log('Packaged koffi native binding passed');" (Join-Path $isolatedApp 'resources\app\package.json') (Join-Path $isolatedApp 'resources\app\node_modules')
+          & $packagedNode --input-type=module -e "import { createRequire } from 'node:module'; import { pathToFileURL } from 'node:url'; const require = createRequire(pathToFileURL(process.argv[1])); const resolved = require.resolve('koffi'); if (!resolved.startsWith(process.argv[2])) throw new Error('koffi resolved outside packaged app: ' + resolved); const koffi = require('koffi'); const getCurrentProcessId = koffi.load('kernel32.dll').func('GetCurrentProcessId', 'uint32', []); if (getCurrentProcessId() !== process.pid) throw new Error('Native koffi smoke failed'); console.log('Packaged koffi native binding passed');" (Join-Path $appRoot 'package.json') (Join-Path $appRoot 'node_modules')
           if ($LASTEXITCODE -ne 0) { throw 'Packaged koffi native binding failed.' }
           if (Test-Path $userData) { Remove-Item -Recurse -Force $userData }
           $desktop = Start-Process -FilePath $executable -WorkingDirectory $isolatedApp -PassThru
@@ -531,6 +572,7 @@ jobs:
               return $response.result.value
             }
 
+            $logBeforeWorkspace = (Get-Content -Raw $logPath).Length
             $workspacePath = Join-Path $env:RUNNER_TEMP '数据项素-工作区'
             New-Item -ItemType Directory -Force -Path $workspacePath | Out-Null
             $workspace = Invoke-HarnessRpc 'workspace/create' @{ path = $workspacePath }
@@ -541,7 +583,10 @@ jobs:
 
             Start-Sleep -Seconds 20
             $stableLog = Get-Content -Raw $logPath
-            if ($stableLog -match '\[stderr\]') {
+            if ($stableLog.Length -lt $logBeforeWorkspace) {
+              throw 'Harness log was truncated during workspace and session creation.'
+            }
+            if ($stableLog.Substring($logBeforeWorkspace) -match '\[stderr\]') {
               throw 'Harness reported stderr after workspace and session creation.'
             }
             if ($stableLog -match '\[node\] Harness process exited') {
@@ -563,8 +608,21 @@ jobs:
         shell: pwsh
         run: |
           tar -czf dist/win-unpacked.tar.gz -C dist win-unpacked
+      - name: Stage unsigned Windows assets in draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$env:GITHUB_REF_NAME" `
+            dist/bisheng-work-windows-x64-setup.exe `
+            dist/win-unpacked.tar.gz `
+            dist/bisheng-work-windows-x64-setup.exe.blockmap `
+            dist/latest.yml `
+            --clobber --repo "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
+        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease')
         with:
           name: windows-x64-unsigned
           path: |
@@ -575,7 +633,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
       - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'development'
         with:
           name: windows-x64-dev
           retention-days: 3
@@ -623,7 +681,25 @@ jobs:
           work_dir="$RUNNER_TEMP/dsh-windows-${{ github.run_id }}"
           mkdir -p "$work_dir/release"
           echo "WINDOWS_SIGNING_WORK_DIR=$work_dir" >> "$GITHUB_ENV"
+      - name: Download unsigned Windows assets from draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" \
+            --pattern 'bisheng-work-windows-x64-setup.exe' \
+            --pattern 'bisheng-work-windows-x64-setup.exe.blockmap' \
+            --pattern 'win-unpacked.tar.gz' \
+            --pattern 'latest.yml' \
+            --dir "$WINDOWS_SIGNING_WORK_DIR/release" \
+            --repo "$GITHUB_REPOSITORY"
+          node scripts/verify-release-staging.mjs "$GITHUB_REF_NAME" "$WINDOWS_SIGNING_WORK_DIR/release" \
+            bisheng-work-windows-x64-setup.exe \
+            bisheng-work-windows-x64-setup.exe.blockmap \
+            win-unpacked.tar.gz latest.yml
       - uses: actions/download-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: windows-x64-unsigned
           path: ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release
@@ -728,7 +804,18 @@ jobs:
             "$version"
           test -f "$WINDOWS_SIGNING_WORK_DIR/release/latest.yml"
           test -f "$WINDOWS_SIGNING_WORK_DIR"/release/*.exe.blockmap
+      - name: Stage signed Windows assets in draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-work-windows-x64-setup.exe" \
+            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-work-windows-x64-setup.exe.blockmap" \
+            "$WINDOWS_SIGNING_WORK_DIR/release/latest.yml" \
+            --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: windows-x64
           retention-days: 7
@@ -747,7 +834,7 @@ jobs:
           esac
 
   publish:
-    name: Publish GitHub Release
+    name: Publish formal release to ModelScope and GitHub
     if: >-
       always() &&
       startsWith(github.ref, 'refs/tags/v') &&
@@ -769,15 +856,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: macos-*
-          path: release-assets
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-x64
-          path: release-assets
+      - name: Download verified platform assets from draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "$GITHUB_REF_NAME" \
+            --pattern 'bisheng-work-*' \
+            --pattern 'latest*.yml' \
+            --dir release-assets \
+            --repo "$GITHUB_REPOSITORY"
+          node scripts/verify-release-staging.mjs "$GITHUB_REF_NAME" release-assets \
+            bisheng-work-mac-arm64.dmg bisheng-work-mac-arm64.zip \
+            bisheng-work-mac-arm64.zip.blockmap latest-mac-arm64.yml \
+            bisheng-work-mac-x64.dmg bisheng-work-mac-x64.zip \
+            bisheng-work-mac-x64.zip.blockmap latest-mac-x64.yml \
+            bisheng-work-windows-x64-setup.exe \
+            bisheng-work-windows-x64-setup.exe.blockmap latest.yml
       - name: Merge macOS update metadata
         run: |
           set -euo pipefail
@@ -831,22 +927,6 @@ jobs:
             echo "MODELS_TOKEN not set; using the deterministic GitHub release note."
             python3 .github/scripts/github_release_notes.py generate-fallback --tag "$RELEASE_TAG" --output "$out"
           fi
-      - name: Create or update release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          notes=.github/release-artifacts/github-release-notes.md
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" --notes-file "$notes" --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$RELEASE_TAG" release-assets/* \
-              --verify-tag \
-              --notes-file "$notes" \
-              --title "BISHENG Work $RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY"
-          fi
       - name: Mirror formal release to ModelScope
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
@@ -895,6 +975,21 @@ jobs:
               exit 1
             fi
           done
+      - name: Publish verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          gh release upload "$GITHUB_REF_NAME" release-assets/latest-mac.yml \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          for staging_asset in win-unpacked.tar.gz latest-mac-arm64.yml latest-mac-x64.yml; do
+            gh release delete-asset "$GITHUB_REF_NAME" "$staging_asset" \
+              --yes --repo "$GITHUB_REPOSITORY"
+          done
+          gh release edit "$GITHUB_REF_NAME" --draft=false \
+            --notes-file .github/release-artifacts/github-release-notes.md \
+            --repo "$GITHUB_REPOSITORY"
       - name: Build Feishu release note prompt
         env:
           RELEASE_TAG: ${{ github.ref_name }}
