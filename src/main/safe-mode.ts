@@ -1,3 +1,4 @@
+import { isProtectedProfileBundle } from './state/community-plugin-policy'
 import type { ProfileCompatibilityIssue } from './state/profile-compatibility'
 import type { PluginHealthReport, PluginHealthStatus } from './state/plugin-market-check'
 
@@ -228,6 +229,9 @@ export function buildSafeModeViewModel(options: {
       incompatible,
       suspected,
       disabled,
+      ...(disabled && isProtectedProfileBundle(name)
+        ? { enableButtonLabel: options.locale === 'zh' ? '重新启用' : 'Re-enable' }
+        : {}),
       ...(report?.healthStatus !== undefined ? { healthStatus: report.healthStatus } : {}),
       ...(report?.healthLabel !== undefined ? { healthLabel: report.healthLabel } : {}),
       ...(report?.installedVersion !== undefined ? { installedVersion: report.installedVersion } : {}),

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectGenerations } from 'dsh-desktop-market-installer/generations/projection'
 import { readDesired, writeDesired, writeGenerationMeta, registryLayout } from 'dsh-desktop-market-installer/generations/registry'
-import { enforceCommunityPluginPolicy } from '../src/main/state/community-plugin-policy'
+import { canReenableProfilePlugin, enforceCommunityPluginPolicy } from '../src/main/state/community-plugin-policy'
 import { rm } from 'node:fs/promises'
 
 const homes: string[] = []
@@ -82,5 +82,20 @@ describe('community plugin policy', () => {
     expect(projection.linked).not.toContain('community-plugin')
     expect(projection.bundles).not.toContain('community-plugin')
     expect(await readDesired(home)).toEqual(['community-plugin+1.0.0+abcd'])
+  })
+})
+
+describe('profile plugin re-enable', () => {
+  const listed = ['dsh-image-generation', 'community-plugin', 'dsh-ppt']
+  const disabled = ['dsh-image-generation', 'community-plugin']
+
+  it('allows a protected bundle that this page lists and that is disabled', () => {
+    expect(canReenableProfilePlugin('dsh-image-generation', listed, disabled)).toBe(true)
+  })
+
+  it('rejects a community plugin, a protected plugin that is not disabled, and a name that is not listed', () => {
+    expect(canReenableProfilePlugin('community-plugin', listed, disabled)).toBe(false)
+    expect(canReenableProfilePlugin('dsh-ppt', listed, disabled)).toBe(false)
+    expect(canReenableProfilePlugin('dsh-image-generation', ['community-plugin'], disabled)).toBe(false)
   })
 })

@@ -108,8 +108,12 @@ describe('plugin recovery view model', () => {
         { packageName: 'c', hint: 'remove', removalRecommended: true }
       ]
     })
-    expect(model.autoProcessLabel).toBe('一键自动处理（升级 0，卸载 1）')
-    expect(model.pluginChecks).toHaveLength(3)
+    expect(model.autoProcessLabel).toBe('一键自动处理（升级 0，卸载 3）')
+    expect(model.pluginChecks).toEqual([
+      { packageName: 'a', hint: 'intermediate', removalRecommended: true },
+      { packageName: 'b', hint: 'latest', removalRecommended: true },
+      { packageName: 'c', hint: 'remove', removalRecommended: true }
+    ])
     expect(model.upgradeCandidate).toBeUndefined()
   })
   it('explains a duplicate route without exposing only a raw stack trace', () => {

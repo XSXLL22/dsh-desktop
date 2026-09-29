@@ -40,8 +40,7 @@ describe('Safe Mode', () => {
     const disabled = buildSafeModeViewModel({
       locale: 'en', plugins: ['dsh-image-generation'], disabledPlugins: ['dsh-image-generation']
     })
-    expect(disabled.pluginItems[0]).toMatchObject({ disabled: true })
-    expect(disabled.pluginItems[0]).not.toHaveProperty('enableButtonLabel')
+    expect(disabled.pluginItems[0]).toMatchObject({ disabled: true, enableButtonLabel: 'Re-enable' })
   })
 
   it('shows static references as informational findings without blocking or selecting a repair', () => {
@@ -296,7 +295,7 @@ describe('Safe Mode', () => {
     })
   })
 
-  it('shows a disabled plugin as off with a re-enable action instead of a selection', () => {
+  it('keeps a disabled community plugin off without a re-enable action', () => {
     const model = buildSafeModeViewModel({ locale: 'zh', plugins: ['plugin-a', 'plugin-b'], disabledPlugins: ['plugin-b'] })
     expect(model.pluginItems[1]).toEqual({
       name: 'plugin-b',
@@ -308,6 +307,20 @@ describe('Safe Mode', () => {
     })
     expect(model.pluginItems[0]).toMatchObject({ name: 'plugin-a', disabled: false })
     expect(model.pluginItems[0]).not.toHaveProperty('enableButtonLabel')
+    expect(model.pluginItems[1]).not.toHaveProperty('enableButtonLabel')
+  })
+
+  it('offers re-enable for a disabled protected bundle and not for a community plugin', () => {
+    const model = buildSafeModeViewModel({
+      locale: 'zh',
+      plugins: ['dsh-image-generation', 'community-plugin'],
+      disabledPlugins: ['dsh-image-generation', 'community-plugin']
+    })
+    expect(model.pluginItems.find((item) => item.name === 'dsh-image-generation')).toMatchObject({
+      disabled: true,
+      enableButtonLabel: '重新启用'
+    })
+    expect(model.pluginItems.find((item) => item.name === 'community-plugin')).not.toHaveProperty('enableButtonLabel')
   })
 
   it('creates a managed core-only profile and repairs later modifications', async () => {

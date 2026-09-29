@@ -1,4 +1,4 @@
-import { planPluginRecovery, type PluginRecoveryCheck } from './plugin-recovery-market'
+import { enterpriseRecoveryChecks, planPluginRecovery, type PluginRecoveryCheck } from './plugin-recovery-market'
 import type { RuntimeSnapshot } from '../shared/contracts'
 
 export type PluginRecoveryLocale = 'en' | 'zh'
@@ -197,7 +197,7 @@ export function buildPluginRecoveryViewModel(options: {
   const canUninstall = plugins.length > 0
   const description = describePluginFailure(snapshot.logs, locale)
   const multiple = plugins.length > 1
-  const pluginChecks = (options.pluginChecks ?? []).map(({ upgradeCandidate: _upgrade, ...check }) => check)
+  const pluginChecks = enterpriseRecoveryChecks(options.pluginChecks ?? [])
   const plan = planPluginRecovery(pluginChecks)
   const hasActions = plan.upgrades.length + plan.removals.length > 0
   const retryCheck = (options.pluginChecks?.length ?? 0) > 0 && !hasActions

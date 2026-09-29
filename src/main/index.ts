@@ -1,7 +1,7 @@
 import { initializeDesktopService, desktopDiagnostics } from './desktop-service'
 import { applyMacosWindowBackdrop } from './macos-window-backdrop'
 import { runtimePackageRoot } from './runtime-package-root'
-import { checkBlockingPluginUpdates, selectPluginRecoveryTarget, PluginRecoveryEvidence, planPluginRecovery, runPluginRecoveryPlan, type PluginRecoveryCheck } from './plugin-recovery-market'
+import { checkBlockingPluginUpdates, communityUpgradeBlocked, enterpriseRecoveryChecks, selectPluginRecoveryTarget, PluginRecoveryEvidence, planPluginRecovery, runPluginRecoveryPlan, type PluginRecoveryCheck } from './plugin-recovery-market'
 import { RepairAgentService, type CrashEvidence } from './repair-agent'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
@@ -43,7 +43,7 @@ import {
   marketUsableWithoutBaseline,
   readProfileMarket
 } from './state/market-baseline'
-import { enforceCommunityPluginPolicy } from './state/community-plugin-policy'
+import { canReenableProfilePlugin, enforceCommunityPluginPolicy, isProtectedProfileBundle } from './state/community-plugin-policy'
 import {
   clearProfileInstallMarker,
   markProfileInstallComplete
@@ -59,6 +59,7 @@ import {
 } from './state/host-plugin-state'
 import {
   disableProfilePlugin,
+  enableProfilePlugin,
   forgetMarketDisable,
   listDisabledProfilePlugins
 } from './state/plugin-disable'
@@ -2162,7 +2163,10 @@ async function showPluginRecovery(options?: {
           })
         }
       })
-      let upgradeCandidate = detection.plugins.length === 1 ? pluginChecks[0]?.upgradeCandidate : undefined
+      const effectivePluginChecks = enterpriseRecoveryChecks(pluginChecks)
+      let upgradeCandidate = detection.plugins.length === 1
+        ? effectivePluginChecks[0]?.upgradeCandidate
+        : undefined
 
       // dshmarket is a core bundle, so it never reaches `detection.plugins`
       // (the removal path refuses core bundles). Blame it separately; left
@@ -2198,7 +2202,7 @@ async function showPluginRecovery(options?: {
         removedPlugins,
         notice,
         upgradeCandidate,
-        pluginChecks,
+        pluginChecks: effectivePluginChecks,
         ...(market
           ? {
             market: {
@@ -2211,8 +2215,14 @@ async function showPluginRecovery(options?: {
       notice = undefined
       const target = selectPluginRecoveryTarget(action, detection.plugins)
       if ((action.startsWith('upgrade:') || action.startsWith('uninstall:')) && !target) continue
+      if (communityUpgradeBlocked(action, target?.type)) {
+        notice = isChinese
+          ? '企业版不支持社区插件升级，请选择卸载。'
+          : 'This edition cannot upgrade community plugins. Choose removal instead.'
+        continue
+      }
       if (target?.type === 'upgrade') {
-        upgradeCandidate = pluginChecks.find((check) => check.packageName === target.plugin)?.upgradeCandidate
+        upgradeCandidate = effectivePluginChecks.find((check) => check.packageName === target.plugin)?.upgradeCandidate
         if (!upgradeCandidate) continue
       }
       const removalTargets = target?.type === 'uninstall' ? [target.plugin] : detection.plugins
@@ -2304,7 +2314,7 @@ async function showPluginRecovery(options?: {
         break
       } else if (action === 'auto-process' || ((action === 'upgrade' || target?.type === 'upgrade') && upgradeCandidate)) {
         const plan = action === 'auto-process'
-          ? planPluginRecovery(pluginChecks)
+          ? planPluginRecovery(effectivePluginChecks)
           : { upgrades: [upgradeCandidate!], removals: [], skipped: [] }
         if (plan.upgrades.length + plan.removals.length === 0) {
           notice = isChinese ? '尚未确定处理方案，请重试检查或逐项处理。' : 'No recovery actions are confirmed yet. Retry the check or handle plugins individually.'
@@ -3010,6 +3020,13 @@ async function showSafeModeManager(initial?: {
       }
 
       if (action.type === 'upgrade') {
+        if (communityUpgradeBlocked('upgrade')) {
+          notice = isChinese
+            ? '企业版不支持社区插件升级，请选择卸载。'
+            : 'This edition cannot upgrade community plugins. Choose removal instead.'
+          noticeTone = 'error'
+          continue
+        }
         if (await refreshMigrationRecoveryLock(dshHome)) {
           notice = isChinese ? 'Profile 恢复事务完成前禁止升级插件。' : 'Plugins cannot be upgraded until the recovery transaction completes.'
           noticeTone = 'error'
@@ -3067,10 +3084,34 @@ async function showSafeModeManager(initial?: {
       }
 
       if (action.type === 'enable') {
-        notice = isChinese
-          ? '企业版不能重新启用社区插件。需要插件时请联系管理员，从企业插件市场安装。'
-          : 'This edition cannot re-enable community plugins. Ask an administrator to install plugins from the enterprise market.'
-        noticeTone = 'error'
+        const requested = [...new Set(action.plugins)]
+        const targets = requested.filter((plugin) => canReenableProfilePlugin(plugin, installed, profileDisabled))
+        if (targets.length === 0) {
+          const communityRequest = requested.length > 0 && requested.every((plugin) => !isProtectedProfileBundle(plugin))
+          notice = communityRequest
+            ? isChinese
+              ? '企业版不能重新启用社区插件。需要插件时请联系管理员，从企业插件市场安装。'
+              : 'This edition cannot re-enable community plugins. Ask an administrator to install plugins from the enterprise market.'
+            : isChinese
+              ? '该插件当前不能重新启用。'
+              : 'This plugin cannot be re-enabled.'
+          noticeTone = 'error'
+          continue
+        }
+        const failedPlugins: string[] = []
+        for (const plugin of targets) {
+          const result = await enableProfilePlugin(dshHome, plugin)
+          runtime.note(`[safe-mode] ${result.ok ? 're-enabled' : 'could not re-enable'} ${plugin}${result.detail ? `: ${result.detail}` : ''}`)
+          if (!result.ok) failedPlugins.push(plugin)
+        }
+        notice = failedPlugins.length === 0
+          ? isChinese
+            ? `已重新启用 ${targets.length} 个插件，退出安全模式后生效。`
+            : `Re-enabled ${targets.length} plugin${targets.length === 1 ? '' : 's'}; they load after you exit Safe Mode.`
+          : isChinese
+            ? `以下插件未能重新启用：${failedPlugins.join('、')}`
+            : `These plugins could not be re-enabled: ${failedPlugins.join(', ')}`
+        noticeTone = failedPlugins.length === 0 ? 'success' : 'error'
         continue
       }
 

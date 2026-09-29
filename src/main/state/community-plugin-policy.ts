@@ -26,6 +26,25 @@ const PROTECTED_BUNDLES = new Set([
   'dsh-desktop-preset-transfer'
 ])
 
+/** Desktop and Harness bundles. Community quarantine must not treat these as community plugins. */
+export function isProtectedProfileBundle(name: string): boolean {
+  return PROTECTED_BUNDLES.has(name)
+}
+
+/**
+ * Re-enable only a protected bundle that this Safe Mode page listed and that
+ * is actually disabled. Renderer-supplied names are not trusted on their own.
+ */
+export function canReenableProfilePlugin(
+  pluginName: string,
+  listedPlugins: readonly string[],
+  disabledPlugins: readonly string[]
+): boolean {
+  return isProtectedProfileBundle(pluginName)
+    && listedPlugins.includes(pluginName)
+    && disabledPlugins.includes(pluginName)
+}
+
 type Note = (line: string) => void
 
 function profileDirectory(dshHome: string): string {
