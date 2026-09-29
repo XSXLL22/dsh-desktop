@@ -27,6 +27,11 @@ it('uses a draft release for formal handoff and publishes ModelScope only after 
 
   expect(step('sign-windows', 'Download unsigned Windows assets from draft release').run)
     .toContain('verify-release-staging.mjs')
+  const windowsSteps = jobs['windows-x64'].steps.map(item => item.name)
+  expect(windowsSteps.indexOf('Smoke test packaged Windows Harness'))
+    .toBeLessThan(windowsSteps.indexOf('Publish checked Windows Dev installer to ModelScope'))
+  expect(step('windows-x64', 'Publish checked Windows Dev installer to ModelScope').if)
+    .toContain('github.event.pull_request.head.repo.full_name == github.repository')
   expect(jobs.publish.steps.some(item => item.uses?.startsWith('actions/download-artifact@'))).toBe(false)
   const names = jobs.publish.steps.map(item => item.name)
   expect(names.indexOf('Download verified platform assets from draft release'))
