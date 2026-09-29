@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
           'aria-hidden': 'true',
           ...svgProps
         },
-        React.createElement('rect', { width: 2400, height: 2400, rx: 360, fill: '#034FE5' }),
+        React.createElement('rect', { width: 2400, height: 2400, rx: 360, fill: '#000000' }),
         ...BISHENG_MARK_PATHS.map((d, index) =>
           React.createElement('path', { key: index, d, fill: 'white' })
         )

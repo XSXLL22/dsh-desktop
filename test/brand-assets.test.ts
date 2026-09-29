@@ -51,12 +51,29 @@ describe('BISHENG brand assets', () => {
     const horizontal = await readFile(build('bisheng-logo-horizontal.svg'), 'utf8')
 
     expect(mark).toContain('viewBox="0 0 2400 2400"')
-    expect(mark).toContain('fill="#034FE5"')
+    expect(mark).toContain('fill="#000000"')
+    expect(mark).not.toContain('#034FE5')
     expect(mark.match(/<path /g)).toHaveLength(8)
     expect(horizontal).toContain('viewBox="0 0 8220 2400"')
-    expect(horizontal).toContain('fill="#034FE5"')
+    expect(horizontal).toContain('fill="#000000"')
+    expect(horizontal).not.toContain('#034FE5')
     expect(await readFile(build('brand-mark.svg'), 'utf8')).toBe(mark)
     expect(await readFile(build('logo-light.svg'), 'utf8')).toBe(mark)
+  })
+
+  it('keeps the logo black while preserving blue for ordinary product UI', async () => {
+    const desktopBrand = await readFile(
+      path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
+      'utf8'
+    )
+    const mobilePages = await readFile(
+      path.join(projectRoot, 'src', 'main', 'mobile', 'lan-mobile-pages.ts'),
+      'utf8'
+    )
+
+    expect(desktopBrand).toContain("fill: '#000000'")
+    expect(desktopBrand).not.toContain("fill: '#034FE5'")
+    expect(mobilePages).toContain('--brand:#034FE5')
   })
 
   it('ships correctly sized raster derivatives', async () => {

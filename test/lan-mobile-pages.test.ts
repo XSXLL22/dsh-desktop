@@ -257,6 +257,13 @@ describe('LAN mobile page', () => {
     expect(renderMobileReconnectPage('en')).toContain(
       '.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:22px;font-size:13px;font-weight:600}'
     )
+    expect(desktop).toContain('.brand img{width:20px;height:20px;object-fit:contain}')
+    expect(renderMobilePage({ locale: 'en' })).toContain(
+      '.brand img{width:28px;height:28px;object-fit:contain}'
+    )
+    expect(renderMobileReconnectPage('en')).toContain(
+      '.brand img{width:28px;height:28px;object-fit:contain}'
+    )
     expect(desktop).toContain('--bg:#141416')
     expect(desktop).toContain('.qr{display:inline-flex;background:#fff')
     expect(desktop).toContain('Creating a global network link')

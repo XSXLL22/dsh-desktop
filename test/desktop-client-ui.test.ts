@@ -124,16 +124,32 @@ describe('BISHENG Work client slot occupants', () => {
       props: Record<string, unknown>
     }>
     expect(markField?.type).toBe('rect')
-    expect(markField?.props.fill).toBe('#034FE5')
+    expect(markField?.props.fill).toBe('#000000')
     expect(markPaths).toHaveLength(8)
     expect(markPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
 
     const heroMark = registrations.find(
       ({ config }) => config.name === 'conversation.hero.brand.mark'
-    )!.component({ size: 48 }) as { type: unknown; props: Record<string, unknown> }
+    )!.component({ size: 48, className: 'hero-mark' }) as {
+      type: unknown
+      props: Record<string, unknown>
+    }
     expect(heroMark.type).toBe('svg')
     expect(heroMark.props.width).toBe(48)
     expect(heroMark.props.height).toBe(48)
+    expect(heroMark.props.viewBox).toBe('0 0 2400 2400')
+    expect(heroMark.props.fill).toBe('none')
+    expect(heroMark.props.className).toBe('hero-mark')
+    expect(heroMark.props.size).toBeUndefined()
+    const heroChildren = heroMark.props.children as Array<{
+      type: unknown
+      props: Record<string, unknown>
+    }>
+    const [heroField, ...heroPaths] = heroChildren
+    expect(heroField?.type).toBe('rect')
+    expect(heroField?.props.fill).toBe('#000000')
+    expect(heroPaths).toHaveLength(8)
+    expect(heroPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
   })
 
   it('does not render the upstream preview badge beside the hero headline', async () => {
@@ -150,7 +166,25 @@ describe('BISHENG Work client slot occupants', () => {
     )
 
     expect(source).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
+    expect(source).toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 28,')
+    expect(source).not.toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 34,')
     expect(source).not.toContain('children: t("hero.preview")')
+    expect(source).toContain('align-items:center;gap:12px 8px;font-size:26px')
+    expect(source).not.toContain('align-items:center;gap:12px 10px;font-size:26px')
+
+    const patch = await readFile(
+      path.join(
+        projectRoot,
+        'patches',
+        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
+      ),
+      'utf8'
+    )
+    expect(patch).toContain('gap:12px 8px;font-size:26px')
+    expect(patch).toContain('+\t\t\t\t\t\t\t\tsize: 28,')
+    expect(patch).toContain('-\t\t\t\t\t\t\t\tsize: 34,')
+    expect(patch).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
+    expect(patch).not.toContain('+\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
   })
 
   it('shows the brand mark only in the collapsed rail, not beside the wide brand name', async () => {
