@@ -1,6 +1,5 @@
 <h1 align="center">
-  <img src="docs/images/readme-logo-black-v020.png" width="64" alt="DSH Desktop Logo" valign="middle" />
-  DSH Desktop
+  <img src="docs/images/readme-logo-black-v020.png" width="274" alt="BISHENG" valign="middle" />
 </h1>
 
 <p align="center">
