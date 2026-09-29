@@ -222,6 +222,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         with:
           name: macos-apple-silicon
+          retention-days: 7
           path: |
             dist/bisheng-work-mac-arm64.dmg
             dist/bisheng-work-mac-arm64.zip
@@ -232,6 +233,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
         with:
           name: macos-apple-silicon-dev
+          retention-days: 3
           path: |
             dist-dev/bisheng-work-dev-mac-arm64.dmg
             dist-dev/bisheng-work-dev-mac-arm64.zip
@@ -375,6 +377,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         with:
           name: macos-intel
+          retention-days: 7
           path: |
             dist/bisheng-work-mac-x64.dmg
             dist/bisheng-work-mac-x64.zip
@@ -385,6 +388,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
         with:
           name: macos-intel-dev
+          retention-days: 3
           path: |
             dist-dev/bisheng-work-dev-mac-x64.dmg
             dist-dev/bisheng-work-dev-mac-x64.zip
@@ -427,6 +431,7 @@ jobs:
         if: always()
         with:
           name: windows-recovery-ui
+          retention-days: 7
           path: |
             artifacts/recovery-ui/scale-*/*.png
             artifacts/recovery-ui/scale-*/results.json
@@ -563,6 +568,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'development') }}
         with:
           name: windows-x64-dev
+          retention-days: 3
           path: |
             dist-dev/bisheng-work-dev-windows-x64-setup.exe
             dist-dev/bisheng-work-dev-windows-x64-setup.exe.blockmap
@@ -715,6 +721,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
+          retention-days: 7
           path: |
             ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe
             ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe.blockmap
