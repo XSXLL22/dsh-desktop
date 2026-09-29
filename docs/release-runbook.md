@@ -12,17 +12,9 @@ The `Release desktop installers` workflow accepts a `mode` on `workflow_dispatch
 
 Official releases are still created by pushing a `v*` tag, not by filling the dispatch form. Do not put `v0.9.1` in `prerelease_tag` or `signed_version`.
 
-Online update checks remain disabled until a formal release is mirrored to ModelScope and tested on installed macOS and Windows builds. The package metadata points directly to `https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/`; no Nginx route or GitHub token is needed in the app. Existing installed builds still report that online updates are unavailable and require a manual install to enter the future update channel.
+Online update checks remain disabled until a formal release is mirrored to ModelScope and tested on installed macOS and Windows builds. The package metadata points to `https://dshdesktop.com/work/updates/latest/`. On the existing `dshdesktop.com` HTTPS server, include [`ops/nginx/work-updates.conf`](../ops/nginx/work-updates.conf); it redirects each update asset to `alexyaojin/bisheng-work/releases/latest/` on ModelScope. The `/work/` prefix keeps this feed separate from DSH Desktop's `/updates/latest/`. No GitHub token is needed in the app. Existing installed builds still report that online updates are unavailable and require a manual install to enter the future update channel.
 
-If a first-party update domain is wanted later, change the generic `build.publish.url` to `https://<domain>/updates/latest/` before packaging and add a narrow Nginx redirect on that domain:
-
-```nginx
-location ~ ^/updates/latest/(?<asset>[^/]+)$ {
-    return 302 https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/$asset;
-}
-```
-
-The metadata files and each referenced ZIP, installer, and blockmap must resolve through the same route. Keep the current direct URL until the redirect and installed-client download have been tested.
+Before publishing a formal release, verify that a request to `https://dshdesktop.com/work/updates/latest/latest.yml` receives a 302 with the Bisheng Work ModelScope URL, then verify that metadata and each referenced ZIP, installer, and blockmap can be downloaded through this route. The first public metadata will be absent until a formal release is mirrored. Browser pages under `dshdesktop.com/work/` share an origin with the DSH Desktop site, but a redirect to ModelScope still changes origin for browser fetches; serve those responses from the site or configure CORS if a future web page needs to read them in JavaScript.
 
 ## Build layout and timing
 

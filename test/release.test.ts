@@ -256,7 +256,7 @@ describe('GitHub release contract', () => {
     expect(packageJson.build.publish).toEqual([
       {
         provider: 'generic',
-        url: 'https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/'
+        url: 'https://dshdesktop.com/work/updates/latest/'
       }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(true)

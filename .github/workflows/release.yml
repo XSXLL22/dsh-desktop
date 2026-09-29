@@ -871,7 +871,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          base='https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest'
+          base='https://dshdesktop.com/work/updates/latest'
           for metadata in latest.yml latest-mac.yml; do
             verified=false
             for attempt in 1 2 3 4 5 6; do

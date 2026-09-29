@@ -454,7 +454,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/"
+        "url": "https://dshdesktop.com/work/updates/latest/"
       }
     ],
     "detectUpdateChannel": false,
