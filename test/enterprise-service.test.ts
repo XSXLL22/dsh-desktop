@@ -223,14 +223,15 @@ describe('enterprise service login loop', () => {
     expect(cleared.models).toEqual([])
   })
 
-  it('publishes platform error codes on login failure', async () => {
+  it.each(['seat_revoked', 'seat_not_assigned'])('publishes %s on login failure', async (code) => {
+    const message = code.replaceAll('_', ' ')
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()
     cleanups.push(async () => platform.close())
     const fetchImpl: EnterpriseFetch = async (input, init) => {
       if (String(input).includes('/api/dsh/token') && String(init?.body).includes('identity_ticket')) {
         return new Response(JSON.stringify({
-          error: { message: 'seat revoked', code: 'seat_revoked' },
+          error: { message, code },
           request_id: 'req-seat-1'
         }), {
           status: 403,
@@ -244,11 +245,11 @@ describe('enterprise service login loop', () => {
     await completeBrowserLogin(origin, started.authorizationUrl)
     await waitFor(() => {
       const snapshot = service.snapshot()
-      return snapshot.phase === 'idle' && snapshot.error === 'seat revoked'
+      return snapshot.phase === 'idle' && snapshot.error === message
     })
     expect(service.snapshot()).toMatchObject({
-      error: 'seat revoked',
-      errorCode: 'seat_revoked',
+      error: message,
+      errorCode: code,
       requestId: 'req-seat-1'
     })
   })

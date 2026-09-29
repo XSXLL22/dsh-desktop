@@ -23,9 +23,11 @@ describe('BISHENG Work client slot occupants', () => {
       }
     } | undefined
     const appended: Array<{ textContent?: string }> = []
+    const removeStyle = vi.fn()
+    let disposeStyle: (() => void) | undefined
     const document = {
       getElementById: vi.fn(() => null),
-      createElement: vi.fn(() => ({ id: '', dataset: {}, textContent: '' })),
+      createElement: vi.fn(() => ({ id: '', dataset: {}, textContent: '', remove: removeStyle })),
       head: { appendChild: (node: { textContent?: string }) => appended.push(node) }
     }
     vm.runInNewContext(source, {
@@ -49,6 +51,7 @@ describe('BISHENG Work client slot occupants', () => {
       type,
       props: { ...props, children }
     })
+    const MenuItemButton = vi.fn()
     const plugin = definition!.factory((id) => {
       if (id === 'react') {
         return {
@@ -56,6 +59,9 @@ describe('BISHENG Work client slot occupants', () => {
           useEffect: (effect: () => void | (() => void)) => effect(),
           useState: (initial: unknown) => [initial, vi.fn()]
         }
+      }
+      if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+        return { MenuItemButton }
       }
       throw new Error(`Unexpected client dependency: ${id}`)
     })
@@ -77,16 +83,23 @@ describe('BISHENG Work client slot occupants', () => {
         return () => undefined
       }
     }
-    plugin.apply({ slots })
+    plugin.apply({ slots, effect: (setup: () => (() => void) | undefined) => { disposeStyle = setup() } })
 
-    expect(plugin.inject).toEqual(['slots'])
+    expect(plugin.inject).toEqual(['slots', 'remote.session', 'sessions', 'uiWorkspace'])
     expect(registrations.map(({ config }) => config.name)).toEqual([
       'sidebar.brand.mark',
       'sidebar.brand.name',
-      'conversation.hero.brand.mark'
+      'conversation.hero.brand.mark',
+      'sidebar.right.tab.document.unpreviewable',
+      'sidebar.workspaces.session.menu.item',
+      'sidebar.workspaces.session.menu.item',
+      'sidebar.workspaces.session.menu.item'
     ])
-    // The slot occupants stay self-contained, so no theme stylesheet is injected.
-    expect(appended).toHaveLength(0)
+    // Desktop toolbar styles have an owned lifetime; branding stays in currentColor.
+    expect(appended).toHaveLength(1)
+    expect(appended[0]?.textContent).toContain("[data-dsh-preset-search]")
+    disposeStyle?.()
+    expect(removeStyle).toHaveBeenCalledOnce()
 
     const sidebarName = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
@@ -154,7 +167,7 @@ describe('BISHENG Work client slot occupants', () => {
     )
 
     const wideBrandStart = source.indexOf('children: [wide &&')
-    const wideBrandEnd = source.indexOf('label: collapsed ? t("toggle.open")', wideBrandStart)
+    const wideBrandEnd = source.indexOf('})(), !darwinDesktop && toggle]', wideBrandStart)
     const wideBrand = source.slice(wideBrandStart, wideBrandEnd)
     expect(wideBrandStart).toBeGreaterThan(-1)
     expect(wideBrandEnd).toBeGreaterThan(wideBrandStart)
@@ -162,15 +175,14 @@ describe('BISHENG Work client slot occupants', () => {
     expect(wideBrand).not.toContain('renderSlot("sidebar.brand.mark"')
 
     const railMarkStart = source.indexOf(
-      'className: SidebarRoot_module_css_default.railMark',
-      wideBrandEnd
+      'className: SidebarRoot_module_css_default.railMark'
     )
     const railMarkEnd = source.indexOf(
       'className: SidebarRoot_module_css_default.panelIcon',
       railMarkStart
     )
     const railMark = source.slice(railMarkStart, railMarkEnd)
-    expect(railMarkStart).toBeGreaterThan(wideBrandEnd)
+    expect(railMarkStart).toBeGreaterThan(-1)
     expect(railMarkEnd).toBeGreaterThan(railMarkStart)
     expect(railMark).toContain('renderSlot("sidebar.brand.mark", { size: 24 }')
   })
