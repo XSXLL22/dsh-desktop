@@ -96,6 +96,16 @@ jobs:
       - name: Skip validation for tag and pull_request
         if: github.event_name != 'workflow_dispatch'
         run: echo "No dispatch inputs to validate."
+      - name: Require ModelScope token for formal releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Formal release tags must be stable vX.Y.Z versions"
+            exit 1
+          }
+          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
 
   macos-apple-silicon:
     name: macOS Apple Silicon
@@ -830,6 +840,54 @@ jobs:
               --title "BISHENG Work $RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY"
           fi
+      - name: Mirror formal release to ModelScope
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_REPO_ID: alexyaojin/bisheng-work
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/ms-env"
+          "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope
+          "$RUNNER_TEMP/ms-env/bin/python3" <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag[1:]
+          repo_id = os.environ["MODELSCOPE_REPO_ID"]
+          token = os.environ["MODELSCOPE_TOKEN"]
+          api = HubApi()
+          for destination in (f"releases/archive/{version}", "releases/latest"):
+              api.upload_folder(
+                  repo_id=repo_id,
+                  folder_path="release-assets",
+                  path_in_repo=destination,
+                  commit_message=f"Release {tag}",
+                  token=token,
+              )
+              print(f"Uploaded {tag} to {repo_id}/{destination}")
+          PY
+      - name: Verify public ModelScope update metadata
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          base='https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest'
+          for metadata in latest.yml latest-mac.yml; do
+            verified=false
+            for attempt in 1 2 3 4 5 6; do
+              if curl --fail --location --silent --show-error \
+                "$base/$metadata" --output "$RUNNER_TEMP/$metadata" && \
+                grep -Fqx "version: $version" "$RUNNER_TEMP/$metadata"; then
+                verified=true
+                break
+              fi
+              sleep 10
+            done
+            if [ "$verified" != true ]; then
+              echo "::error::ModelScope $metadata is not publicly serving version $version"
+              exit 1
+            fi
+          done
       - name: Build Feishu release note prompt
         env:
           RELEASE_TAG: ${{ github.ref_name }}

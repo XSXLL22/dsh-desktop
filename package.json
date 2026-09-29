@@ -453,9 +453,8 @@
     ],
     "publish": [
       {
-        "provider": "github",
-        "owner": "dataelement",
-        "repo": "bisheng-work"
+        "provider": "generic",
+        "url": "https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/"
       }
     ],
     "detectUpdateChannel": false,

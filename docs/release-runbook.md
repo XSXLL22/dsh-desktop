@@ -12,7 +12,17 @@ The `Release desktop installers` workflow accepts a `mode` on `workflow_dispatch
 
 Official releases are still created by pushing a `v*` tag, not by filling the dispatch form. Do not put `v0.9.1` in `prerelease_tag` or `signed_version`.
 
-Online update checks remain disabled while `dataelement/bisheng-work` is private. The package metadata names GitHub Release as the planned feed, but installed clients do not query it or the legacy DSH feed. Before enabling checks, provide a publicly accessible feed and verify a complete signed release on installed macOS and Windows builds; do not embed a GitHub token in the app.
+Online update checks remain disabled until a formal release is mirrored to ModelScope and tested on installed macOS and Windows builds. The package metadata points directly to `https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/`; no Nginx route or GitHub token is needed in the app. Existing installed builds still report that online updates are unavailable and require a manual install to enter the future update channel.
+
+If a first-party update domain is wanted later, change the generic `build.publish.url` to `https://<domain>/updates/latest/` before packaging and add a narrow Nginx redirect on that domain:
+
+```nginx
+location ~ ^/updates/latest/(?<asset>[^/]+)$ {
+    return 302 https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/$asset;
+}
+```
+
+The metadata files and each referenced ZIP, installer, and blockmap must resolve through the same route. Keep the current direct URL until the redirect and installed-client download have been tested.
 
 ## Build layout and timing
 
@@ -44,7 +54,7 @@ Add these under **Settings → Secrets and variables → Actions** for this repo
 | `DESKTOP_APPLE_TEAM_ID` | Signed macOS | Apple Developer team ID matching the certificate and notarization key |
 | `DESKTOP_WINDOWS_SIGNING_PIN` | Signed Windows | PIN for the SafeNet UKey connected to the local runner |
 
-`MODELS_TOKEN` only enables generated release notes; the workflow has a deterministic fallback. `FEISHU_RELEASE_WEBHOOK` enables optional notifications. GitHub supplies `GITHUB_TOKEN` automatically for GitHub Release publication. Neither `MODELSCOPE_TOKEN` nor `CRASH_ADMIN_TOKEN` is needed by this release workflow. CoAligne's GCP parameters are not used by this workflow.
+`MODELS_TOKEN` only enables generated release notes; the workflow has a deterministic fallback. `FEISHU_RELEASE_WEBHOOK` enables optional notifications. GitHub supplies `GITHUB_TOKEN` automatically for GitHub Release publication. Formal `v*` releases require the repository secret `MODELSCOPE_TOKEN` with write access to `alexyaojin/bisheng-work`; the workflow checks it before packaging, then mirrors verified release assets into `releases/archive/<version>/` and `releases/latest/`. Pre-releases do not touch either path. `CRASH_ADMIN_TOKEN` and CoAligne's GCP parameters are not used by this workflow.
 
 For a signing-only trial, dispatch `mode=signed` with `target=macos` or `target=windows` and a non-`v` `signed_version`. The output remains a workflow artifact. A tag release requires both macOS architectures and Windows signing before publication can finish.
 

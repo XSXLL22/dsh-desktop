@@ -254,7 +254,10 @@ describe('GitHub release contract', () => {
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
-      { provider: 'github', owner: 'dataelement', repo: 'bisheng-work' }
+      {
+        provider: 'generic',
+        url: 'https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/latest/'
+      }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(true)
     expect(packageJson.build.win.signtoolOptions.publisherName).toBe('Beijing Shuju Xiangsu Intelligence Technology Co., Ltd.')
@@ -503,7 +506,21 @@ describe('prerelease parity workflow', () => {
     const yml = await load()
     expect(yml).toContain('gh release create "$RELEASE_TAG" release-assets/*')
     expect(yml).toContain('--prerelease')
-    expect(yml).not.toContain('MODELSCOPE_TOKEN')
+    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    expect(prereleaseJob).not.toContain('MODELSCOPE_TOKEN')
+  })
+
+  it('mirrors only formal release assets to ModelScope', async () => {
+    const yml = await load()
+    const publishJob = yml.slice(
+      yml.indexOf('\n  publish:'),
+      yml.indexOf('\n  publish-prerelease:')
+    )
+    expect(yml).toContain('Require ModelScope token for formal releases')
+    expect(publishJob).toContain('Mirror formal release to ModelScope')
+    expect(publishJob).toContain('MODELSCOPE_REPO_ID: alexyaojin/bisheng-work')
+    expect(publishJob).toContain('releases/archive/{version}')
+    expect(publishJob).toContain('"releases/latest"')
   })
 
   it('parametrises the Windows smoke test executable', async () => {
@@ -513,13 +530,12 @@ describe('prerelease parity workflow', () => {
   })
 })
 
-describe('GitHub-only update publication', () => {
-  it('does not publish legacy archives or configure DSH rollout', async () => {
+describe('BISHENG Work release publication', () => {
+  it('does not configure the DSH version index or rollout', async () => {
     const yml = await readFile(
       path.join(projectRoot, '.github/workflows/release.yml'),
       'utf8'
     )
-    expect(yml).not.toContain('releases/archive/')
     expect(yml).not.toContain('releases/versions.json')
     expect(yml).not.toContain('CRASH_ADMIN_TOKEN')
   })
