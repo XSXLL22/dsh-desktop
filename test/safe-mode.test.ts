@@ -24,7 +24,7 @@ describe('Safe Mode', () => {
       healthReports: [{ packageName: 'dsh-a', installedVersion: '1.0.0', latestVersion: '1.1.0', healthStatus: 'upgrade-available', healthLabel: '有更新', upgradeReady: true, upgradeVersion: '1.1.0' }]
     })
     expect(answered.pluginItems[0]?.statusLabel).toBe('（有更新）')
-    expect(answered.pluginItems[0]?.upgradeButtonLabel).toBe('升级至 v1.1.0')
+    expect(answered.pluginItems[0]?.upgradeButtonLabel).toBeUndefined()
   })
 
   it('treats installed Profile plugins uniformly as Safe Mode targets', () => {
@@ -40,9 +40,8 @@ describe('Safe Mode', () => {
     const disabled = buildSafeModeViewModel({
       locale: 'en', plugins: ['dsh-image-generation'], disabledPlugins: ['dsh-image-generation']
     })
-    expect(disabled.pluginItems[0]).toMatchObject({
-      disabled: true, enableButtonLabel: 'Re-enable'
-    })
+    expect(disabled.pluginItems[0]).toMatchObject({ disabled: true })
+    expect(disabled.pluginItems[0]).not.toHaveProperty('enableButtonLabel')
   })
 
   it('shows static references as informational findings without blocking or selecting a repair', () => {
@@ -77,7 +76,7 @@ describe('Safe Mode', () => {
       { name: 'plugin-a', actionLabel: '停用插件（不删除）', incompatible: false, suspected: false, disabled: false },
       { name: '@example/plugin-b', actionLabel: '停用插件（不删除）', incompatible: false, suspected: false, disabled: false }
     ])
-    expect(model.safetyNote).toBe('停用不会删除任何内容：插件、工作区、会话和模型配置都会保留，可在这里或插件市场中重新启用。')
+    expect(model.safetyNote).toBe('停用不会删除任何内容：插件、工作区、会话和模型配置都会保留。需要继续使用时，请联系管理员从企业插件市场安装。')
   })
 
   it('provides complete English labels for every Safe Mode action', () => {
@@ -305,8 +304,7 @@ describe('Safe Mode', () => {
       actionLabel: '已停用，退出安全模式后也不会加载',
       incompatible: false,
       suspected: false,
-      disabled: true,
-      enableButtonLabel: '重新启用'
+      disabled: true
     })
     expect(model.pluginItems[0]).toMatchObject({ name: 'plugin-a', disabled: false })
     expect(model.pluginItems[0]).not.toHaveProperty('enableButtonLabel')
@@ -361,12 +359,12 @@ describe('Safe Mode', () => {
       ]
     })
     expect(model.upgradeReadyCount).toBe(1)
-    expect(model.upgradeAllLabel).toBe('一键升级 1 个有更新的插件')
+    expect(model.upgradeAllLabel).toBeUndefined()
     const itemA = model.pluginItems.find((p) => p.name === 'plugin-a')
     expect(itemA?.upgradeReady).toBe(true)
     expect(itemA?.statusLabel).toContain('兼容性未确认')
     expect(itemA?.upgradeVersion).toBe('2.0.0')
-    expect(itemA?.upgradeButtonLabel).toBe('升级至 v2.0.0')
+    expect(itemA?.upgradeButtonLabel).toBeUndefined()
     const itemB = model.pluginItems.find((p) => p.name === 'plugin-b')
     expect(itemB?.upgradeReady).toBe(false)
     expect(itemB?.upgradeButtonLabel).toBeUndefined()

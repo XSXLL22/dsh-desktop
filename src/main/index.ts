@@ -43,6 +43,7 @@ import {
   marketUsableWithoutBaseline,
   readProfileMarket
 } from './state/market-baseline'
+import { enforceCommunityPluginPolicy } from './state/community-plugin-policy'
 import {
   clearProfileInstallMarker,
   markProfileInstallComplete
@@ -58,7 +59,6 @@ import {
 } from './state/host-plugin-state'
 import {
   disableProfilePlugin,
-  enableProfilePlugin,
   forgetMarketDisable,
   listDisabledProfilePlugins
 } from './state/plugin-disable'
@@ -1416,6 +1416,8 @@ function launchHarness(): Promise<void> {
       recoverInterruptedMigration: () =>
         recoverInterruptedMigration(dshHome, (line) => runtime.note(line)),
       incompletePluginRestoreId: () => incompletePluginRestoreId(dshHome),
+      enforceCommunityPluginPolicy: () =>
+        enforceCommunityPluginPolicy(dshHome, (line) => runtime.note(line)),
       preparePackageStore: async () => {
         // This must run after interrupted-migration recovery has allowed
         // Profile writes, but before any operation invokes pnpm.
@@ -3065,21 +3067,10 @@ async function showSafeModeManager(initial?: {
       }
 
       if (action.type === 'enable') {
-        const targets = [...new Set(action.plugins)].filter((plugin) => profileDisabled.includes(plugin))
-        const failedPlugins: string[] = []
-        for (const plugin of targets) {
-          const result = await enableProfilePlugin(dshHome, plugin)
-          runtime.note(`[safe-mode] ${result.ok ? 're-enabled' : 'could not re-enable'} ${plugin}${result.detail ? `: ${result.detail}` : ''}`)
-          if (!result.ok) failedPlugins.push(plugin)
-        }
-        notice = failedPlugins.length === 0
-          ? isChinese
-            ? `已重新启用 ${targets.length} 个插件，退出安全模式后生效。`
-            : `Re-enabled ${targets.length} plugin${targets.length === 1 ? '' : 's'}; they load after you exit Safe Mode.`
-          : isChinese
-            ? `以下插件未能重新启用：${failedPlugins.join('、')}`
-            : `These plugins could not be re-enabled: ${failedPlugins.join(', ')}`
-        noticeTone = failedPlugins.length === 0 ? 'success' : 'error'
+        notice = isChinese
+          ? '企业版不能重新启用社区插件。需要插件时请联系管理员，从企业插件市场安装。'
+          : 'This edition cannot re-enable community plugins. Ask an administrator to install plugins from the enterprise market.'
+        noticeTone = 'error'
         continue
       }
 

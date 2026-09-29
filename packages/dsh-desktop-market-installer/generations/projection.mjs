@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { readQuarantinedPluginNames } from '../community-quarantine.mjs'
 import { resolveEnabledGenerations } from './registry.mjs'
 
 /**
@@ -221,7 +222,7 @@ async function ensureDirLink(linkPath, target) {
  * in-box bundles are left untouched.
  */
 export async function projectGenerations(dshHome, profile = 'web') {
-  const { dir, manifestState, enabled, targets, linkSpecs } =
+  const { dir, manifestState, enabled, targets, linkSpecs, excluded } =
     await prepareGenerationProjection(dshHome, profile)
   const modulesDir = join(dir, 'node_modules')
   await mkdir(modulesDir, { recursive: true })
@@ -237,7 +238,7 @@ export async function projectGenerations(dshHome, profile = 'web') {
   }
 
   const unlinked = await pruneStaleGenerationLinks(modulesDir, projected)
-  const bundles = await syncProfileManifest(dir, projected, linkSpecs, manifestState)
+  const bundles = await syncProfileManifest(dir, projected, linkSpecs, manifestState, { excluded })
 
   return { linked, unlinked, bundles }
 }
@@ -249,7 +250,7 @@ export async function projectGenerations(dshHome, profile = 'web') {
  * A stopped Harness may also replace a legacy real directory transactionally.
  */
 export async function publishInstalledGeneration(dshHome, pluginName, profile = 'web', { allowRealDirectory = false, syncBundles = false } = {}) {
-  const { dir, manifestState, enabled, targets, linkSpecs } =
+  const { dir, manifestState, enabled, targets, linkSpecs, excluded } =
     await prepareGenerationProjection(dshHome, profile)
   const target = targets.get(pluginName)
   if (target === undefined) throw new Error(`No enabled generation for ${pluginName}`)
@@ -270,7 +271,7 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
         throw new Error(`Cannot switch a non-link plugin directory: ${link}`)
       }
       if (await realpath(link) === await realpath(target)) {
-        const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles })
+        const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles, excluded })
         return { plugins: [pluginName], bundles }
       }
     } catch (error) {
@@ -294,7 +295,7 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
     installedNew = true
     // Validate through the public profile path, exactly where the market reads.
     if (await realpath(link) !== await realpath(target)) throw new Error(`Plugin link switch did not select ${pluginName}`)
-    const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles })
+    const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, { syncBundles, excluded })
     // Old plugin bytes remain in their generation for already-loaded modules.
     await rm(oldLink, { force: true, recursive: previousIsDirectory }).catch(() => {})
     return { plugins: [pluginName], bundles }
@@ -316,10 +317,11 @@ export async function publishInstalledGeneration(dshHome, pluginName, profile = 
 
 /** Publish removal metadata without unlinking files still used by Harness. */
 export async function publishGenerationManifest(dshHome, profile = 'web', { syncBundles = false } = {}) {
-  const { dir, manifestState, enabled, linkSpecs } =
+  const { dir, manifestState, enabled, linkSpecs, excluded } =
     await prepareGenerationProjection(dshHome, profile)
   const bundles = await syncProfileManifest(dir, enabled, linkSpecs, manifestState, {
-    syncBundles
+    syncBundles,
+    excluded
   })
   return { plugins: [...enabled.keys()], bundles }
 }
@@ -370,6 +372,8 @@ async function prepareGenerationProjection(dshHome, profile) {
   // for an empty Profile and overwritten with a reduced generated manifest.
   const manifestState = await readProfileManifest(dir)
   const enabled = await resolveEnabledGenerations(dshHome)
+  const excluded = new Set(await readQuarantinedPluginNames(dshHome, profile))
+  for (const name of excluded) enabled.delete(name)
   const targets = new Map()
   for (const [pluginName, generation] of enabled) {
     targets.set(pluginName, await validateEnabledGenerationTarget(pluginName, generation))
@@ -382,7 +386,7 @@ async function prepareGenerationProjection(dshHome, profile) {
     // ordinary dependency version written below and never sees it.
     linkSpecs.set(pluginName, `link:${relative(dir, target).split('\\').join('/')}`)
   }
-  return { dir, manifestState, enabled, targets, linkSpecs }
+  return { dir, manifestState, enabled, targets, linkSpecs, excluded }
 }
 
 /**
@@ -432,7 +436,7 @@ async function syncProfileManifest(
   enabled,
   linkSpecs,
   manifestState,
-  { syncBundles = true } = {}
+  { syncBundles = true, excluded = new Set() } = {}
 ) {
   const manifestPath = join(dir, 'package.json')
   const { current, manifest } = manifestState
@@ -497,7 +501,7 @@ async function syncProfileManifest(
   if (syncBundles) {
     const declaredBundles = bundles.filter((name) => IN_BOX_BUNDLES.has(name))
     for (const name of Object.keys(dependencies)) {
-      if (declaredBundles.includes(name) || enabled.has(name)) continue
+      if (declaredBundles.includes(name) || enabled.has(name) || excluded.has(name)) continue
       if (await declaresBundle(join(dir, 'node_modules', name))) declaredBundles.push(name)
     }
     const pluginNames = [...enabled.keys()].sort()
