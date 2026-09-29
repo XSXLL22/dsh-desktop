@@ -572,6 +572,7 @@ jobs:
               return $response.result.value
             }
 
+            $logBeforeWorkspace = (Get-Content -Raw $logPath).Length
             $workspacePath = Join-Path $env:RUNNER_TEMP '数据项素-工作区'
             New-Item -ItemType Directory -Force -Path $workspacePath | Out-Null
             $workspace = Invoke-HarnessRpc 'workspace/create' @{ path = $workspacePath }
@@ -582,7 +583,10 @@ jobs:
 
             Start-Sleep -Seconds 20
             $stableLog = Get-Content -Raw $logPath
-            if ($stableLog -match '\[stderr\]') {
+            if ($stableLog.Length -lt $logBeforeWorkspace) {
+              throw 'Harness log was truncated during workspace and session creation.'
+            }
+            if ($stableLog.Substring($logBeforeWorkspace) -match '\[stderr\]') {
               throw 'Harness reported stderr after workspace and session creation.'
             }
             if ($stableLog -match '\[node\] Harness process exited') {
