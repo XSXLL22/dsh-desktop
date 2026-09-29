@@ -43,6 +43,7 @@ window.__ModuleLoader__.load({
       insecureConfirm: '确认为可信来源',
       cancel: '取消',
       requestId: '请求 ID',
+      seatNotAssigned: '你尚未获得 DSH 使用席位，请联系管理员分配后重新登录。',
       seatRevoked: '席位已撤销'
     }
 
@@ -75,6 +76,7 @@ window.__ModuleLoader__.load({
       insecureConfirm: 'Confirm as a trusted source',
       cancel: 'Cancel',
       requestId: 'Request ID',
+      seatNotAssigned: 'You have not been assigned a DSH seat. Ask your administrator to assign one, then sign in again.',
       seatRevoked: 'Seat revoked'
     }
 
@@ -617,6 +619,9 @@ window.__ModuleLoader__.load({
     function formatEnterpriseSettingsError(failure, errorCode, t) {
       const text = typeof failure === 'string' ? failure.trim() : ''
       const code = typeof errorCode === 'string' ? errorCode : ''
+      if (code === 'seat_not_assigned' || /^seat not assigned\.?$/i.test(text)) {
+        return t('seatNotAssigned')
+      }
       if (code === 'seat_revoked' || /^seat revoked\.?$/i.test(text)) {
         return t('seatRevoked')
       }
