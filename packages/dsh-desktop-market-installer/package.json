@@ -28,6 +28,14 @@
       "types": "./market-registry.d.ts",
       "default": "./market-registry.mjs"
     },
+    "./enterprise-policy": {
+      "types": "./enterprise-policy.d.ts",
+      "default": "./enterprise-policy.mjs"
+    },
+    "./community-quarantine": {
+      "types": "./community-quarantine.d.ts",
+      "default": "./community-quarantine.mjs"
+    },
     "./package.json": "./package.json"
   },
   "dsh": {

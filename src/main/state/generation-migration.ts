@@ -8,6 +8,7 @@ import {
 } from 'dsh-desktop-market-installer/generations/installer'
 import { projectGenerations } from 'dsh-desktop-market-installer/generations/projection'
 import { readDesired, writeDesired } from 'dsh-desktop-market-installer/generations/registry'
+import { readQuarantinedPluginNames } from 'dsh-desktop-market-installer/community-quarantine'
 import { resolveMarketRegistry } from 'dsh-desktop-market-installer/market-registry'
 
 /**
@@ -111,7 +112,8 @@ async function communityPlugins(dshHome: string): Promise<string[]> {
     ...Object.keys(manifest.dependencies ?? {}),
     ...(manifest.dsh?.profile?.bundles ?? [])
   ])
-  return [...names].filter((name) => !KEEP_IN_SHARED_TREE.has(name))
+  const quarantined = new Set(await readQuarantinedPluginNames(dshHome))
+  return [...names].filter((name) => !KEEP_IN_SHARED_TREE.has(name) && !quarantined.has(name))
 }
 
 interface PlannedPlugin {

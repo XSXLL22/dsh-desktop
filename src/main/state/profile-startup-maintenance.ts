@@ -1,3 +1,4 @@
+import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
 import type {
   MigrationOutcome,
   MigrationRecoveryOutcome
@@ -24,6 +25,11 @@ export interface ProfileStartupMaintenanceDeps {
   recoverInterruptedMigration: () => Promise<MigrationRecoveryOutcome>
   incompletePluginRestoreId: () => Promise<string | undefined>
   preparePackageStore: () => Promise<void>
+  /**
+   * Isolate community plugins before any install, baseline, or migration can
+   * touch them. Failures must stop startup instead of being treated as success.
+   */
+  enforceCommunityPluginPolicy: () => Promise<void>
   demoteMarketGeneration: () => Promise<boolean>
   enforcePendingPluginRemovals: () => Promise<void>
   prepareGenerationsForLaunch: () => Promise<void>
@@ -151,6 +157,16 @@ export async function runProfileStartupMaintenance(
   }
 
   try {
+    await deps.enforceCommunityPluginPolicy()
+  } catch (error) {
+    const reason = `community plugin policy failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`
+    deps.note(`[desktop] normal profile maintenance blocked: ${reason}`)
+    return { outcome: 'safe-recovery', reason, repairable: true }
+  }
+
+  try {
     await deps.preparePackageStore()
   } catch (error) {
     const reason = `profile package store preparation failed: ${
@@ -197,7 +213,12 @@ export async function runProfileStartupMaintenance(
     deps.note(`[desktop] normal profile maintenance blocked: ${reason}`)
     return { outcome: 'safe-recovery', reason }
   }
-  const marketFailure = await establishMarketBaseline()
+  const marketFailure = communityPluginInstallAllowed()
+    ? await establishMarketBaseline()
+    : undefined
+  if (!communityPluginInstallAllowed()) {
+    deps.note('[desktop] community market baseline skipped by enterprise policy')
+  }
   if (marketFailure !== undefined) {
     // An install that cannot reach the registry is common and must not cost the
     // user their normal Profile while the market they already have still loads.

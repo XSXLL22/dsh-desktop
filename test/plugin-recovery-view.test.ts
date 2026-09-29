@@ -23,11 +23,11 @@ describe('plugin recovery view model', () => {
     expect(model.canUninstall).toBe(false)
     expect(model.marketPrimary).toBe(true)
     expect(model.heading).toBe('插件市场导致启动失败')
-    expect(model.primaryLabel).toBe('升级插件并重启')
+    expect(model.primaryLabel).toBe('卸载此插件并继续检测')
     expect(model.marketCheck).toEqual({
       name: 'dshmarket', installedVersion: '1.48.0',
-      hint: expect.stringContaining('可升级到兼容的新版本，或卸载插件市场'),
-      upgradeLabel: '升级至 v1.49.0', removeLabel: '卸载此插件'
+      hint: expect.stringContaining('企业版不从社区市场安装或升级'),
+      removeLabel: '卸载此插件'
     })
     expect(model.plugins).toEqual([])
   })
@@ -47,7 +47,7 @@ describe('plugin recovery view model', () => {
     })
     expect(model.marketPrimary).toBe(false)
     expect(model.primaryLabel).toBe('卸载此插件并继续检测')
-    expect(model.marketCheck?.upgradeLabel).toBe('升级至 v1.49.0')
+    expect(model.marketCheck?.upgradeLabel).toBeUndefined()
   })
   it('leaves the page unchanged when the market is not blamed', () => {
     const model = buildPluginRecoveryViewModel({
@@ -108,8 +108,12 @@ describe('plugin recovery view model', () => {
         { packageName: 'c', hint: 'remove', removalRecommended: true }
       ]
     })
-    expect(model.autoProcessLabel).toBe('一键自动处理（升级 2，卸载 1）')
-    expect(model.pluginChecks).toHaveLength(3)
+    expect(model.autoProcessLabel).toBe('一键自动处理（升级 0，卸载 3）')
+    expect(model.pluginChecks).toEqual([
+      { packageName: 'a', hint: 'intermediate', removalRecommended: true },
+      { packageName: 'b', hint: 'latest', removalRecommended: true },
+      { packageName: 'c', hint: 'remove', removalRecommended: true }
+    ])
     expect(model.upgradeCandidate).toBeUndefined()
   })
   it('explains a duplicate route without exposing only a raw stack trace', () => {
@@ -203,8 +207,8 @@ describe('plugin recovery view model', () => {
       snapshot: failedSnapshot(), plugins: ['plugin-a'], removedPlugins: [], locale,
       upgradeCandidate: { packageName: 'plugin-a', targetVersion: '2.0.0', upgradeHint }
     })
-    expect(model.upgradeHint).toBe(upgradeHint)
-    expect(model.upgradeLabel).toBeTruthy()
+    expect(model.upgradeHint).toBeUndefined()
+    expect(model.upgradeLabel).toBeUndefined()
   })
 
   it.each(['zh', 'en'] as const)('makes removal the primary action when a latest-version plugin still blocks startup (%s)', (locale) => {
@@ -230,9 +234,9 @@ describe('plugin recovery view model', () => {
         installedVersion: '1.0.0'
       }
     })
-    expect(model.upgradeCandidate?.targetVersion).toBe('2.0.0')
-    expect(model.upgradeLabel).toBe('升级插件并重启')
-    expect(model.upgradeHint).toBe('该插件有新的兼容版本（v2.0.0）')
-    expect(model.uninstallLabel).toBe('卸载插件')
+    expect(model.upgradeCandidate).toBeUndefined()
+    expect(model.upgradeLabel).toBeUndefined()
+    expect(model.upgradeHint).toBeUndefined()
+    expect(model.primaryLabel).toBe('卸载此插件并继续检测')
   })
 })

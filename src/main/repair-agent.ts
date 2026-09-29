@@ -295,8 +295,8 @@ function repairPlaybooks(): RepairPlaybook[] {
         en: 'The parenthesized package is the plugin; the outer `cordis:include` is a wrapper. `does not provide an export named` means it imports an export this Harness removed.'
       },
       fix: {
-        zh: '自己停用它（见下），再请用户重启验证。市场有兼容新版时改为让用户点「升级」。',
-        en: 'Disable it yourself (below), then have the user restart. If the market has a compatible release, have them click "Upgrade" instead.'
+        zh: '自己停用它（见下），再请用户重启验证。企业版不能从社区市场升级；需要插件时联系管理员，从企业插件市场安装。',
+        en: 'Disable it yourself (below), then have the user restart. This edition cannot upgrade from the community market; ask an administrator to install plugins from the enterprise market.'
       }
     },
     {
@@ -310,8 +310,8 @@ function repairPlaybooks(): RepairPlaybook[] {
         en: 'An interrupted install. The loader reads the package\'s own patch before the user patch layer, so an ordinary disable has no row to switch off.'
       },
       fix: {
-        zh: '先分清坏在哪一层：\`node_modules/<包名>\` 多是指向安装包的链接，每次启动都会重建，只是链接丢了或指错就让用户直接重启，别动它。顺着链接看真身：真身里缺 package.json 或它声明的 patch，才是安装中断，重建链接救不了——这时在安全模式列表里勾选它 →「停用所选插件」，桌面端会自动改成带备份的移除（安全模式界面里可还原），再请用户重启验证；要继续用就去插件市场重装。',
-        en: 'First tell which layer is broken: \`node_modules/<package>\` is usually a link into the install, rebuilt on every launch, so a merely missing or wrong link just needs a restart — leave it alone. Follow the link to the real package: only a missing package.json or declared patch THERE is an interrupted install that relinking cannot fix. Then select it in the Safe Mode list → "Disable selected plugins"; Desktop falls back to a removal with a restorable backup (restore it from the Safe Mode UI). Have the user restart, and reinstall from the market to keep using it.'
+        zh: '先分清坏在哪一层：\`node_modules/<包名>\` 多是指向安装包的链接，每次启动都会重建，只是链接丢了或指错就让用户直接重启，别动它。顺着链接看真身：真身里缺 package.json 或它声明的 patch，才是安装中断，重建链接救不了——这时在安全模式列表里勾选它 →「停用所选插件」，桌面端会自动改成带备份的移除（安全模式界面里可还原），再请用户重启验证。企业版不能从社区市场重装；需要插件时联系管理员，从企业插件市场安装。',
+        en: 'First tell which layer is broken: \`node_modules/<package>\` is usually a link into the install, rebuilt on every launch, so a merely missing or wrong link just needs a restart — leave it alone. Follow the link to the real package: only a missing package.json or declared patch THERE is an interrupted install that relinking cannot fix. Then select it in the Safe Mode list → "Disable selected plugins"; Desktop falls back to a removal with a restorable backup (restore it from the Safe Mode UI). Have the user restart. This edition cannot reinstall from the community market; ask an administrator to install it from the enterprise market.'
       },
       avoid: {
         zh: '**不要自己删包目录**，也不要教用户删。界面卸载是一条带恢复日志的事务：备份材料、清理插件注册的组件、撤销安装记录里的 generation 指针。手删只去掉文件，安装记录还在，下次启动会按它重新投影，用户还丢了可撤销的备份。',
@@ -485,7 +485,7 @@ ${playbooks}
 - 用户可能并没有遇到故障，只是主动进安全模式看看，这本身不是异常。日志和文件都正常时，不要硬套上面的已知问题，也不要为了给出结论而编造故障。
 - **能自己修的就自己修**，不要把可以直接改文件完成的事推给用户去点界面。说明要改哪个文件、改什么、怎么回滚，用户确认后你执行，改前在同目录备份为 \`<原文件名>.bak-<时间>\`。
 - 只改正常 profile 和上面列出的用户数据。不改安全模式 profile、内置 preset、会话日志，也不改 \`node_modules\` 里的包内容。
-- 只有插件的**升级**和**重装**必须让用户走界面（安全模式的「升级」、插件市场）。
+- 企业版不能升级或重装社区插件。需要插件时请联系管理员，从企业插件市场安装。停用和移除仍可在安全模式完成。
 - 处理完请用户「退出安全模式并重启」验证。
 
 ### 停用一个插件
@@ -537,7 +537,7 @@ ${playbooks}
 - The user may have no failure at all and simply entered Safe Mode to look around; that is not itself a problem. When the logs and files are clean, do not force a match against the known failures above, and never invent one to have something to report.
 - **Fix what you can fix yourself.** Do not send the user clicking through the UI for something you can do by editing a file. Say which file, what change, and how to roll back; once they confirm, do it, backing the file up first as \`<name>.bak-<time>\` in the same folder.
 - Change only the normal profile and the user data listed above. Never edit the Safe Mode profile, shipped presets, session logs, or package contents under \`node_modules\`.
-- Only **upgrading** and **reinstalling** a plugin must go through the UI (Safe Mode's "Upgrade", or the plugin market).
+- This edition cannot upgrade or reinstall community plugins. Ask an administrator to install plugins from the enterprise market. Disabling and removal still happen in Safe Mode.
 - When done, ask the user to "Exit Safe Mode and restart" to verify.
 
 ### Disabling a plugin

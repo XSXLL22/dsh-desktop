@@ -1,3 +1,4 @@
+import { isProtectedProfileBundle } from './state/community-plugin-policy'
 import type { ProfileCompatibilityIssue } from './state/profile-compatibility'
 import type { PluginHealthReport, PluginHealthStatus } from './state/plugin-market-check'
 
@@ -214,12 +215,6 @@ export function buildSafeModeViewModel(options: {
         : report?.upgradeReady
           ? 'success'
           : undefined
-    const upgradeButtonLabel = report?.upgradeReady && report.upgradeVersion
-      ? options.locale === 'zh'
-        ? `升级至 v${report.upgradeVersion}`
-        : `Upgrade to v${report.upgradeVersion}`
-      : undefined
-
     return {
       name,
       statusLabel: labels.length > 0
@@ -234,14 +229,15 @@ export function buildSafeModeViewModel(options: {
       incompatible,
       suspected,
       disabled,
-      ...(disabled ? { enableButtonLabel: options.locale === 'zh' ? '重新启用' : 'Re-enable' } : {}),
+      ...(disabled && isProtectedProfileBundle(name)
+        ? { enableButtonLabel: options.locale === 'zh' ? '重新启用' : 'Re-enable' }
+        : {}),
       ...(report?.healthStatus !== undefined ? { healthStatus: report.healthStatus } : {}),
       ...(report?.healthLabel !== undefined ? { healthLabel: report.healthLabel } : {}),
       ...(report?.installedVersion !== undefined ? { installedVersion: report.installedVersion } : {}),
       ...(report?.latestVersion !== undefined ? { latestVersion: report.latestVersion } : {}),
       ...(report?.upgradeReady !== undefined ? { upgradeReady: report.upgradeReady } : {}),
-      ...(report?.upgradeVersion !== undefined ? { upgradeVersion: report.upgradeVersion } : {}),
-      ...(upgradeButtonLabel !== undefined ? { upgradeButtonLabel } : {})
+      ...(report?.upgradeVersion !== undefined ? { upgradeVersion: report.upgradeVersion } : {})
     }
   })
   const upgradeReadyCount = pluginItems.filter((item) => item.upgradeReady).length
@@ -366,7 +362,7 @@ export function buildSafeModeViewModel(options: {
       recoveryOpenLabel: '打开恢复材料目录',
       emptyMessage: '当前 Profile 中没有第三方插件。',
       selectionHint: '选择要停用的插件',
-      safetyNote: '停用不会删除任何内容：插件、工作区、会话和模型配置都会保留，可在这里或插件市场中重新启用。',
+      safetyNote: '停用不会删除任何内容：插件、工作区、会话和模型配置都会保留。需要继续使用时，请联系管理员从企业插件市场安装。',
       applyLabel: '停用所选插件',
       applyBusyLabel: '正在停用…',
       selectAllLabel: '全选',
@@ -381,9 +377,7 @@ export function buildSafeModeViewModel(options: {
       notice: options.notice,
       noticeSummary: summarizeLongNotice(options.notice, 'zh'),
       noticeTone: options.noticeTone,
-      upgradeAllLabel: upgradeReadyCount > 0
-        ? `一键升级 ${upgradeReadyCount} 个有更新的插件`
-        : undefined,
+      upgradeAllLabel: undefined,
       upgradeAllBusyLabel: '正在批量升级…',
       upgradeReadyCount,
       enableBusyLabel: '正在启用…'
@@ -410,7 +404,7 @@ export function buildSafeModeViewModel(options: {
     recoveryOpenLabel: 'Open recovery material folder',
     emptyMessage: 'There are no third-party plugins in this profile.',
     selectionHint: 'Select plugins to disable',
-    safetyNote: 'Disabling deletes nothing: plugins, workspaces, sessions, and model settings are kept, and you can re-enable them here or in the plugin market.',
+    safetyNote: 'Disabling deletes nothing: plugins, workspaces, sessions, and model settings are kept. To keep using a plugin, ask an administrator to install it from the enterprise market.',
     applyLabel: 'Disable selected plugins',
     applyBusyLabel: 'Disabling…',
     selectAllLabel: 'Select all',
@@ -425,9 +419,7 @@ export function buildSafeModeViewModel(options: {
     notice: options.notice,
     noticeSummary: summarizeLongNotice(options.notice, 'en'),
     noticeTone: options.noticeTone,
-    upgradeAllLabel: upgradeReadyCount > 0
-      ? `Upgrade ${upgradeReadyCount} plugin${upgradeReadyCount === 1 ? '' : 's'} with updates`
-      : undefined,
+    upgradeAllLabel: undefined,
     upgradeAllBusyLabel: 'Upgrading plugins…',
     upgradeReadyCount,
     enableBusyLabel: 'Enabling…'

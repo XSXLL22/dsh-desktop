@@ -1,3 +1,4 @@
+import { readQuarantinedPluginNames } from 'dsh-desktop-market-installer/community-quarantine'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -130,6 +131,7 @@ export async function inspectProfileConsistency(
   const nodeModulesPath = join(dirname(manifestPath), 'node_modules')
   const bundles = manifest.dsh?.profile?.bundles ?? []
   const dependencies = Object.keys(manifest.dependencies ?? {})
+  const quarantined = new Set(await readQuarantinedPluginNames(dshHome))
   const findings: string[] = []
 
   for (const bundle of bundles) {
@@ -141,7 +143,7 @@ export async function inspectProfileConsistency(
   }
 
   for (const dependency of dependencies) {
-    if (bundles.includes(dependency) || hostComposedBundles.includes(dependency)) continue
+    if (bundles.includes(dependency) || hostComposedBundles.includes(dependency) || quarantined.has(dependency)) continue
     const { installed, bundle } = await inspectPackage(nodeModulesPath, dependency)
     if (installed && bundle) {
       findings.push(`${dependency} is installed and declares a bundle, but is not composed`)
@@ -187,6 +189,7 @@ export async function healProfileBundles(
   }
 
   const nodeModulesPath = join(dirname(manifestPath), 'node_modules')
+  const quarantined = new Set(await readQuarantinedPluginNames(dshHome))
   const previousBundles = manifest.dsh?.profile?.bundles ?? []
   const removed = previousBundles.filter((name) => hostComposedBundles.includes(name))
   const currentBundles = previousBundles.filter((name) => !hostComposedBundles.includes(name))
@@ -195,7 +198,7 @@ export async function healProfileBundles(
   const healed: string[] = []
 
   for (const dependency of dependencies) {
-    if (bundleSet.has(dependency) || hostComposedBundles.includes(dependency)) continue
+    if (bundleSet.has(dependency) || hostComposedBundles.includes(dependency) || quarantined.has(dependency)) continue
     const { installed, bundle } = await inspectPackage(nodeModulesPath, dependency)
     if (installed && bundle) {
       currentBundles.push(dependency)

@@ -33,6 +33,7 @@ function startup(ensure: () => Promise<void>): ProfileStartupMaintenanceDeps {
     incompletePluginRestoreId: async () => undefined, preparePackageStore: async () => {},
     demoteMarketGeneration: async () => false,
     enforcePendingPluginRemovals: async () => {}, prepareGenerationsForLaunch: async () => {},
+    enforceCommunityPluginPolicy: async () => {},
     shouldDeferProfileMaintenance: async () => false,
     migrateProfileToGenerations: async () => ({ outcome: 'no-op' }),
     ensureMarketBaseline: ensure, marketUsableWithoutBaseline: async () => false,
@@ -80,15 +81,14 @@ describe('market baseline at normal startup', () => {
       await writeFile(join(market, 'package.json'), JSON.stringify({ name: 'dshmarket', version: VERIFIED_MARKET_BASELINE }))
       return { ok: true }
     })
-    const deps = startup(() => ensureMarketBaseline(options, upgrade))
-    expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile' })
+    await ensureMarketBaseline(options, upgrade)
     expect(upgrade).toHaveBeenCalledWith(expect.objectContaining({ targetVersion: VERIFIED_MARKET_BASELINE }))
     expect(await readInstalledPluginVersion(home, 'dshmarket')).toBe(VERIFIED_MARKET_BASELINE)
     expect((await lstat(market)).isSymbolicLink()).toBe(false)
     const manifest = JSON.parse(await readFile(join(profile, 'package.json'), 'utf8'))
     expect(manifest.dependencies['other-plugin']).toBe('1.0.0')
     await expect(readFile(join(profile, '.install-complete'))).rejects.toMatchObject({ code: 'ENOENT' })
-    await runProfileStartupMaintenance(deps)
+    await ensureMarketBaseline(options, upgrade)
     expect(upgrade).toHaveBeenCalledTimes(1)
   })
 
@@ -148,7 +148,8 @@ describe('market baseline at normal startup', () => {
     const deps = startup(() => ensureMarketBaseline(options, upgrade))
     deps.prepareGenerationsForLaunch = async () => { order.push('projection') }
     await runProfileStartupMaintenance(deps)
-    expect(order).toEqual(['upgrade', 'projection'])
+    expect(order).toEqual(['projection'])
+    expect(upgrade).not.toHaveBeenCalled()
   })
 
   it('demotes a projected market: drops the link and pointer, keeps the declaration', async () => {
@@ -190,11 +191,11 @@ describe('market baseline at normal startup', () => {
     expect(await demoteMarketGeneration(home)).toBe(false)
   })
 
-  it('blocks startup on installation failure and leaves the old package and desired pointer intact', async () => {
+  it('skips a failing community baseline and leaves the old package and desired pointer intact', async () => {
     const { options, home, profile } = await fixture()
     const original = await readFile(join(profile, 'package.json'), 'utf8')
     const result = await runProfileStartupMaintenance(startup(() => ensureMarketBaseline(options, async () => ({ ok: false, detail: 'registry unavailable' }))))
-    expect(result).toMatchObject({ outcome: 'safe-recovery', reason: expect.stringContaining('registry unavailable') })
+    expect(result).toMatchObject({ outcome: 'normal-profile' })
     expect(await readInstalledPluginVersion(home, 'dshmarket')).toBe('1.15.0')
     expect(await readFile(join(profile, 'package.json'), 'utf8')).toBe(original)
     expect(await readDesired(home)).toEqual([])
@@ -231,7 +232,7 @@ describe('market baseline at normal startup', () => {
       return { ok: true }
     }))
     deps.migrateProfileToGenerations = async () => {
-      expect(await readInstalledPluginVersion(options.dshHome, 'dshmarket')).toBe(VERIFIED_MARKET_BASELINE)
+      expect(await readInstalledPluginVersion(options.dshHome, 'dshmarket')).toBe('1.31.1')
       return { outcome: 'deferred-failure', reason: 'unrelated plugin missing', profileState: 'legacy-intact' }
     }
     deps.prepareGenerationsForLaunch = vi.fn()
@@ -242,11 +243,11 @@ describe('market baseline at normal startup', () => {
     expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile', migration: { outcome: 'deferred-failure' } })
   })
 
-  it('opens repairable recovery if the market upgrade fails, without starting migration', async () => {
+  it('does not let a community baseline failure block migration', async () => {
     const deps = startup(async () => { throw new Error('install failed') })
-    deps.migrateProfileToGenerations = vi.fn()
-    expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'safe-recovery', repairable: true })
-    expect(deps.migrateProfileToGenerations).not.toHaveBeenCalled()
+    deps.migrateProfileToGenerations = vi.fn(async () => ({ outcome: 'no-op' }) as const)
+    expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile' })
+    expect(deps.migrateProfileToGenerations).toHaveBeenCalled()
   })
 
   // pnpm 404s, fetch failures and EPERM are ordinary in restricted networks.
@@ -259,13 +260,14 @@ describe('market baseline at normal startup', () => {
     deps.migrateProfileToGenerations = vi.fn(async () => ({ outcome: 'no-op' }) as const)
     expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile' })
     expect(deps.migrateProfileToGenerations).toHaveBeenCalled()
-    expect(notes.join('\n')).toContain('market baseline deferred, keeping the installed market')
+    expect(notes.join('\n')).toContain('community market baseline skipped by enterprise policy')
   })
 
-  it('still blocks when inspecting the installed market itself throws', async () => {
+  it('does not inspect the installed market when the community baseline is skipped', async () => {
     const deps = startup(async () => { throw new Error('install failed') })
-    deps.marketUsableWithoutBaseline = async () => { throw new Error('unreadable') }
-    expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'safe-recovery', repairable: true })
+    deps.marketUsableWithoutBaseline = vi.fn(async () => { throw new Error('unreadable') })
+    expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile' })
+    expect(deps.marketUsableWithoutBaseline).not.toHaveBeenCalled()
   })
 
   describe('unresolvable bundle declarations', () => {
@@ -355,7 +357,9 @@ describe('market baseline at normal startup', () => {
     const result = await runProfileStartupMaintenance(deps)
 
     expect(result).toMatchObject({ migration: { outcome: 'maintenance-deferred' } })
-    expect(order).toEqual(['demote', 'market', 'projection'])
+    expect(order).toEqual(['projection'])
+    expect(demote).not.toHaveBeenCalled()
+    expect(ensure).not.toHaveBeenCalled()
   })
 
   it('preserves an upgraded market version >= 1.65.1 when demoting back to shared tree', async () => {
