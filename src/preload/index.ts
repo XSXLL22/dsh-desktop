@@ -8,6 +8,7 @@ import {
   type UpdateLocale
 } from './update-view'
 import { isPluginLoadError } from './plugin-error-view'
+import { mountPluginErrorToast } from './plugin-error-toast'
 import { findBootFailureText } from './boot-failure'
 import { mountWindowsTitlebarLayout } from './windows-titlebar'
 import { mountMacosWindowChrome } from './macos-window-chrome'
@@ -139,6 +140,7 @@ function checkBootFailureInDom(): void {
  * the work at 60Hz instead of per-mutation, and stops it entirely while the
  * window is hidden, since the browser withholds frames from background pages.
  */
+const pluginErrorToast = mountPluginErrorToast(document, locale)
 const domObserver = new MutationObserver(scheduleDomSync)
 
 function scheduleDomSync(): void {
@@ -152,6 +154,7 @@ function runDomSync(): void {
   positionSafeModeFrame()
   placeSafeModeBanner()
   mountMobileButton()
+  pluginErrorToast.relocate(document)
   if (bootScanSettled) return
   // The boot screen only exists until Harness renders its own UI, and the
   // sidebar appearing is that moment. Past it the selector can never match
@@ -558,6 +561,7 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('pagehide', () => {
   if (rendererHealthHeartbeat !== undefined) window.clearInterval(rendererHealthHeartbeat)
   rendererHealthHeartbeat = undefined
+  pluginErrorToast.dispose()
 })
 
 contextBridge.exposeInMainWorld(
