@@ -16,10 +16,12 @@ export interface MarketController {
   stop(clearLease?: boolean): Promise<void>
   tick(): Promise<void>
 }
+export declare function hostDshEntryPath(): string
+
 export declare function createMarketController(ctx: Context, account: {
   state(): MarketAccount
   marketRequest(path: string, body?: unknown, binary?: boolean): Promise<unknown>
-}, options?: { home?: string; target?: string; publicKey?: string; desktopVersion?: string;
+}, options?: { home?: string; target?: string; publicKey?: string; desktopVersion?: string; dshEntryPath?: string;
   load?: (record: InstalledMarketPlugin) => Promise<MarketRuntimeFiber> }): MarketController
 
 export declare function applyEnterpriseMarket(ctx: Context, account: {

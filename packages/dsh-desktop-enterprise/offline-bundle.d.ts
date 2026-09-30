@@ -10,5 +10,5 @@ export declare function sha256(data: Buffer | string): string
 export declare function safePath(value: string): boolean
 export declare function readBundleZip(bytes: Buffer): Map<string, { data: Buffer; executable: boolean }>
 export declare function validateOfflineBundle(bytes: Buffer, expected: BundleIdentity, target: string): { manifest: BundleManifest; files: Map<string, { data: Buffer; executable: boolean }> }
-export declare function installOfflineBundle(home: string, bytes: Buffer, expected: BundleIdentity, target: string): Promise<OfflineGeneration>
+export declare function installOfflineBundle(home: string, bytes: Buffer, expected: BundleIdentity, target: string, options?: { dshEntryPath?: string }): Promise<OfflineGeneration>
 export declare function verifyInstalledBundle(generation: BundleIdentity & { directory: string }, target: string): Promise<{ manifest: BundleManifest }>

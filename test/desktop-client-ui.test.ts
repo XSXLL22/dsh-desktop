@@ -10,8 +10,8 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
-describe('DSH Desktop client slot occupants', () => {
-  it('registers one occupant per brand seat and keeps the official name mark-free', async () => {
+describe('BISHENG Work client slot occupants', () => {
+  it('keeps BISHENG artwork in mark seats and inherits the sidebar name typography', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
       'utf8'
@@ -51,8 +51,7 @@ describe('DSH Desktop client slot occupants', () => {
       type,
       props: { ...props, children }
     })
-    const BrandWordmark = vi.fn()
-    const FishLogo = vi.fn()
+    const MenuItemButton = vi.fn()
     const plugin = definition!.factory((id) => {
       if (id === 'react') {
         return {
@@ -62,7 +61,7 @@ describe('DSH Desktop client slot occupants', () => {
         }
       }
       if (id === '@deepseek-ai/dsh-client-ui-primitives') {
-        return { BrandWordmark, FishLogo }
+        return { MenuItemButton }
       }
       throw new Error(`Unexpected client dependency: ${id}`)
     })
@@ -105,23 +104,120 @@ describe('DSH Desktop client slot occupants', () => {
     const sidebarName = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
     )!.component({}) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarName.type).toBe(BrandWordmark)
-    expect(sidebarName.props.includeMark).toBe(false)
+    expect(sidebarName.type).toBe('span')
+    expect(sidebarName.props.children).toEqual(['BISHENG Work'])
+    expect(sidebarName.props.className).toBeUndefined()
+    expect(sidebarName.props.style).toEqual({ letterSpacing: '-0.01em' })
+    expect(sidebarName.props.fontFamily).toBeUndefined()
+    expect(sidebarName.props.fontSize).toBeUndefined()
+    expect(sidebarName.props.fontWeight).toBeUndefined()
+    expect(sidebarName.props.color).toBeUndefined()
 
     const sidebarMark = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.mark'
     )!.component({ size: 24 }) as { type: unknown; props: Record<string, unknown> }
     expect(sidebarMark.type).toBe('svg')
+    expect(sidebarMark.props.width).toBe(17)
     expect(sidebarMark.props.height).toBe(17)
-    const [markPath] = sidebarMark.props.children as Array<{ type: unknown; props: Record<string, unknown> }>
-    if (!markPath) throw new Error('Expected the sidebar brand SVG path')
-    expect(markPath.type).toBe('path')
-    expect(markPath.props.fill).toBe('currentColor')
+    const [markField, ...markPaths] = sidebarMark.props.children as Array<{
+      type: unknown
+      props: Record<string, unknown>
+    }>
+    expect(markField?.type).toBe('rect')
+    expect(markField?.props.fill).toBe('#000000')
+    expect(markPaths).toHaveLength(8)
+    expect(markPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
 
     const heroMark = registrations.find(
       ({ config }) => config.name === 'conversation.hero.brand.mark'
-    )!.component({ size: 48 }) as { type: unknown; props: Record<string, unknown> }
-    expect(heroMark.type).toBe(FishLogo)
-    expect(heroMark.props.size).toBe(48)
+    )!.component({ size: 48, className: 'hero-mark' }) as {
+      type: unknown
+      props: Record<string, unknown>
+    }
+    expect(heroMark.type).toBe('svg')
+    expect(heroMark.props.width).toBe(48)
+    expect(heroMark.props.height).toBe(48)
+    expect(heroMark.props.viewBox).toBe('0 0 2400 2400')
+    expect(heroMark.props.fill).toBe('none')
+    expect(heroMark.props.className).toBe('hero-mark')
+    expect(heroMark.props.size).toBeUndefined()
+    const heroChildren = heroMark.props.children as Array<{
+      type: unknown
+      props: Record<string, unknown>
+    }>
+    const [heroField, ...heroPaths] = heroChildren
+    expect(heroField?.type).toBe('rect')
+    expect(heroField?.props.fill).toBe('#000000')
+    expect(heroPaths).toHaveLength(8)
+    expect(heroPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
+  })
+
+  it('does not render the upstream preview badge beside the hero headline', async () => {
+    const source = await readFile(
+      path.join(
+        projectRoot,
+        'node_modules',
+        '@deepseek-ai',
+        'dsh-client-ui-conversation',
+        'lib',
+        'client.js'
+      ),
+      'utf8'
+    )
+
+    expect(source).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
+    expect(source).toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 28,')
+    expect(source).not.toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 34,')
+    expect(source).not.toContain('children: t("hero.preview")')
+    expect(source).toContain('align-items:center;gap:12px 8px;font-size:26px')
+    expect(source).not.toContain('align-items:center;gap:12px 10px;font-size:26px')
+
+    const patch = await readFile(
+      path.join(
+        projectRoot,
+        'patches',
+        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
+      ),
+      'utf8'
+    )
+    expect(patch).toContain('gap:12px 8px;font-size:26px')
+    expect(patch).toContain('+\t\t\t\t\t\t\t\tsize: 28,')
+    expect(patch).toContain('-\t\t\t\t\t\t\t\tsize: 34,')
+    expect(patch).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
+    expect(patch).not.toContain('+\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
+  })
+
+  it('shows the brand mark only in the collapsed rail, not beside the wide brand name', async () => {
+    const source = await readFile(
+      path.join(
+        projectRoot,
+        'node_modules',
+        '@deepseek-ai',
+        'dsh-client-ui-sidebar',
+        'lib',
+        'client.js'
+      ),
+      'utf8'
+    )
+
+    const wideBrandStart = source.indexOf('children: [wide &&')
+    const wideBrandEnd = source.indexOf('})(), !darwinDesktop && toggle]', wideBrandStart)
+    const wideBrand = source.slice(wideBrandStart, wideBrandEnd)
+    expect(wideBrandStart).toBeGreaterThan(-1)
+    expect(wideBrandEnd).toBeGreaterThan(wideBrandStart)
+    expect(wideBrand).toContain('renderSlot("sidebar.brand.name"')
+    expect(wideBrand).not.toContain('renderSlot("sidebar.brand.mark"')
+
+    const railMarkStart = source.indexOf(
+      'className: SidebarRoot_module_css_default.railMark'
+    )
+    const railMarkEnd = source.indexOf(
+      'className: SidebarRoot_module_css_default.panelIcon',
+      railMarkStart
+    )
+    const railMark = source.slice(railMarkStart, railMarkEnd)
+    expect(railMarkStart).toBeGreaterThan(-1)
+    expect(railMarkEnd).toBeGreaterThan(railMarkStart)
+    expect(railMark).toContain('renderSlot("sidebar.brand.mark", { size: 24 }')
   })
 })

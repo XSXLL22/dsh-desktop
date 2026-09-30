@@ -173,9 +173,10 @@ async function main(): Promise<void> {
           document.getElementById('primary').click();
           return { actions, hints: rows.map(row => row.querySelector('.plugin-check-hint').textContent) };
         })()`)
+        // Enterprise policy removes community upgrade actions from recovery.
         assert.deepEqual(perPluginActions.actions, [
-          `upgrade:${names[0]}`, `uninstall:${names[0]}`, `uninstall:${names[1]}`,
-          `upgrade:${names[2]}`, `uninstall:${names[2]}`, 'auto-process'
+          `uninstall:${names[0]}`, `uninstall:${names[1]}`,
+          `uninstall:${names[2]}`, 'auto-process'
         ])
         assert.equal(perPluginActions.hints.length, 3)
       }

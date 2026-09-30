@@ -1,5 +1,5 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/client.js
-index 1c2bc08..c5122d3 100644
+index 1c2bc08..171aafb 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-sidebar/lib/client.js
 @@ -94,7 +94,7 @@ window.__ModuleLoader__.load({
@@ -20,15 +20,33 @@ index 1c2bc08..c5122d3 100644
  				className: clsx(SidebarRoot_module_css_default.root, !wide && SidebarRoot_module_css_default.collapsed, !wide && everWide.current && SidebarRoot_module_css_default.railIn, collapsed && wide && SidebarRoot_module_css_default.fading, !pointerInside && SidebarRoot_module_css_default.quietBars),
  				style: wide ? { width: collapsed ? lastWideWidth.current : width } : void 0,
  				onPointerEnter: () => {
-@@ -309,6 +311,7 @@ window.__ModuleLoader__.load({
+@@ -307,13 +309,11 @@ window.__ModuleLoader__.load({
+ 						className: SidebarRoot_module_css_default.logoRow,
+ 						"data-window-drag": true,
  						children: [wide && (() => {
- 							const identity = (0, react_jsx_runtime.jsxs)("span", {
+-							const identity = (0, react_jsx_runtime.jsxs)("span", {
++							const identity = (0, react_jsx_runtime.jsx)("span", {
  								className: SidebarRoot_module_css_default.brandIdentity,
 +								"data-dsh-sidebar-brand-identity": "",
  								"aria-hidden": "true",
- 								children: [(0, react_jsx_runtime.jsx)("span", {
- 									className: SidebarRoot_module_css_default.brandMark,
-@@ -407,6 +410,7 @@ window.__ModuleLoader__.load({
+-								children: [(0, react_jsx_runtime.jsx)("span", {
+-									className: SidebarRoot_module_css_default.brandMark,
+-									children: renderSlot("sidebar.brand.mark", { size: 24 }, { fallback: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FishLogo, { size: 24 }) })
+-								}), (0, react_jsx_runtime.jsx)("span", {
++								children: (0, react_jsx_runtime.jsx)("span", {
+ 									className: SidebarRoot_module_css_default.brandName,
+ 									children: renderSlot("sidebar.brand.name", {}, { fallback: buildVersion === void 0 ? (0, react_jsx_runtime.jsx)("span", {
+ 										className: SidebarRoot_module_css_default.fallbackBrandName,
+@@ -328,7 +328,7 @@ window.__ModuleLoader__.load({
+ 											children: buildVersion
+ 										})]
+ 									}) })
+-								})]
++								})
+ 							});
+ 							return darwinDesktop ? (0, react_jsx_runtime.jsx)("span", {
+ 								className: clsx(SidebarRoot_module_css_default.brand, SidebarRoot_module_css_default.wide),
+@@ -407,6 +407,7 @@ window.__ModuleLoader__.load({
  							className: SidebarRoot_module_css_default.footerActions,
  							children: renderSlot("sidebar.footer.action", { wide })
  						}), (0, react_jsx_runtime.jsx)("div", {

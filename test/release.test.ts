@@ -197,14 +197,9 @@ describe('GitHub release contract', () => {
       from: 'build/splash.html',
       to: 'splash.html'
     })
-    expect(packageJson.build.extraResources).toContainEqual({
-      from: 'build/dsh-loader.gif',
-      to: 'dsh-loader.gif'
-    })
-    expect(packageJson.build.extraResources).toContainEqual({
-      from: 'build/dsh-loader-dark.gif',
-      to: 'dsh-loader-dark.gif'
-    })
+    expect(packageJson.build.extraResources).not.toContainEqual(
+      expect.objectContaining({ to: expect.stringMatching(/dsh-loader.*\.gif$/) })
+    )
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/dsh-desktop.patch.yml',
       to: 'dsh-desktop.patch.yml'
@@ -254,7 +249,10 @@ describe('GitHub release contract', () => {
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
     expect(packageJson.build.publish).toEqual([
-      { provider: 'github', owner: 'dataelement', repo: 'bisheng-work' }
+      {
+        provider: 'generic',
+        url: 'https://dshdesktop.com/work/updates/latest/'
+      }
     ])
     expect(packageJson.build.win.verifyUpdateCodeSignature).toBe(true)
     expect(packageJson.build.win.signtoolOptions.publisherName).toBe('Beijing Shuju Xiangsu Intelligence Technology Co., Ltd.')
@@ -328,11 +326,12 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(3)
+    expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(2)
+    expect(workflow).toContain('runs-on: macos-15-intel')
     expect(workflow).toContain('architecture: arm64')
     expect(workflow).toContain('architecture: x64')
-    expect(workflow).toContain('shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}')
-    expect(workflow).toContain('arch -x86_64 /usr/bin/true')
+    expect(workflow).not.toContain('shell: arch -x86_64 /bin/bash')
+    expect(workflow).not.toContain('Require Rosetta for Intel packaging')
     expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
@@ -391,7 +390,7 @@ describe('GitHub release contract', () => {
       /macos-apple-silicon:\r?\n\s+name: macOS Apple Silicon\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
-      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+defaults:/
+      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: macos-15-intel\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
       /windows-x64:\r?\n\s+name: Windows x64\r?\n(?:[\s\S]*?)runs-on: windows-2022\r?\n\s+steps:/
@@ -422,7 +421,8 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('version="${PRERELEASE_TAG#v}"')
     expect(workflow).toContain('version="${SIGNED_VERSION#v}"')
     expect(workflow).not.toContain('version="${PRERELEASE_TAG:-${GITHUB_REF_NAME#v}}"')
-    expect(workflow).toContain('pattern: macos-*')
+    expect(workflow).toContain('Download verified pre-release assets from draft release')
+    expect(workflow).toContain('verify-release-staging.mjs')
     expect(workflow).toMatch(
       /publish:[\s\S]*?needs\.sign-windows\.result == 'success'[\s\S]*?- sign-windows/
     )
@@ -499,11 +499,29 @@ describe('prerelease parity workflow', () => {
     ).toHaveLength(4)
   })
 
-  it('publishes prereleases without the legacy update mirror', async () => {
+  it('publishes prereleases to their separate ModelScope path', async () => {
     const yml = await load()
-    expect(yml).toContain('gh release create "$RELEASE_TAG" release-assets/*')
-    expect(yml).toContain('--prerelease')
-    expect(yml).not.toContain('MODELSCOPE_TOKEN')
+    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    expect(prereleaseJob).toContain('Mirror pre-release assets to ModelScope')
+    expect(prereleaseJob).toContain('MODELSCOPE_TOKEN')
+    expect(prereleaseJob).toContain('releases/prerelease/latest')
+    expect(prereleaseJob).toContain('--draft=false --prerelease')
+  })
+
+  it('keeps formal and pre-release ModelScope paths separate', async () => {
+    const yml = await load()
+    const publishJob = yml.slice(
+      yml.indexOf('\n  publish:'),
+      yml.indexOf('\n  publish-prerelease:')
+    )
+    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    expect(yml).toContain('Require ModelScope token for published releases')
+    expect(publishJob).toContain('Mirror formal release to ModelScope')
+    expect(publishJob).toContain('MODELSCOPE_REPO_ID: alexyaojin/bisheng-work')
+    expect(publishJob).toContain('releases/archive/{version}')
+    expect(publishJob).toContain('"releases/latest"')
+    expect(prereleaseJob).toContain('releases/prerelease/{tag}')
+    expect(prereleaseJob).not.toContain('"releases/latest"')
   })
 
   it('parametrises the Windows smoke test executable', async () => {
@@ -513,13 +531,12 @@ describe('prerelease parity workflow', () => {
   })
 })
 
-describe('GitHub-only update publication', () => {
-  it('does not publish legacy archives or configure DSH rollout', async () => {
+describe('BISHENG Work release publication', () => {
+  it('does not configure the DSH version index or rollout', async () => {
     const yml = await readFile(
       path.join(projectRoot, '.github/workflows/release.yml'),
       'utf8'
     )
-    expect(yml).not.toContain('releases/archive/')
     expect(yml).not.toContain('releases/versions.json')
     expect(yml).not.toContain('CRASH_ADMIN_TOKEN')
   })
@@ -541,10 +558,10 @@ describe('AI-organized GitHub release body', () => {
     expect(publishJob).toContain('github-release-notes.md')
   })
 
-  it('still lets the prerelease job use --generate-notes', async () => {
+  it('generates pre-release notes when creating its draft', async () => {
     const yml = await load()
-    const preJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
-    expect(preJob).toContain('--generate-notes')
+    const validationJob = yml.slice(yml.indexOf('\n  validate-dispatch:'), yml.indexOf('\n  macos-apple-silicon:'))
+    expect(validationJob).toContain('note_args=(--generate-notes)')
   })
 
   it('ships a RELEASE_NOTES.md style reference', async () => {

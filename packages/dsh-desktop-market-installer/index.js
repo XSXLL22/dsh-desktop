@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { PassThrough } from 'node:stream'
 
+import { communityPluginInstallAllowed } from './enterprise-policy.mjs'
 import { createGenerationPackageBackend } from './generations/package-backend.mjs'
 import {
   publishGenerationManifest
@@ -371,6 +372,13 @@ export function createDesktopProfilesService(home = dshHome()) {
   })
 }
 
+const COMMUNITY_PLUGIN_MUTATIONS = new Set(['add', 'update', 'upgrade'])
+
+function assertCommunityMutationAllowed(command) {
+  if (communityPluginInstallAllowed() || !COMMUNITY_PLUGIN_MUTATIONS.has(command)) return
+  throw new Error('POLICY_DISABLED: community plugin install and update are disabled in the enterprise edition.')
+}
+
 function validatePluginOperation(args, invokingDir) {
   if (!Array.isArray(args) || args.length === 0) {
     throw new Error('Desktop pnpm requires at least one plugin argument.')
@@ -589,6 +597,7 @@ export function createDesktopPnpmService(options) {
    */
   const runExternalMarketPluginInstall = (args, invokingDir, signal) => {
     validatePluginOperation(args, invokingDir)
+    assertCommunityMutationAllowed('add')
     if (closed) throw new Error('The BISHENG Work pnpm service has been disposed.')
     if (signal?.aborted) throw signal.reason ?? new Error('The package operation was aborted.')
     if (active) throw new Error('Another desktop pnpm operation is already running.')
@@ -653,6 +662,7 @@ export function createDesktopPnpmService(options) {
 
   const runPlugin = (args, invokingDir, signal) => {
     validatePluginOperation(args, invokingDir)
+    assertCommunityMutationAllowed(args[0])
     if (closed) throw new Error('The BISHENG Work pnpm service has been disposed.')
     if (signal?.aborted) throw signal.reason ?? new Error('The package operation was aborted.')
     if (active) throw new Error('Another desktop pnpm operation is already running.')
@@ -864,10 +874,14 @@ export async function apply(ctx) {
 
   const status = async () => {
     const installation = await readMarketInstallation(home)
+    const policy = communityPluginInstallAllowed()
+      ? {}
+      : { policyDisabled: true, policy: 'POLICY_DISABLED' }
     if (phase === 'installing' || phase === 'uninstalling') {
       return {
         phase,
         ...installation,
+        ...policy,
         recommendedVersion: RECOMMENDED_MARKET_VERSION,
         detail,
         restartRequired: false
@@ -877,6 +891,7 @@ export async function apply(ctx) {
       return {
         phase,
         ...installation,
+        ...policy,
         recommendedVersion: RECOMMENDED_MARKET_VERSION,
         restartRequired: true
       }
@@ -885,6 +900,7 @@ export async function apply(ctx) {
       return {
         phase: 'installed',
         ...installation,
+        ...policy,
         recommendedVersion: RECOMMENDED_MARKET_VERSION,
         restartRequired
       }
@@ -893,6 +909,7 @@ export async function apply(ctx) {
       return {
         phase,
         ...installation,
+        ...policy,
         recommendedVersion: RECOMMENDED_MARKET_VERSION,
         detail,
         restartRequired: false
@@ -901,6 +918,7 @@ export async function apply(ctx) {
     return {
       phase: installation.dependency ? 'incomplete' : 'absent',
       ...installation,
+      ...policy,
       recommendedVersion: RECOMMENDED_MARKET_VERSION,
       restartRequired: false
     }
@@ -1011,6 +1029,10 @@ export async function apply(ctx) {
         }
         if (!isTrustedRequest(req, true)) {
           sendJson(res, 403, { error: 'Request rejected.' })
+          return
+        }
+        if (!communityPluginInstallAllowed()) {
+          sendJson(res, 403, { error: 'POLICY_DISABLED' })
           return
         }
         if (operationPromise) {

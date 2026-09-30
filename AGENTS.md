@@ -125,4 +125,3 @@ git diff --check
    - 严格遵循 `docs/source-build-contract.md`：本地构建产物（如 `packages/ppt-runtime/packages/*.tgz`、生成的 `.page` 衍生品等）只作为构建临时产物，禁止纳入 Git 仓库跟踪；若上游或历史遗留提交了二进制包，应将其清理出版本控制。
 4. **合并验收闭环**：
    - 合并完成后必须按顺序执行并通过：`npm ci`（检查 postinstall patch 应用） → `npm run typecheck` → `npm run build` → `npm test`（全量单测与契约测试） → `git diff --check`。
-

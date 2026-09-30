@@ -27,7 +27,9 @@ it('validates peers with real Harness interception despite stale shared links', 
       import { Context } from ${JSON.stringify(moduleUrl('node_modules/@deepseek-ai/cordis/lib/index.js'))};
       import { createRuntimeResolution, PluginPackages, loadProfileDirectory } from ${JSON.stringify(moduleUrl('node_modules/@deepseek-ai/dsh-app-boot/lib/index.js'))};
       import { verifyGenerationPeers } from ${JSON.stringify(moduleUrl('packages/dsh-desktop-market-installer/generations/installer.mjs'))};
+      import { hostDshEntryPath } from ${JSON.stringify(moduleUrl('packages/dsh-desktop-enterprise/market.js'))};
       import { createRequire } from 'node:module';
+      import { realpathSync } from 'node:fs';
       const home = ${JSON.stringify(home)};
       const anchor = ${JSON.stringify(resolve('node_modules/@deepseek-ai/dsh/package.json'))};
       const profile = loadProfileDirectory('test', home + '/profiles/web', anchor);
@@ -38,7 +40,11 @@ it('validates peers with real Harness interception despite stale shared links', 
         const req = createRequire(${JSON.stringify(join(plugin, 'package.json'))});
         // Test real runtime resolution, including the ReactDOM client subpath.
         if (req.resolve('react-dom/client') !== createRequire(anchor).resolve('react-dom/client')) throw new Error('wrong ReactDOM');
-        const result = await verifyGenerationPeers(home, ${JSON.stringify({ directory, id: 'plugin', pluginName: 'fixture', version: '1' })}, { dshEntryPath: ${JSON.stringify(resolve('node_modules/@deepseek-ai/dsh/lib/bin.js'))} });
+        const entry = hostDshEntryPath();
+        if (realpathSync(entry) !== realpathSync(${JSON.stringify(resolve('node_modules/@deepseek-ai/dsh/lib/bin.js'))})) {
+          throw new Error('enterprise host entry is not the current installation: ' + entry);
+        }
+        const result = await verifyGenerationPeers(home, ${JSON.stringify({ directory, id: 'plugin', pluginName: 'fixture', version: '1' })}, { dshEntryPath: entry });
         console.log(JSON.stringify(result));
         if (!result.ok) process.exitCode = 1;
       } finally { await ctx.fiber.dispose(); }

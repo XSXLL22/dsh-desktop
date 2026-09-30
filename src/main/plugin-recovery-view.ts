@@ -1,4 +1,4 @@
-import { planPluginRecovery, type PluginRecoveryCheck } from './plugin-recovery-market'
+import { enterpriseRecoveryChecks, planPluginRecovery, type PluginRecoveryCheck } from './plugin-recovery-market'
 import type { RuntimeSnapshot } from '../shared/contracts'
 
 export type PluginRecoveryLocale = 'en' | 'zh'
@@ -190,20 +190,21 @@ export function buildPluginRecoveryViewModel(options: {
     hint?: string
   }
 }): PluginRecoveryViewModel {
-  const { snapshot, locale, notice, upgradeCandidate } = options
+  const { snapshot, locale, notice } = options
   const pluginPackages = [...new Set(options.plugins)]
   const plugins = pluginPackages.map(displayPluginName)
   const removedPlugins = [...new Set(options.removedPlugins)].map(displayPluginName)
   const canUninstall = plugins.length > 0
   const description = describePluginFailure(snapshot.logs, locale)
   const multiple = plugins.length > 1
-  const plan = planPluginRecovery(options.pluginChecks ?? [])
+  const pluginChecks = enterpriseRecoveryChecks(options.pluginChecks ?? [])
+  const plan = planPluginRecovery(pluginChecks)
   const hasActions = plan.upgrades.length + plan.removals.length > 0
   const retryCheck = (options.pluginChecks?.length ?? 0) > 0 && !hasActions
   const marketCheck = options.market ? buildMarketCheck(locale, options.market) : undefined
   const marketPrimary = marketCheck !== undefined && !canUninstall
   const marketUpgrade = marketCheck?.upgradeLabel !== undefined
-  const safeModeOnly = !canUninstall && upgradeCandidate === undefined && !marketPrimary
+  const safeModeOnly = !canUninstall && !marketPrimary
 
   if (locale === 'zh') {
     return {
@@ -235,18 +236,13 @@ export function buildPluginRecoveryViewModel(options: {
         : marketPrimary ? '正在升级…' : '正在进入安全模式…',
       autoProcessLabel: hasActions ? `一键自动处理（升级 ${plan.upgrades.length}，卸载 ${plan.removals.length}）` : undefined,
       retryCheckLabel: retryCheck ? '重新检查更新' : undefined,
-      pluginChecks: options.pluginChecks,
+      pluginChecks,
       ...(marketCheck ? { marketCheck } : {}),
       marketPrimary,
-      upgradeCandidate,
-      upgradeLabel: upgradeCandidate
-        ? '升级插件并重启'
-        : undefined,
-      upgradeBusyLabel: upgradeCandidate ? '正在升级…' : undefined,
-      upgradeHint: upgradeCandidate
-        ? upgradeCandidate.upgradeHint ?? `该插件有新的兼容版本（${upgradeCandidate.targetVersion.startsWith('v') ? upgradeCandidate.targetVersion : `v${upgradeCandidate.targetVersion}`}）`
-        : undefined,
-      uninstallLabel: upgradeCandidate ? '卸载插件' : undefined,
+      upgradeLabel: undefined,
+      upgradeBusyLabel: undefined,
+      upgradeHint: undefined,
+      uninstallLabel: undefined,
       logLabel: '打开 Harness 日志',
       advancedLabel: '查看技术详情',
       errorLabel: '错误信息',
@@ -289,18 +285,13 @@ export function buildPluginRecoveryViewModel(options: {
       : marketPrimary ? 'Upgrading…' : 'Entering Safe Mode…',
     autoProcessLabel: hasActions ? `Auto-recover (${plan.upgrades.length} upgrades, ${plan.removals.length} removals)` : undefined,
     retryCheckLabel: retryCheck ? 'Retry update checks' : undefined,
-    pluginChecks: options.pluginChecks,
+    pluginChecks,
     ...(marketCheck ? { marketCheck } : {}),
     marketPrimary,
-    upgradeCandidate,
-    upgradeLabel: upgradeCandidate
-      ? 'Upgrade plugin and restart'
-      : undefined,
-    upgradeBusyLabel: upgradeCandidate ? 'Upgrading…' : undefined,
-    upgradeHint: upgradeCandidate
-      ? upgradeCandidate.upgradeHint ?? `A compatible update is available (${upgradeCandidate.targetVersion.startsWith('v') ? upgradeCandidate.targetVersion : `v${upgradeCandidate.targetVersion}`})`
-      : undefined,
-    uninstallLabel: upgradeCandidate ? 'Uninstall plugin' : undefined,
+    upgradeLabel: undefined,
+    upgradeBusyLabel: undefined,
+    upgradeHint: undefined,
+    uninstallLabel: undefined,
     logLabel: 'Open Harness log',
     advancedLabel: 'View technical details',
     errorLabel: 'Error details',
@@ -319,14 +310,13 @@ function buildMarketCheck(
   market: NonNullable<Parameters<typeof buildPluginRecoveryViewModel>[0]['market']>
 ): PluginRecoveryMarketCheck {
   const zh = locale === 'zh'
-  const { installedVersion, upgradeVersion } = market
+  const { installedVersion } = market
   return {
     name: 'dshmarket',
     ...(installedVersion !== undefined ? { installedVersion } : {}),
     hint: market.hint ?? (zh
-      ? '启动日志显示插件市场加载失败。可升级到兼容的新版本，或卸载插件市场；已安装的社区插件都会保留。'
-      : 'The startup log shows the plugin market failed to load. Upgrade to a compatible release or remove the market; installed community plugins are kept.'),
-    ...(upgradeVersion ? { upgradeLabel: zh ? `升级至 v${upgradeVersion}` : `Upgrade to v${upgradeVersion}` } : {}),
+      ? '启动日志显示社区插件市场加载失败。企业版不从社区市场安装或升级。可卸载该插件；需要插件时请联系管理员，从企业插件市场安装。'
+      : 'The startup log shows the community plugin market failed to load. This edition does not install or upgrade it. You can remove it; ask an administrator to install plugins from the enterprise market.'),
     // Worded like a third-party plugin's removal on this page.
     removeLabel: zh ? '卸载此插件' : 'Remove this plugin'
   }

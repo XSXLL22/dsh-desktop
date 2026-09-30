@@ -9,6 +9,7 @@ import {
   withRegistryLock,
   writeDesired
 } from 'dsh-desktop-market-installer/generations/registry'
+import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
 import { resolveMarketRegistry } from 'dsh-desktop-market-installer/market-registry'
 import { lstat, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -37,6 +38,10 @@ export async function upgradePluginToGeneration(
   options: PluginUpgradeOptions
 ): Promise<PluginUpgradeResult> {
   const { dshHome, pluginName, targetVersion, nodeExecutablePath, pnpmEntryPath, note } = options
+  if (!communityPluginInstallAllowed()) {
+    note?.(`[plugin-upgrade] rejected community upgrade of ${pluginName}`)
+    return { ok: false, detail: 'POLICY_DISABLED' }
+  }
   const spec = `${pluginName}@${targetVersion}`
 
   return withRegistryLock(dshHome, async () => {
@@ -143,6 +148,10 @@ export async function upgradeMarketInSharedTree(
   options: MarketSharedTreeUpgradeOptions
 ): Promise<PluginUpgradeResult> {
   const { dshHome, dshEntryPath, targetVersion, nodeExecutablePath, pnpmEntryPath, pnpmRunnerPath, note } = options
+  if (!communityPluginInstallAllowed()) {
+    note?.('[plugin-upgrade] rejected community market upgrade')
+    return { ok: false, detail: 'POLICY_DISABLED' }
+  }
   const profileDirectory = join(dshHome, 'profiles', 'web')
   const manifestPath = join(profileDirectory, 'package.json')
   const marketPath = join(profileDirectory, 'node_modules', MARKET_PACKAGE)
