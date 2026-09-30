@@ -21,9 +21,7 @@ async function fakeGitHubRelease({ isDraft = true, names = installers } = {}) {
   temporaryDirectories.push(directory)
   const statePath = path.join(directory, 'state.json')
   await writeFile(statePath, JSON.stringify({ isDraft, assets: names.map(name => ({ name })), deleted: [] }))
-  const fakeGh = path.join(directory, 'gh')
-  await writeFile(fakeGh, `#!/usr/bin/env node
-const fs = require('node:fs')
+  const fakeBody = `const fs = require('node:fs')
 const statePath = process.env.FAKE_GH_STATE
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
 const args = process.argv.slice(2)
@@ -41,8 +39,20 @@ if (args[1] === 'view' && args.includes('--json')) {
 } else {
   process.exit(2)
 }
-`)
-  await chmod(fakeGh, 0o755)
+`
+  // Windows resolves PATHEXT and will not execute an extensionless shebang
+  // named "gh", so it would fall through to the runner's real gh.exe.
+  if (process.platform === 'win32') {
+    await writeFile(path.join(directory, 'gh-fake.js'), fakeBody)
+    await writeFile(
+      path.join(directory, 'gh.cmd'),
+      `@echo off\r\n"${process.execPath}" "%~dp0gh-fake.js" %*\r\n`
+    )
+  } else {
+    const fakeGh = path.join(directory, 'gh')
+    await writeFile(fakeGh, `#!/usr/bin/env node\n${fakeBody}`)
+    await chmod(fakeGh, 0o755)
+  }
   const env = {
     ...process.env,
     PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
