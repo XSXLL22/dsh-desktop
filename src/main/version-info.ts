@@ -36,7 +36,7 @@ export function aboutDetail(
 ): string {
   const harness = harnessVersion ?? (locale === 'zh' ? '未知' : 'Unknown')
   if (locale === 'zh') {
-    return `BISHENG Work 版本：${desktopVersion}\n内置 Harness 版本：${harness}\n\nHarness 随 BISHENG Work 更新。`
+    return `BISHENG 版本：${desktopVersion}\n内置 Harness 版本：${harness}\n\nHarness 随 BISHENG 更新。`
   }
-  return `BISHENG Work version: ${desktopVersion}\nBundled Harness version: ${harness}\n\nHarness is updated with BISHENG Work.`
+  return `BISHENG version: ${desktopVersion}\nBundled Harness version: ${harness}\n\nHarness is updated with BISHENG.`
 }

@@ -1,6 +1,6 @@
 /**
  * DSH Desktop listens on 43127–43130 (mobile bridge, then Harness, each with a
- * development port one higher). BISHENG Work keeps its own stable ports so
+ * development port one higher). BISHENG keeps its own stable ports so
  * both desktops can run at the same time.
  */
 const BISHENG_MOBILE_PORT = 43227

@@ -143,7 +143,7 @@ jobs:
             }
           else
             gh release create "$release_tag" --draft "${tag_args[@]}" \
-              --title "BISHENG Work $release_tag" \
+              --title "BISHENG $release_tag" \
               "${note_args[@]}" \
               --repo "$GITHUB_REPOSITORY"
           fi
@@ -262,7 +262,7 @@ jobs:
       - name: Verify signed and notarized Apple Silicon app
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         run: |
-          app_path="dist/mac-arm64/BISHENG Work.app"
+          app_path="dist/mac-arm64/BISHENG.app"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
@@ -420,7 +420,7 @@ jobs:
       - name: Verify signed and notarized Intel app
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))
         run: |
-          app_path="dist/mac/BISHENG Work.app"
+          app_path="dist/mac/BISHENG.app"
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
@@ -512,7 +512,7 @@ jobs:
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
-          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\BISHENG Work.exe' || 'dist-dev\win-unpacked\BISHENG Work Dev.exe' }}
+          SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\BISHENG.exe' || 'dist-dev\win-unpacked\BISHENG Dev.exe' }}
           SMOKE_USERDATA: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'bisheng-work' || 'bisheng-work-dev' }}
         run: |
           $userData = Join-Path $env:APPDATA $env:SMOKE_USERDATA
@@ -539,7 +539,7 @@ jobs:
             $endpoint = $null
             while ((Get-Date) -lt $deadline) {
               if ($desktop.HasExited) {
-                throw "BISHENG Work Dev exited before Harness was ready (exit code $($desktop.ExitCode))."
+                throw "BISHENG Dev exited before Harness was ready (exit code $($desktop.ExitCode))."
               }
               if (Test-Path $logPath) {
                 $log = Get-Content -Raw $logPath
@@ -609,7 +609,7 @@ jobs:
               throw 'Harness process exited after workspace and session creation.'
             }
             if ($desktop.HasExited) {
-              throw "BISHENG Work Dev exited after workspace and session creation (exit code $($desktop.ExitCode))."
+              throw "BISHENG Dev exited after workspace and session creation (exit code $($desktop.ExitCode))."
             }
             Write-Host 'Packaged Windows Harness smoke test passed.'
           } finally {
@@ -795,7 +795,7 @@ jobs:
             --tsmode RFC3161 \
             --tsretries 3 \
             --tsretrywait 10 \
-            --name 'BISHENG Work' \
+            --name 'BISHENG' \
             --url https://www.dshdesktop.com \
             --verbose \
             "$installer"
@@ -1182,7 +1182,7 @@ jobs:
           set -euo pipefail
           node scripts/prune-github-release-assets.mjs "$RELEASE_TAG"
           gh release edit "$RELEASE_TAG" --draft=false --prerelease \
-            --title "BISHENG Work $RELEASE_TAG（预发布）" \
+            --title "BISHENG $RELEASE_TAG（预发布）" \
             --repo "$GITHUB_REPOSITORY"
           base="https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/prerelease/$RELEASE_TAG"
           echo "## Pre-release downloads" >> "$GITHUB_STEP_SUMMARY"

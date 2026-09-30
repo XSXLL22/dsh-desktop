@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
     }
 
     function DesktopBrandName() {
-      return React.createElement('span', { style: { letterSpacing: '-0.01em' } }, 'BISHENG Work')
+      return React.createElement('span', { style: { letterSpacing: '-0.01em' } }, 'BISHENG')
     }
 
     function ConversationBrandMark(props) {

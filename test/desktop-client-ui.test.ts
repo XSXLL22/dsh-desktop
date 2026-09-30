@@ -10,7 +10,7 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
-describe('BISHENG Work client slot occupants', () => {
+describe('BISHENG client slot occupants', () => {
   it('keeps BISHENG artwork in mark seats and inherits the sidebar name typography', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
@@ -105,7 +105,7 @@ describe('BISHENG Work client slot occupants', () => {
       ({ config }) => config.name === 'sidebar.brand.name'
     )!.component({}) as { type: unknown; props: Record<string, unknown> }
     expect(sidebarName.type).toBe('span')
-    expect(sidebarName.props.children).toEqual(['BISHENG Work'])
+    expect(sidebarName.props.children).toEqual(['BISHENG'])
     expect(sidebarName.props.className).toBeUndefined()
     expect(sidebarName.props.style).toEqual({ letterSpacing: '-0.01em' })
     expect(sidebarName.props.fontFamily).toBeUndefined()

@@ -100,7 +100,7 @@ The public tunnel is optional and forwards only the paired mobile surface; it do
 
 ## Updates
 
-The update manager remains in installed macOS and Windows builds, but online checks are disabled until a formal BISHENG Work release is mirrored and the installed-client flow is verified. The app reports that online updates are unavailable in existing packages.
+The update manager remains in installed macOS and Windows builds, but online checks are disabled until a formal BISHENG release is mirrored and the installed-client flow is verified. The app reports that online updates are unavailable in existing packages.
 
 The planned update source is `https://dshdesktop.com/work/updates/latest/`, which redirects individual asset requests to the public ModelScope path `alexyaojin/bisheng-work/releases/latest/`; the private GitHub Release remains the build and signing record. The native release workflow mirrors only formal `v*` releases to ModelScope, both at `releases/latest/` and `releases/archive/<version>/`. The About dialog no longer offers historical installs or downgrades. macOS arm64 and x64 metadata is merged before publication; the signed Windows installer has its blockmap and metadata regenerated after signing. Enable online checks only after the public metadata, installer downloads, and installed-client update flow are verified on both platforms.
 

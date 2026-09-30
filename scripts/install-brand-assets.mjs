@@ -76,7 +76,7 @@ function replaceManifestIcon(contents, file, iconContents) {
 function readPngDimensions(contents, file) {
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
   if (contents.length < 24 || !contents.subarray(0, 8).equals(signature)) {
-    throw new Error(`Could not update BISHENG Work branding: ${file} is not a PNG`)
+    throw new Error(`Could not update BISHENG branding: ${file} is not a PNG`)
   }
   return { width: contents.readUInt32BE(16), height: contents.readUInt32BE(20) }
 }
@@ -96,7 +96,7 @@ await writeFile(
   replaceManifestIcon(manifest, path.relative(projectRoot, manifestPath), iconContents)
 )
 
-console.log(`Installed BISHENG Work brand assets: ${[
+console.log(`Installed BISHENG brand assets: ${[
   destination,
   lightDestination,
   darkDestination

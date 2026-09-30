@@ -66,8 +66,8 @@ export function updateHeadline(status: UpdateStatus, locale: UpdateLocale): Upda
       return {
         title: zh ? '暂未提供在线更新' : 'Online updates are not available',
         description: zh
-          ? 'BISHENG Work 暂未提供在线更新。'
-          : 'BISHENG Work does not offer online updates yet.'
+          ? 'BISHENG 暂未提供在线更新。'
+          : 'BISHENG does not offer online updates yet.'
       }
     case 'error':
       return {
@@ -89,17 +89,17 @@ export function updateMessage(status: UpdateStatus, locale: UpdateLocale): strin
     case 'available':
       return zh
         ? `发现新版本${version}，是否更新？`
-        : `BISHENG Work${version} is available. Update now?`
+        : `BISHENG${version} is available. Update now?`
     case 'downloading': {
       const percent = Math.round(status.percent ?? 0)
       return zh ? `正在下载更新 ${percent}%` : `Downloading update ${percent}%`
     }
     case 'downloaded':
-      return zh ? `BISHENG Work${version} 已下载完成` : `BISHENG Work${version} is ready to install`
+      return zh ? `BISHENG${version} 已下载完成` : `BISHENG${version} is ready to install`
     case 'up-to-date':
-      return zh ? 'BISHENG Work 已是最新版本' : 'BISHENG Work is up to date'
+      return zh ? 'BISHENG 已是最新版本' : 'BISHENG is up to date'
     case 'unsupported':
-      return zh ? 'BISHENG Work 暂未提供在线更新。' : 'BISHENG Work does not offer online updates yet.'
+      return zh ? 'BISHENG 暂未提供在线更新。' : 'BISHENG does not offer online updates yet.'
     case 'error':
       return zh ? '无法检查或下载更新' : 'Unable to check for or download updates'
     case 'idle':

@@ -3,10 +3,10 @@ const packageJson = require('./package.json')
 module.exports = {
   ...packageJson.build,
   appId: 'io.bisheng.work.dev',
-  productName: 'BISHENG Work Dev',
+  productName: 'BISHENG Dev',
   protocols: [
     {
-      name: 'BISHENG Work Dev Enterprise Login',
+      name: 'BISHENG Dev Enterprise Login',
       schemes: ['bisheng-work-dev']
     }
   ],
@@ -16,7 +16,7 @@ module.exports = {
   },
   extraMetadata: {
     name: 'dsh-desktop-dev',
-    productName: 'BISHENG Work Dev',
+    productName: 'BISHENG Dev',
     dshDesktopChannel: 'development'
   },
   artifactName: 'bisheng-work-dev-${os}-${arch}.${ext}',
