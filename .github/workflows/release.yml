@@ -298,18 +298,9 @@ jobs:
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'macos'))
-    runs-on: [self-hosted, macOS, ARM64]
-    defaults:
-      run:
-        shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}
+    # A separate native Intel runner lets both macOS jobs build concurrently.
+    runs-on: macos-15-intel
     steps:
-      - name: Require Rosetta for Intel packaging
-        shell: bash
-        run: |
-          if ! arch -x86_64 /usr/bin/true; then
-            echo "::error::Rosetta 2 is required for Intel packaging on this ARM64 runner"
-            exit 1
-          fi
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
