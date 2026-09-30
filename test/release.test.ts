@@ -420,7 +420,8 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('version="${PRERELEASE_TAG#v}"')
     expect(workflow).toContain('version="${SIGNED_VERSION#v}"')
     expect(workflow).not.toContain('version="${PRERELEASE_TAG:-${GITHUB_REF_NAME#v}}"')
-    expect(workflow).toContain('pattern: macos-*')
+    expect(workflow).toContain('Download verified pre-release assets from draft release')
+    expect(workflow).toContain('verify-release-staging.mjs')
     expect(workflow).toMatch(
       /publish:[\s\S]*?needs\.sign-windows\.result == 'success'[\s\S]*?- sign-windows/
     )
@@ -497,25 +498,29 @@ describe('prerelease parity workflow', () => {
     ).toHaveLength(4)
   })
 
-  it('publishes prereleases without the legacy update mirror', async () => {
+  it('publishes prereleases to their separate ModelScope path', async () => {
     const yml = await load()
-    expect(yml).toContain('gh release create "$RELEASE_TAG" release-assets/*')
-    expect(yml).toContain('--prerelease')
     const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
-    expect(prereleaseJob).not.toContain('MODELSCOPE_TOKEN')
+    expect(prereleaseJob).toContain('Mirror pre-release assets to ModelScope')
+    expect(prereleaseJob).toContain('MODELSCOPE_TOKEN')
+    expect(prereleaseJob).toContain('releases/prerelease/latest')
+    expect(prereleaseJob).toContain('--draft=false --prerelease')
   })
 
-  it('mirrors only formal release assets to ModelScope', async () => {
+  it('keeps formal and pre-release ModelScope paths separate', async () => {
     const yml = await load()
     const publishJob = yml.slice(
       yml.indexOf('\n  publish:'),
       yml.indexOf('\n  publish-prerelease:')
     )
-    expect(yml).toContain('Require ModelScope token for formal releases')
+    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    expect(yml).toContain('Require ModelScope token for published releases')
     expect(publishJob).toContain('Mirror formal release to ModelScope')
     expect(publishJob).toContain('MODELSCOPE_REPO_ID: alexyaojin/bisheng-work')
     expect(publishJob).toContain('releases/archive/{version}')
     expect(publishJob).toContain('"releases/latest"')
+    expect(prereleaseJob).toContain('releases/prerelease/{tag}')
+    expect(prereleaseJob).not.toContain('"releases/latest"')
   })
 
   it('parametrises the Windows smoke test executable', async () => {
@@ -552,10 +557,10 @@ describe('AI-organized GitHub release body', () => {
     expect(publishJob).toContain('github-release-notes.md')
   })
 
-  it('still lets the prerelease job use --generate-notes', async () => {
+  it('generates pre-release notes when creating its draft', async () => {
     const yml = await load()
-    const preJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
-    expect(preJob).toContain('--generate-notes')
+    const validationJob = yml.slice(yml.indexOf('\n  validate-dispatch:'), yml.indexOf('\n  macos-apple-silicon:'))
+    expect(validationJob).toContain('note_args=(--generate-notes)')
   })
 
   it('ships a RELEASE_NOTES.md style reference', async () => {
