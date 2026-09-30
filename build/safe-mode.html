@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
     />
-    <title>BISHENG Work Safe Mode</title>
+    <title>BISHENG Safe Mode</title>
     <style>
       :root {
         /* Same reading column as the recovery page. */
@@ -216,7 +216,7 @@
       const model = JSON.parse(params.get('state') || '{}')
       document.documentElement.lang = model.locale === 'zh' ? 'zh-CN' : 'en'
       document.documentElement.dataset.theme = params.get('theme') || 'system'
-      document.title = `${model.badge || 'Safe Mode'} · ${model.brand || 'BISHENG Work'}`
+      document.title = `${model.badge || 'Safe Mode'} · ${model.brand || 'BISHENG'}`
       const setText = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value || '' }
       setText('page-title', model.locale === 'zh' ? '管理插件' : 'Manage plugins')
       setText('heading', model.heading)

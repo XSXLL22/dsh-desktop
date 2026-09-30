@@ -44,7 +44,7 @@ export function buildWebImportViewModel(options: {
 
   return {
     locale: options.locale,
-    brand: 'BISHENG Work',
+    brand: 'BISHENG',
     badge: zh ? '导入' : 'Import',
     heading: zh ? '发现网页版数据' : 'Web Harness data found',
     summary: zh

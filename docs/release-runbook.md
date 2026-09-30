@@ -12,7 +12,7 @@ Official releases are still created by pushing a `v*` tag, not by filling the di
 
 Online update checks remain disabled until a formal release is mirrored to ModelScope and tested on installed macOS and Windows builds. The package metadata points to `https://dshdesktop.com/work/updates/latest/`. On the existing `dshdesktop.com` HTTPS server, include [`ops/nginx/work-updates.conf`](../ops/nginx/work-updates.conf); it redirects each update asset to `alexyaojin/bisheng-work/releases/latest/` on ModelScope. The `/work/` prefix keeps this feed separate from DSH Desktop's `/updates/latest/`. No GitHub token is needed in the app. Existing installed builds still report that online updates are unavailable and require a manual install to enter the future update channel.
 
-Before publishing a formal release, verify that a request to `https://dshdesktop.com/work/updates/latest/latest.yml` receives a 302 with the Bisheng Work ModelScope URL, then verify that metadata and each referenced ZIP, installer, and blockmap can be downloaded through this route. The first public metadata will be absent until a formal release is mirrored. Browser pages under `dshdesktop.com/work/` share an origin with the DSH Desktop site, but a redirect to ModelScope still changes origin for browser fetches; serve those responses from the site or configure CORS if a future web page needs to read them in JavaScript.
+Before publishing a formal release, verify that a request to `https://dshdesktop.com/work/updates/latest/latest.yml` receives a 302 with the BISHENG ModelScope URL, then verify that metadata and each referenced ZIP, installer, and blockmap can be downloaded through this route. The first public metadata will be absent until a formal release is mirrored. Browser pages under `dshdesktop.com/work/` share an origin with the DSH Desktop site, but a redirect to ModelScope still changes origin for browser fetches; serve those responses from the site or configure CORS if a future web page needs to read them in JavaScript.
 
 ## Build layout and timing
 
@@ -34,7 +34,7 @@ For a first packaging check, dispatch `Release desktop installers` on `main` wit
 
 ## GitHub Actions parameters for signing and publishing
 
-Add these under **Settings → Secrets and variables → Actions** for this repository. Existing secrets in CoAligne or DSH Desktop cannot be read back through GitHub and are not automatically available to Bisheng Work. The same Apple certificate and API key may be reused only if their owner confirms that this app should be signed under that Apple team.
+Add these under **Settings → Secrets and variables → Actions** for this repository. Existing secrets in CoAligne or DSH Desktop cannot be read back through GitHub and are not automatically available to BISHENG. The same Apple certificate and API key may be reused only if their owner confirms that this app should be signed under that Apple team.
 
 | Secret | Needed for | Value to provide |
 | --- | --- | --- |

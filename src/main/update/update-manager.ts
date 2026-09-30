@@ -23,10 +23,10 @@ import {
 
 const { autoUpdater } = electronUpdater
 const TRANSIENT_STATUS_MS = 8_000
-// BISHENG Work releases are currently private and cannot be read anonymously
+// BISHENG releases are currently private and cannot be read anonymously
 // by installed clients. Keep online updates disabled until a public feed exists.
 const ONLINE_UPDATES_ENABLED = false
-const UPDATES_UNAVAILABLE_MESSAGE = 'BISHENG Work does not offer online updates yet.'
+const UPDATES_UNAVAILABLE_MESSAGE = 'BISHENG does not offer online updates yet.'
 
 let status = initialUpdateStatus(app.getVersion())
 let prepareToInstall: (() => Promise<void>) | undefined

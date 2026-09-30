@@ -10,8 +10,8 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
-describe('BISHENG Work client slot occupants', () => {
-  it('keeps BISHENG artwork in mark seats and inherits the sidebar name typography', async () => {
+describe('BISHENG client slot occupants', () => {
+  it('keeps BISHENG artwork in mark seats while removing the wide sidebar wordmark', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
       'utf8'
@@ -97,21 +97,16 @@ describe('BISHENG Work client slot occupants', () => {
     ])
     // Desktop toolbar styles have an owned lifetime; branding stays in currentColor.
     expect(appended).toHaveLength(1)
+    expect(appended[0]?.textContent).toContain('[data-dsh-sidebar-brand-identity]')
+    expect(appended[0]?.textContent).toContain("html[data-platform='darwin']")
     expect(appended[0]?.textContent).toContain("[data-dsh-preset-search]")
     disposeStyle?.()
     expect(removeStyle).toHaveBeenCalledOnce()
 
     const sidebarName = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.name'
-    )!.component({}) as { type: unknown; props: Record<string, unknown> }
-    expect(sidebarName.type).toBe('span')
-    expect(sidebarName.props.children).toEqual(['BISHENG Work'])
-    expect(sidebarName.props.className).toBeUndefined()
-    expect(sidebarName.props.style).toEqual({ letterSpacing: '-0.01em' })
-    expect(sidebarName.props.fontFamily).toBeUndefined()
-    expect(sidebarName.props.fontSize).toBeUndefined()
-    expect(sidebarName.props.fontWeight).toBeUndefined()
-    expect(sidebarName.props.color).toBeUndefined()
+    )!.component({})
+    expect(sidebarName).toBeNull()
 
     const sidebarMark = registrations.find(
       ({ config }) => config.name === 'sidebar.brand.mark'
@@ -152,7 +147,7 @@ describe('BISHENG Work client slot occupants', () => {
     expect(heroPaths.every(({ type, props }) => type === 'path' && props.fill === 'white')).toBe(true)
   })
 
-  it('does not render the upstream preview badge beside the hero headline', async () => {
+  it('reuses the upstream preview-badge styling for the enterprise label', async () => {
     const source = await readFile(
       path.join(
         projectRoot,
@@ -165,12 +160,19 @@ describe('BISHENG Work client slot occupants', () => {
       'utf8'
     )
 
-    expect(source).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
+    expect(source).toContain('children: [(0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
     expect(source).toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 28,')
     expect(source).not.toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 34,')
-    expect(source).not.toContain('children: t("hero.preview")')
-    expect(source).toContain('align-items:center;gap:12px 8px;font-size:26px')
-    expect(source).not.toContain('align-items:center;gap:12px 10px;font-size:26px')
+    expect(source).toContain('children: t("hero.preview")')
+    expect(source).toContain('.pXSMma_stack{gap:30px}')
+    expect(source).toContain('.pXSMma_headline{column-gap:16px}')
+    expect(source).toContain('.pXSMma_previewBadge{border:.5px solid var(--dsw-alias-interactive-bg-hover)')
+    expect(source).toContain('background:var(--dsw-alias-state-business-tertiary)')
+    expect(source).toContain('color:var(--dsw-alias-label-primary-bluish)')
+    expect(source).toContain('align-self:flex-start;margin-top:2px')
+    expect(source).not.toContain('bishengHeroCss = ".pXSMma_stack{gap:30px}.pXSMma_headline{column-gap:16px}.pXSMma_previewBadge')
+    expect(source).not.toContain('Iowan Old Style')
+    expect(source).toContain('tag.textContent = css$3 + bishengHeroCss')
 
     const patch = await readFile(
       path.join(
@@ -180,11 +182,48 @@ describe('BISHENG Work client slot occupants', () => {
       ),
       'utf8'
     )
-    expect(patch).toContain('gap:12px 8px;font-size:26px')
+    expect(patch).toContain('.pXSMma_stack{gap:30px}')
+    expect(patch).toContain('.pXSMma_headline{column-gap:16px}')
+    expect(patch).not.toContain('#d6b45c')
+    expect(patch).not.toContain('#f4d58b')
+    expect(patch).not.toContain('Iowan Old Style')
     expect(patch).toContain('+\t\t\t\t\t\t\t\tsize: 28,')
     expect(patch).toContain('-\t\t\t\t\t\t\t\tsize: 34,')
-    expect(patch).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
-    expect(patch).not.toContain('+\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
+    expect(patch).not.toContain('-\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
+  })
+
+  it('uses the new hero message in both Chinese and English', async () => {
+    const source = await readFile(
+      path.join(
+        projectRoot,
+        'node_modules',
+        '@deepseek-ai',
+        'dsh-client-ui-conversation',
+        'lib',
+        'client.js'
+      ),
+      'utf8'
+    )
+    const patch = await readFile(
+      path.join(
+        projectRoot,
+        'patches',
+        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
+      ),
+      'utf8'
+    )
+
+    expect(source).toContain('"hero.headline": "来一起创造"')
+    expect(source).toContain('"hero.preview": "企业版"')
+    expect(source).not.toContain('"hero.headline": "探索未至之境"')
+    expect(source).toContain('"hero.headline": "Let\'s Create Together"')
+    expect(source).toContain('"hero.preview": "Enterprise"')
+    expect(patch).toContain('+\t\t\t"hero.headline": "来一起创造",')
+    expect(patch).toContain('+\t\t\t"hero.preview": "企业版",')
+    expect(patch).toContain('-\t\t\t"hero.headline": "探索未至之境",')
+    expect(patch).toContain('+\t\t\t"hero.headline": "Let\'s Create Together",')
+    expect(patch).toContain('+\t\t\t"hero.preview": "Enterprise",')
+    expect(patch).toContain('-\t\t\t"hero.headline": "Into the Unknown",')
   })
 
   it('shows the brand mark only in the collapsed rail, not beside the wide brand name', async () => {

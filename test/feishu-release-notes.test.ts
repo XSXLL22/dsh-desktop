@@ -60,10 +60,10 @@ describe('Feishu release notes pipeline', () => {
         env: pythonEnv
       })
 
-      expect(output).toContain("You are BISHENG Work's Release Bot.")
-      expect(output).toContain('## BISHENG Work v0.4.0 Release Note')
+      expect(output).toContain("You are BISHENG's Release Bot.")
+      expect(output).toContain('## BISHENG v0.4.0 Release Note')
       expect(output).toContain('📢 大家可以直接在客户端中更新。')
-      expect(output).toContain('📢 You can update directly from the BISHENG Work app.')
+      expect(output).toContain('📢 You can update directly from the BISHENG app.')
       expect(output).toContain('<tag-release-note>')
       expect(output).toContain('<commit-details>')
       expect(output).toContain('<diff-statistics>')
@@ -81,9 +81,9 @@ describe('Feishu release notes pipeline', () => {
       })
 
       const content = readFileSync(tempFile, 'utf8')
-      expect(content).toContain('## BISHENG Work v0.4.0 Release Note')
+      expect(content).toContain('## BISHENG v0.4.0 Release Note')
       expect(content).toContain('📢 大家可以直接在客户端中更新。')
-      expect(content).toContain('📢 You can update directly from the BISHENG Work app.')
+      expect(content).toContain('📢 You can update directly from the BISHENG app.')
       expect(content).toContain('---')
 
       // Validate passes without error
@@ -103,7 +103,7 @@ describe('Feishu release notes pipeline', () => {
     const tempFile = join(process.cwd(), '.temp-invalid-feishu-notes.md')
     try {
       // Invalid because it contains a link
-      const invalidContent = `## BISHENG Work v0.4.0 Release Note
+      const invalidContent = `## BISHENG v0.4.0 Release Note
 
 📢 大家可以直接在客户端中更新。
 
@@ -113,9 +113,9 @@ describe('Feishu release notes pipeline', () => {
 
 ---
 
-## BISHENG Work v0.4.0 Release Note
+## BISHENG v0.4.0 Release Note
 
-📢 You can update directly from the BISHENG Work app.
+📢 You can update directly from the BISHENG app.
 
 **🚀 1. Title**
 
@@ -150,7 +150,7 @@ Description here.
       )
 
       const content = readFileSync(tempFile, 'utf8')
-      expect(content).toContain('## BISHENG Work v0.7.2（预发布）Release Note')
+      expect(content).toContain('## BISHENG v0.7.2（预发布）Release Note')
       expect(content).toContain('⚠️ 本次为预发布版本，供测试与体验使用。')
       expect(content).toContain('⚠️ This is a pre-release version for testing and preview.')
       expect(content).toContain('---')
@@ -172,7 +172,7 @@ Description here.
     }
   })
 
-  it('uses BISHENG Work and versioned ModelScope downloads in notification cards', () => {
+  it('uses BISHENG and versioned ModelScope downloads in notification cards', () => {
     const output = execFileSync('python3', ['-c', `
 import importlib.util
 import json
@@ -206,8 +206,8 @@ print(json.dumps(cards, ensure_ascii=False))
     }>
 
     expect(cards.map(card => card.header.title.content)).toEqual([
-      '✅ BISHENG Work v1.0.1 发布成功',
-      '🧪 BISHENG Work 1.0.1-rc.1（预发布）已发布'
+      '✅ BISHENG v1.0.1 发布成功',
+      '🧪 BISHENG 1.0.1-rc.1（预发布）已发布'
     ])
     expect(cards.every(card => card.elements[0]?.text.content === 'notes')).toBe(true)
     const downloadNames = [
@@ -249,7 +249,7 @@ print(json.dumps(cards, ensure_ascii=False))
       )
 
       expect(output).toContain("user-facing pre-release copy")
-      expect(output).toContain('## BISHENG Work v0.7.2（预发布）Release Note')
+      expect(output).toContain('## BISHENG v0.7.2（预发布）Release Note')
       expect(output).toContain('⚠️ 本次为预发布版本，供测试与体验使用。')
       expect(output).toContain('⚠️ This is a pre-release version for testing and preview.')
       expect(output).toContain('Previous tag: v0.7.1')
