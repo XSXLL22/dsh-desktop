@@ -8,10 +8,10 @@ it('uses draft releases for formal and complete pre-release handoff before Model
   const jobs = YAML.parse(source).jobs
   const step = (job, name) => jobs[job].steps.find(item => item.name === name)
   const formal = "startsWith(github.ref, 'refs/tags/v')"
-  const prerelease = "inputs.mode == 'prerelease' && inputs.target == 'all'"
+  const staged = "inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')"
 
   expect(step('validate-dispatch', 'Prepare draft release for verified publication').if).toContain(formal)
-  expect(step('validate-dispatch', 'Prepare draft release for verified publication').if).toContain(prerelease)
+  expect(step('validate-dispatch', 'Prepare draft release for verified publication').if).toContain(staged)
   for (const [job, name] of [
     ['macos-apple-silicon', 'Stage signed Apple Silicon assets in draft release'],
     ['macos-intel', 'Stage signed Intel assets in draft release'],
@@ -19,22 +19,24 @@ it('uses draft releases for formal and complete pre-release handoff before Model
     ['sign-windows', 'Stage signed Windows assets in draft release']
   ]) {
     expect(step(job, name).if).toContain(formal)
-    expect(step(job, name).if).toContain(prerelease)
+    expect(step(job, name).if).toContain(staged)
     expect(step(job, name).run).toContain('gh release upload')
   }
   for (const job of ['macos-apple-silicon', 'macos-intel', 'windows-x64', 'sign-windows']) {
     for (const item of jobs[job].steps.filter(item => item.uses?.startsWith('actions/upload-artifact@'))) {
       expect(item.if).toContain("github.event_name == 'workflow_dispatch'")
-      expect(item.if).toMatch(/inputs.mode == 'development'|inputs.mode == 'signed'|inputs.target != 'all'/)
+      expect(item.if).not.toContain("inputs.mode == 'signed'")
+      expect(item.if).toMatch(/inputs.mode == 'development'|inputs.target != 'all'/)
     }
   }
 
   expect(step('sign-windows', 'Download unsigned Windows assets from draft release').run)
     .toContain('verify-release-staging.mjs')
   expect(jobs['sign-windows'].steps.find(item => item.uses?.startsWith('actions/download-artifact@')).if)
-    .toContain("inputs.target != 'all'")
+    .toContain("inputs.mode == 'prerelease' && inputs.target != 'all'")
   expect(jobs.publish.steps.some(item => item.uses?.startsWith('actions/download-artifact@'))).toBe(false)
   expect(jobs['publish-prerelease'].steps.some(item => item.uses?.startsWith('actions/download-artifact@'))).toBe(false)
+  expect(jobs['publish-signed'].steps.some(item => item.uses?.startsWith('actions/download-artifact@'))).toBe(false)
   const names = jobs.publish.steps.map(item => item.name)
   expect(names.indexOf('Download verified platform assets from draft release'))
     .toBeLessThan(names.indexOf('Verify release assets before publication'))
@@ -51,6 +53,21 @@ it('uses draft releases for formal and complete pre-release handoff before Model
     .toBeLessThan(prereleaseNames.indexOf('Publish verified GitHub pre-release'))
   expect(step('publish-prerelease', 'Mirror pre-release assets to ModelScope').run)
     .toContain('releases/prerelease/latest')
+  const signedNames = jobs['publish-signed'].steps.map(item => item.name)
+  expect(signedNames.indexOf('Download verified signed test assets from draft release'))
+    .toBeLessThan(signedNames.indexOf('Mirror signed test assets to ModelScope'))
+  expect(signedNames.indexOf('Mirror signed test assets to ModelScope'))
+    .toBeLessThan(signedNames.indexOf('Verify public ModelScope signed test metadata'))
+  expect(signedNames.indexOf('Verify public ModelScope signed test metadata'))
+    .toBeLessThan(signedNames.indexOf('Record signed test downloads'))
+  expect(step('publish-signed', 'Mirror signed test assets to ModelScope').run)
+    .toContain('releases/test/{tag}')
+  expect(step('publish-signed', 'Mirror signed test assets to ModelScope').run)
+    .toContain('releases/test/latest')
+  expect(step('publish-signed', 'Mirror signed test assets to ModelScope').run)
+    .not.toContain('releases/prerelease/')
+  expect(jobs['publish-signed'].steps.map(item => item.run ?? '').join('\n')).not.toContain('--draft=false')
+  expect(jobs['publish-signed'].steps.map(item => item.run ?? '').join('\n')).not.toContain('--prerelease')
   for (const [job, name] of [
     ['publish', 'Publish verified GitHub release'],
     ['publish-prerelease', 'Publish verified GitHub pre-release']
