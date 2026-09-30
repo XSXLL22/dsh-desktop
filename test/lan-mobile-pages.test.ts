@@ -325,7 +325,7 @@ describe('LAN mobile page', () => {
     expect(phone).toContain("fetch('/pair/verify'")
     expect(phone).toContain('Enter pairing password')
     expect(phone).toContain('Show password on the computer')
-    expect(phone).toContain('Cannot reach the desktop. Start BISHENG Work and try again.')
+    expect(phone).toContain('Cannot reach the desktop. Start BISHENG and try again.')
     expect(phone).toContain("location.replace('/')")
     expect(phone).not.toContain("location.href='/'")
   })
@@ -500,7 +500,7 @@ describe('LAN mobile page', () => {
     expect(desktop).not.toContain('id="copyToast"')
     expect(phone).toContain('输入连接密码')
     expect(phone).toContain('在电脑上查看密码')
-    expect(phone).toContain('暂时无法连接桌面端，请先启动 BISHENG Work。')
+    expect(phone).toContain('暂时无法连接桌面端，请先启动 BISHENG。')
   })
 
   it('renders the temporary pin hint with remaining seconds from one helper', () => {
@@ -532,7 +532,7 @@ describe('LAN mobile page', () => {
     })
     expect(desktop).toContain('class="phone-connected manage-connected"')
     expect(desktop).toContain('Manage phone connection')
-    expect(desktop).toContain('Your phone is currently connected to BISHENG Work.')
+    expect(desktop).toContain('Your phone is currently connected to BISHENG.')
     expect(desktop).toContain('.manage-connected .connection-hint,.manage-connected .done{display:none}')
     expect(desktop).toContain(
       'onclick="switchMode(false)" disabled>WiFi Connection Mode</button>'

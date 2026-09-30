@@ -313,7 +313,7 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
     expect(developmentConfig.appId).toBe('io.bisheng.work.dev')
-    expect(developmentConfig.productName).toBe('BISHENG Work Dev')
+    expect(developmentConfig.productName).toBe('BISHENG Dev')
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
     expect(developmentConfig.artifactName).toBe('bisheng-work-dev-${os}-${arch}.${ext}')
@@ -327,11 +327,13 @@ describe('GitHub release contract', () => {
     )
 
     expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(2)
-    expect(workflow).toContain('runs-on: macos-15-intel')
+    expect(workflow).not.toContain('runs-on: macos-15-intel')
+    expect(workflow).toContain('runs-on: [self-hosted, macOS, bisheng-intel]')
     expect(workflow).toContain('architecture: arm64')
     expect(workflow).toContain('architecture: x64')
-    expect(workflow).not.toContain('shell: arch -x86_64 /bin/bash')
-    expect(workflow).not.toContain('Require Rosetta for Intel packaging')
+    expect(workflow).toContain('shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}')
+    expect(workflow).toContain('Require Rosetta for Intel packaging')
+    expect(workflow).toContain('arch -x86_64 /usr/bin/true')
     expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
@@ -341,7 +343,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('$executable = Join-Path $isolatedApp $sourceExecutable.Name')
     expect(workflow).toContain('-WorkingDirectory $isolatedApp')
     expect(workflow).toContain('Packaged koffi native binding failed.')
-    expect(workflow).toContain("'dist-dev\\win-unpacked\\BISHENG Work Dev.exe'")
+    expect(workflow).toContain("'dist-dev\\win-unpacked\\BISHENG Dev.exe'")
     expect(workflow).toContain('if (-not [string]::IsNullOrEmpty($log))')
     expect(workflow).toContain("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?token=[^\\s]+)")
     expect(workflow).toContain('-SessionVariable harnessSession')
@@ -390,7 +392,7 @@ describe('GitHub release contract', () => {
       /macos-apple-silicon:\r?\n\s+name: macOS Apple Silicon\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
-      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: macos-15-intel\r?\n\s+steps:/
+      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, bisheng-intel\]\r?\n\s+defaults:/
     )
     expect(workflow).toMatch(
       /windows-x64:\r?\n\s+name: Windows x64\r?\n(?:[\s\S]*?)runs-on: windows-2022\r?\n\s+steps:/
@@ -550,7 +552,7 @@ describe('prerelease parity workflow', () => {
   })
 })
 
-describe('BISHENG Work release publication', () => {
+describe('BISHENG release publication', () => {
   it('does not configure the DSH version index or rollout', async () => {
     const yml = await readFile(
       path.join(projectRoot, '.github/workflows/release.yml'),
@@ -586,5 +588,32 @@ describe('AI-organized GitHub release body', () => {
   it('ships a RELEASE_NOTES.md style reference', async () => {
     const notes = await readFile(path.join(projectRoot, 'RELEASE_NOTES.md'), 'utf8')
     expect(notes.startsWith('# ')).toBe(true)
+  })
+})
+
+
+describe('signed test artifact exclusion', () => {
+  it('skips all Actions artifact transfers when signed mode is dispatched', async () => {
+    const yaml = createRequire(import.meta.url)('js-yaml') as {
+      load: (source: string) => { jobs: Record<string, {
+        steps: Array<{ uses?: string; if?: string }>
+      }> }
+    }
+    const workflow = yaml.load(await readFile(
+      path.join(projectRoot, '.github/workflows/release.yml'), 'utf8'
+    ))
+    for (const job of Object.values(workflow.jobs)) {
+      for (const step of job.steps.filter((entry) => entry.uses?.includes('artifact@'))) {
+        expect(step.if).toBeDefined()
+        const expression = (step.if ?? '').replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+        const evaluate = new Function('github', 'inputs', 'startsWith', 'always', `return (${expression})`) as
+          (github: { event_name: string; ref: string }, inputs: { mode: string; target: string },
+           startsWith: (value: string, prefix: string) => boolean, always: () => boolean) => boolean
+        for (const target of ['all', 'windows', 'macos']) {
+          expect(evaluate({ event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
+            { mode: 'signed', target }, (value, prefix) => value.startsWith(prefix), () => true)).toBe(false)
+        }
+      }
+    }
   })
 })

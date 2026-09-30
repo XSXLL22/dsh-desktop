@@ -1,8 +1,8 @@
-# Bisheng Work 私有仓库开发说明
+# Bisheng 私有仓库开发说明
 
 ## 定位与基线
 
-Bisheng Work 基于 DSH Desktop，面向个人、团队及企业工作场景，承载非开源扩展。继续复用 Harness runtime 和 Web UI，遵循仓库 AGENTS.md 及现有模块边界。
+Bisheng 基于 DSH Desktop，面向个人、团队及企业工作场景，承载非开源扩展。继续复用 Harness runtime 和 Web UI，遵循仓库 AGENTS.md 及现有模块边界。
 
 - 私有仓库：`https://github.com/dataelement/bisheng-work`
 - 上游仓库：`https://github.com/dataelement/dsh-desktop`
@@ -42,9 +42,9 @@ git merge upstream/main
 
 ## 当前状态与发布前工作
 
-当前只建立开发基线，尚未进行 Bisheng Work 产品化改造，也未生成或验收安装包。
+当前产品名称为 BISHENG，开发版为 BISHENG Dev。为兼容已有安装，应用 ID、userData 目录、登录协议、仓库地址及发布资产文件名继续保留 `bisheng-work` 标识。名称修改的源码检查不代表新安装包已发布或完成安装验收。
 
-初始化时已在 GitHub 仓库设置中关闭 Actions。上游 workflow 保留在源码中，但包含 DSH Desktop 的公共分发配置；完成以下隔离并检查组织级 secrets 的访问范围后，再有选择地启用 CI 和发布流程：
+初始化时曾关闭 Actions；当前构建及发布配置以 `package.json` 和 `.github/workflows/release.yml` 为准。发布前核对以下隔离边界和组织级 secrets 的访问范围：
 
 - 产品名称、图标、应用 ID、安装路径与 URL 协议。
 - userData、DSH_HOME、Profile、日志和凭据存储边界，以及已有用户数据的迁移策略。
@@ -52,4 +52,4 @@ git merge upstream/main
 - 独立签名、发布凭据及对应 workflow 权限。
 - 产品文档、支持入口、隐私说明及新增模块的许可范围。
 
-在完成隔离前，不应将沿用上游身份和更新配置的构建作为 Bisheng Work 正式安装包分发。开发调试使用临时目录或独立开发 Profile，避免影响现有 DSH Desktop 数据。
+在完成隔离前，不应将沿用上游身份和更新配置的构建作为 Bisheng 正式安装包分发。开发调试使用临时目录或独立开发 Profile，避免影响现有 DSH Desktop 数据。

@@ -62,7 +62,7 @@ export function buildJsignArgs({
   pinFile,
   targetFile,
   tsaUrl = 'http://timestamp.digicert.com',
-  name = 'BISHENG Work',
+  name = 'BISHENG',
   url = 'https://www.dshdesktop.com'
 }) {
   return [

@@ -87,7 +87,7 @@ describe('Safe Mode', () => {
       applyLabel: 'Disable selected plugins',
       agentLabel: 'Close',
       restartLabel: 'Exit Safe Mode and restart',
-      quitLabel: 'Quit BISHENG Work'
+      quitLabel: 'Quit BISHENG'
     })
   })
 

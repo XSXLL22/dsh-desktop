@@ -344,7 +344,7 @@ export function buildSafeModeViewModel(options: {
   if (options.locale === 'zh') {
     return {
       locale: 'zh',
-      brand: 'BISHENG Work',
+      brand: 'BISHENG',
       badge: '安全模式',
       heading: '',
       summary: '安全模式暂时跳过第三方插件。停用有问题的插件后重启；插件和数据都会保留。',
@@ -373,7 +373,7 @@ export function buildSafeModeViewModel(options: {
       restartConfirm: blockingGroups > 0
         ? `仍有 ${blockingGroups} 组阻断问题。退出后会重新启用第三方插件，可能再次启动失败。仍然退出安全模式吗？`
         : undefined,
-      quitLabel: '退出 BISHENG Work',
+      quitLabel: '退出 BISHENG',
       notice: options.notice,
       noticeSummary: summarizeLongNotice(options.notice, 'zh'),
       noticeTone: options.noticeTone,
@@ -386,7 +386,7 @@ export function buildSafeModeViewModel(options: {
 
   return {
     locale: 'en',
-    brand: 'BISHENG Work',
+    brand: 'BISHENG',
     badge: 'Safe Mode',
     heading: '',
     summary: 'Safe Mode temporarily skips third-party plugins. Disable the faulty plugin and restart; your plugins and data stay intact.',
@@ -415,7 +415,7 @@ export function buildSafeModeViewModel(options: {
     restartConfirm: blockingGroups > 0
       ? `${blockingGroups} blocking group${blockingGroups === 1 ? '' : 's'} remain. Third-party plugins will be enabled again and startup may fail. Exit Safe Mode anyway?`
       : undefined,
-    quitLabel: 'Quit BISHENG Work',
+    quitLabel: 'Quit BISHENG',
     notice: options.notice,
     noticeSummary: summarizeLongNotice(options.notice, 'en'),
     noticeTone: options.noticeTone,

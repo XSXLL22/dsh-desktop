@@ -12,7 +12,7 @@ Official releases are still created by pushing a `v*` tag, not by filling the di
 
 Online update checks remain disabled until a formal release is mirrored to ModelScope and tested on installed macOS and Windows builds. The package metadata points to `https://dshdesktop.com/work/updates/latest/`. On the existing `dshdesktop.com` HTTPS server, include [`ops/nginx/work-updates.conf`](../ops/nginx/work-updates.conf); it redirects each update asset to `alexyaojin/bisheng-work/releases/latest/` on ModelScope. The `/work/` prefix keeps this feed separate from DSH Desktop's `/updates/latest/`. No GitHub token is needed in the app. Existing installed builds still report that online updates are unavailable and require a manual install to enter the future update channel.
 
-Before publishing a formal release, verify that a request to `https://dshdesktop.com/work/updates/latest/latest.yml` receives a 302 with the Bisheng Work ModelScope URL, then verify that metadata and each referenced ZIP, installer, and blockmap can be downloaded through this route. The first public metadata will be absent until a formal release is mirrored. Browser pages under `dshdesktop.com/work/` share an origin with the DSH Desktop site, but a redirect to ModelScope still changes origin for browser fetches; serve those responses from the site or configure CORS if a future web page needs to read them in JavaScript.
+Before publishing a formal release, verify that a request to `https://dshdesktop.com/work/updates/latest/latest.yml` receives a 302 with the Bisheng ModelScope URL, then verify that metadata and each referenced ZIP, installer, and blockmap can be downloaded through this route. The first public metadata will be absent until a formal release is mirrored. Browser pages under `dshdesktop.com/work/` share an origin with the DSH Desktop site, but a redirect to ModelScope still changes origin for browser fetches; serve those responses from the site or configure CORS if a future web page needs to read them in JavaScript.
 
 ## Build layout and timing
 
@@ -26,7 +26,11 @@ PPT packages are generated under `.build/ppt-runtime/packages/` and overlaid int
 
 ## macOS packaging runners
 
-The Apple Silicon job uses the self-hosted runner with the `self-hosted`, `macOS`, and `ARM64` labels and installs ARM64 Node 22. The Intel job uses GitHub-hosted `macos-15-intel` with x64 Node 22. Both jobs depend only on dispatch validation, so they can run concurrently in separate machines and workspaces, with separate dependencies and signing keychains. Intel packaging does not require Rosetta. `verify-target` still checks the executing Node and the bundled Node architecture before packaging. Windows UKey signing continues to share the self-hosted runner with Apple Silicon and can queue behind that job; Intel no longer occupies it.
+Both macOS jobs use self-hosted workers on the ARM64 Mac. Apple Silicon uses the organization runner with `self-hosted`, `macOS`, and `ARM64` labels and ARM64 Node 22. Intel uses a dedicated repository runner with `self-hosted`, `macOS`, and `bisheng-intel` labels. It requires Rosetta 2, uses x64 Node 22, and runs shell commands under `arch -x86_64 /bin/bash`; `verify-target` still checks the executing Node and bundled Node architecture.
+
+Each runner instance has its own installation directory, `_work` workspace, and temporary directory. Build preparation and tests can run concurrently. When runners use the same macOS user, the two macOS jobs acquire `~/.cache/bisheng-macos-signing.lock` before preparing a signing keychain and release it after cleanup, serializing only the signing/package phase that modifies the shared keychain search list. A wait exceeding 30 minutes fails with a diagnostic; after a runner crash, confirm its signing job has stopped before removing a stale lock. Other repositories sharing this user must coordinate their signing separately; this lock applies to this repository's jobs.
+
+Install Rosetta once if needed (`softwareupdate --install-rosetta --agree-to-license`). Configure the dedicated Intel worker independently with `config.sh --no-default-labels --labels self-hosted,macOS,bisheng-intel`, then install/start its own `svc.sh` LaunchAgent. Omitting `ARM64` from this worker's routing labels keeps the Apple Silicon build and UKey signer on the original organization worker. Do not copy an existing runner's `.runner` or credentials. With 16 GB RAM, start with two Bisheng workers rather than adding more build instances; the existing DSH worker also shares machine resources.
 
 Before dispatching, confirm that GitHub Actions is enabled for this repository, that the organization runner group grants it access, and that the runner is online. Do not install dependencies on the runner's persistent checkout by hand; each job uses `npm ci`.
 
@@ -34,7 +38,7 @@ For a first packaging check, dispatch `Release desktop installers` on `main` wit
 
 ## GitHub Actions parameters for signing and publishing
 
-Add these under **Settings → Secrets and variables → Actions** for this repository. Existing secrets in CoAligne or DSH Desktop cannot be read back through GitHub and are not automatically available to Bisheng Work. The same Apple certificate and API key may be reused only if their owner confirms that this app should be signed under that Apple team.
+Add these under **Settings → Secrets and variables → Actions** for this repository. Existing secrets in CoAligne or DSH Desktop cannot be read back through GitHub and are not automatically available to Bisheng. The same Apple certificate and API key may be reused only if their owner confirms that this app should be signed under that Apple team.
 
 | Secret | Needed for | Value to provide |
 | --- | --- | --- |
