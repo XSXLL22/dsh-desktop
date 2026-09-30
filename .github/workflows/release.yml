@@ -997,13 +997,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-          gh release upload "$GITHUB_REF_NAME" release-assets/latest-mac.yml \
-            --clobber --repo "$GITHUB_REPOSITORY"
-          for staging_asset in win-unpacked.tar.gz latest-mac-arm64.yml latest-mac-x64.yml; do
-            gh release delete-asset "$GITHUB_REF_NAME" "$staging_asset" \
-              --yes --repo "$GITHUB_REPOSITORY"
-          done
+          node scripts/prune-github-release-assets.mjs "$GITHUB_REF_NAME"
           gh release edit "$GITHUB_REF_NAME" --draft=false \
             --notes-file .github/release-artifacts/github-release-notes.md \
             --repo "$GITHUB_REPOSITORY"
@@ -1184,13 +1178,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.prerelease_tag }}
         run: |
           set -euo pipefail
-          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-          gh release upload "$RELEASE_TAG" release-assets/latest-mac.yml \
-            --clobber --repo "$GITHUB_REPOSITORY"
-          for staging_asset in win-unpacked.tar.gz latest-mac-arm64.yml latest-mac-x64.yml; do
-            gh release delete-asset "$RELEASE_TAG" "$staging_asset" \
-              --yes --repo "$GITHUB_REPOSITORY"
-          done
+          node scripts/prune-github-release-assets.mjs "$RELEASE_TAG"
           gh release edit "$RELEASE_TAG" --draft=false --prerelease \
             --title "BISHENG Work $RELEASE_TAG（预发布）" \
             --repo "$GITHUB_REPOSITORY"

@@ -51,4 +51,12 @@ it('uses draft releases for formal and complete pre-release handoff before Model
     .toBeLessThan(prereleaseNames.indexOf('Publish verified GitHub pre-release'))
   expect(step('publish-prerelease', 'Mirror pre-release assets to ModelScope').run)
     .toContain('releases/prerelease/latest')
+  for (const [job, name] of [
+    ['publish', 'Publish verified GitHub release'],
+    ['publish-prerelease', 'Publish verified GitHub pre-release']
+  ]) {
+    const run = step(job, name).run
+    expect(run).toContain('node scripts/prune-github-release-assets.mjs')
+    expect(run.indexOf('prune-github-release-assets.mjs')).toBeLessThan(run.indexOf('gh release edit'))
+  }
 })
