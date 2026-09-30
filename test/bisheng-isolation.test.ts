@@ -5,7 +5,7 @@ import { harnessPreferredPort, mobileBridgePort } from '../src/main/desktop-port
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
-describe('BISHENG Work installation identity', () => {
+describe('BISHENG installation identity', () => {
   it('keeps Windows setup from touching the DSH Desktop data directory', async () => {
     const installer = await readFile(path.join(projectRoot, 'build', 'installer.nsh'), 'utf8')
 

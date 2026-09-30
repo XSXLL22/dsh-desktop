@@ -10,7 +10,7 @@ interface Registration {
   component: (props: Record<string, unknown>) => unknown
 }
 
-describe('BISHENG Work client slot occupants', () => {
+describe('BISHENG client slot occupants', () => {
   it('keeps BISHENG artwork in mark seats and inherits the sidebar name typography', async () => {
     const source = await readFile(
       path.join(projectRoot, 'packages', 'dsh-desktop-client-ui', 'client.js'),
@@ -105,7 +105,7 @@ describe('BISHENG Work client slot occupants', () => {
       ({ config }) => config.name === 'sidebar.brand.name'
     )!.component({}) as { type: unknown; props: Record<string, unknown> }
     expect(sidebarName.type).toBe('span')
-    expect(sidebarName.props.children).toEqual(['BISHENG Work'])
+    expect(sidebarName.props.children).toEqual(['BISHENG'])
     expect(sidebarName.props.className).toBeUndefined()
     expect(sidebarName.props.style).toEqual({ letterSpacing: '-0.01em' })
     expect(sidebarName.props.fontFamily).toBeUndefined()
@@ -185,6 +185,35 @@ describe('BISHENG Work client slot occupants', () => {
     expect(patch).toContain('-\t\t\t\t\t\t\t\tsize: 34,')
     expect(patch).toContain('children: (0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
     expect(patch).not.toContain('+\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
+  })
+
+  it('uses the new Chinese hero message without changing the English headline', async () => {
+    const source = await readFile(
+      path.join(
+        projectRoot,
+        'node_modules',
+        '@deepseek-ai',
+        'dsh-client-ui-conversation',
+        'lib',
+        'client.js'
+      ),
+      'utf8'
+    )
+    const patch = await readFile(
+      path.join(
+        projectRoot,
+        'patches',
+        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
+      ),
+      'utf8'
+    )
+
+    expect(source).toContain('"hero.headline": "来一起创造"')
+    expect(source).not.toContain('"hero.headline": "探索未至之境"')
+    expect(source).toContain('"hero.headline": "Into the Unknown"')
+    expect(patch).toContain('+\t\t\t"hero.headline": "来一起创造",')
+    expect(patch).toContain('-\t\t\t"hero.headline": "探索未至之境",')
+    expect(patch).not.toContain('+\t\t\t"hero.headline": "Into the Unknown",')
   })
 
   it('shows the brand mark only in the collapsed rail, not beside the wide brand name', async () => {

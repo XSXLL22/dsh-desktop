@@ -309,10 +309,10 @@
   },
   "build": {
     "appId": "io.bisheng.work",
-    "productName": "BISHENG Work",
+    "productName": "BISHENG",
     "protocols": [
       {
-        "name": "BISHENG Work Enterprise Login",
+        "name": "BISHENG Enterprise Login",
         "schemes": [
           "bisheng-work"
         ]

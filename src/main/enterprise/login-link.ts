@@ -22,7 +22,7 @@ function packagedDevelopmentChannel(): boolean {
 
 export function enterpriseLoginProtocol(): string {
   // A packaged development build must not claim the production scheme, or it
-  // would take enterprise login links away from the installed BISHENG Work app.
+  // would take enterprise login links away from the installed BISHENG app.
   return app.isPackaged && !packagedDevelopmentChannel()
     ? ENTERPRISE_LOGIN_PROTOCOL
     : ENTERPRISE_LOGIN_DEV_PROTOCOL

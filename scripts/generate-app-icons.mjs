@@ -19,9 +19,26 @@ const icnsDestination = path.join(buildDirectory, 'icon.icns')
 const icoDestination = path.join(buildDirectory, 'icon.ico')
 const appIconCanvasSize = 1024
 const appIconMarkSize = 824
+const sourceMarkBackground = '<rect width="2400" height="2400" rx="360" fill="#000000"/>'
+const macAppIconBackground = '<rect width="2400" height="2400" rx="512" fill="#000000"/>'
 
 const markSvg = await readFile(markSource)
 const horizontalSvg = await readFile(horizontalSource)
+
+function createMacAppIconSvg(svg) {
+  const source = svg.toString('utf8')
+  const matches = source.split(sourceMarkBackground).length - 1
+  if (matches !== 1) {
+    throw new Error(
+      `Expected exactly one authoritative BISHENG mark background (${sourceMarkBackground}); found ${matches}.`
+    )
+  }
+
+  // macOS does not publish one fixed corner radius for legacy ICNS artwork.
+  // This radius matches the contour of Apple's icon template and current system
+  // icons while the 824 px footprint preserves the existing 100 px safe area.
+  return Buffer.from(source.replace(sourceMarkBackground, macAppIconBackground))
+}
 
 async function rasterise(svg, width, height, destination) {
   await sharp(svg)
@@ -57,7 +74,7 @@ async function rasterisePaddedAppIcon(svg, destination) {
 // The bisheng-logo-* files above remain the only authoritative source artwork.
 await copyFile(markSource, path.join(buildDirectory, 'brand-mark.svg'))
 await copyFile(markSource, path.join(buildDirectory, 'logo-light.svg'))
-await rasterisePaddedAppIcon(markSvg, appIcon)
+await rasterisePaddedAppIcon(createMacAppIconSvg(markSvg), appIcon)
 await rasterise(markSvg, 1024, 1024, webIcon)
 await rasterise(markSvg, 240, 240, path.join(buildDirectory, 'logo-light.png'))
 await rasterise(markSvg, 240, 240, path.join(buildDirectory, 'logo-dark.png'))

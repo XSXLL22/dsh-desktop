@@ -1,7 +1,16 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
-index 2107bbb..fb1c6c2 100644
+index 2107bbb..2a190a8 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+@@ -14469,7 +14469,7 @@ window.__ModuleLoader__.load({
+ 			"settings.enter.description": "智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为",
+ 			"settings.enter.queue": "排队发送",
+ 			"settings.enter.steer": "插话发送",
+-			"hero.headline": "探索未至之境",
++			"hero.headline": "来一起创造",
+ 			"hero.preview": "预览版",
+ 			"hero.chooseWorkspace": "选择工作区",
+ 			"session.hierarchy": "会话层级",
 @@ -15719,12 +15719,13 @@ window.__ModuleLoader__.load({
  		//#endregion
  		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/skeleton/ConversationRoot.module.css.mjs
@@ -34,7 +43,10 @@ index 2107bbb..fb1c6c2 100644
  		const tagId$3 = "@deepseek-ai/dsh-client-ui-conversation/HeroShell.module.css";
  		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
  			const tag = document.createElement("style");
-@@ -16108,12 +16110,9 @@ window.__ModuleLoader__.load({
+@@ -16105,15 +16107,12 @@ window.__ModuleLoader__.load({
+ 								setHovering(false);
+ 							},
+ 							children: renderSlot("conversation.hero.brand.mark", {
 -								size: 34,
 +								size: 28,
  								className: HeroShell_module_css_default.fish
