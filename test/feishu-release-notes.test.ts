@@ -172,7 +172,7 @@ Description here.
     }
   })
 
-  it('uses BISHENG Work in formal and prerelease notification card titles', () => {
+  it('uses BISHENG Work and versioned ModelScope downloads in notification cards', () => {
     const output = execFileSync('python3', ['-c', `
 import importlib.util
 import json
@@ -195,7 +195,7 @@ def capture(request, timeout):
     return Response()
 
 with patch.object(module.urllib.request, 'urlopen', capture):
-    module.send_feishu_notification('https://example.invalid', '1.0.1', 'notes')
+    module.send_feishu_notification('https://example.invalid', 'v1.0.1', 'notes')
     module.send_feishu_notification('https://example.invalid', '1.0.1-rc.1', 'notes', prerelease=True)
 
 print(json.dumps(cards, ensure_ascii=False))
@@ -206,10 +206,28 @@ print(json.dumps(cards, ensure_ascii=False))
     }>
 
     expect(cards.map(card => card.header.title.content)).toEqual([
-      '✅ BISHENG Work 1.0.1 发布成功',
+      '✅ BISHENG Work v1.0.1 发布成功',
       '🧪 BISHENG Work 1.0.1-rc.1（预发布）已发布'
     ])
     expect(cards.every(card => card.elements[0]?.text.content === 'notes')).toBe(true)
+    const downloadNames = [
+      'bisheng-work-windows-x64-setup.exe',
+      'bisheng-work-mac-arm64.dmg',
+      'bisheng-work-mac-x64.dmg'
+    ]
+    for (const [index, releasePath] of [
+      'archive/1.0.1',
+      'prerelease/1.0.1-rc.1'
+    ].entries()) {
+      const downloads = cards[index]?.elements[1]?.text.content
+      expect(downloads).toContain('ModelScope 下载地址')
+      for (const filename of downloadNames) {
+        expect(downloads).toContain(
+          `https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/${releasePath}/${filename}`
+        )
+      }
+      expect(downloads?.match(/https:\/\//g)).toHaveLength(3)
+    }
   })
 
   it(

@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -460,6 +461,26 @@ Enhances automatic plugin conflict diagnostics and self-healing, automatically p
 """)
 
 
+def modelscope_download_links(release_tag: str, prerelease: bool) -> str:
+    release_path = (
+        f"prerelease/{urllib.parse.quote(release_tag, safe='')}"
+        if prerelease
+        else f"archive/{urllib.parse.quote(release_tag.removeprefix('v'), safe='')}"
+    )
+    base = (
+        "https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/"
+        f"releases/{release_path}"
+    )
+    return "\n".join(
+        (
+            "**ModelScope 下载地址**",
+            f"[Windows x64 安装包]({base}/bisheng-work-windows-x64-setup.exe)",
+            f"[macOS Apple Silicon 安装包]({base}/bisheng-work-mac-arm64.dmg)",
+            f"[macOS Intel 安装包]({base}/bisheng-work-mac-x64.dmg)",
+        )
+    )
+
+
 def send_feishu_notification(
     webhook_url: str,
     release_tag: str,
@@ -487,7 +508,14 @@ def send_feishu_notification(
                 {
                     "tag": "div",
                     "text": {"tag": "lark_md", "content": release_notes},
-                }
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": modelscope_download_links(release_tag, prerelease),
+                    },
+                },
             ],
         },
     }
