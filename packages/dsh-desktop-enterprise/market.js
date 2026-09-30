@@ -1,5 +1,6 @@
 import semver from 'semver'
 import { createPublicKey, randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { verifyMarketLease } from './market-policy.js'
@@ -9,6 +10,17 @@ import { createMarketRuntime } from './market-runtime.js'
 const PREFIX = '/api/v1/dsh/market'
 const MAX_CATALOG_PAGES = 100
 const MAX_CATALOG_SIZE = MAX_CATALOG_PAGES * 100
+
+const hostRequire = createRequire(import.meta.url)
+
+/** DSH entry of the installation that loaded this enterprise plugin.
+ * Install-time peer checks compare host singletons with this file. The
+ * Harness process may resolve it through its runtime hook; that result is
+ * the current installation and must be passed through unchanged.
+ */
+export function hostDshEntryPath() {
+  return hostRequire.resolve('@deepseek-ai/dsh/lib/bin.js')
+}
 
 /** Both the UI and installer consume this host-owned compatibility verdict. */
 export function isMarketVersionCompatible(version, minimum) {
@@ -258,7 +270,10 @@ export function createMarketController(ctx, accountController, options = {}) {
       const bytes = await accountController.marketRequest(`${PREFIX}/plugins/${selected.id}/versions/${version.id}/artifact`, undefined, true)
       if (startedEpoch !== epoch || identityKey(accountController.state()) !== key) throw new Error('Enterprise account changed.')
       const expected = { name: selected.name, version: version.version, digest: version.digest }
-      const generation = await installOfflineBundle(home, bytes, expected, target)
+      const dshEntryPath = typeof options.dshEntryPath === 'string' && options.dshEntryPath.length > 0
+        ? options.dshEntryPath
+        : hostDshEntryPath()
+      const generation = await installOfflineBundle(home, bytes, expected, target, { dshEntryPath })
       await synchronize()
       if (startedEpoch !== epoch || !online) throw new Error('Enterprise authorization changed during installation.')
       const record = { ...expected, directory: generation.directory, generation_id: generation.id, plugin_id: selected.id,

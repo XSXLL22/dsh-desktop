@@ -7,6 +7,9 @@ import assert from 'node:assert/strict'
 
 const [entry, home, fixtureFile] = process.argv.slice(2)
 const require = createRequire(join(entry, 'package.json'))
+// The isolated copy does not sit beside the running installation. Supply the
+// checkout's DSH entry the same way Desktop passes the packaged one.
+const dshEntryPath = createRequire(import.meta.url).resolve('@deepseek-ai/dsh/lib/bin.js')
 const { Context } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
 const { Loader } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis-plugin-loader')).href)
 const { apply } = await import(pathToFileURL(join(entry, 'index.js')).href)
@@ -34,7 +37,7 @@ ctx.loader.builtins.enterpriseSmoke = { apply(scope) {
     else data = { total: 1, data: [{ id: fixtures.pluginId, name: current.name, display_name: 'Smoke plugin', current_version_id: current.id, revision: 1,
       versions: [{ id: current.id, version: current.version, digest: current.digest, manifest: current.manifest }] }] }
     return { status_code: 200, data }
-  } }, { home, publicKey: pem })
+  } }, { home, publicKey: pem, dshEntryPath })
 } }
 const owner = await ctx.loader.create({ name: 'cordis:enterpriseSmoke' })
 await ctx.loader.await()

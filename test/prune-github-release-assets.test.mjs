@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -21,9 +21,8 @@ async function fakeGitHubRelease({ isDraft = true, names = installers } = {}) {
   temporaryDirectories.push(directory)
   const statePath = path.join(directory, 'state.json')
   await writeFile(statePath, JSON.stringify({ isDraft, assets: names.map(name => ({ name })), deleted: [] }))
-  const fakeGh = path.join(directory, 'gh')
-  await writeFile(fakeGh, `#!/usr/bin/env node
-const fs = require('node:fs')
+  const fakeGh = path.join(directory, 'gh-fake.js')
+  await writeFile(fakeGh, `const fs = require('node:fs')
 const statePath = process.env.FAKE_GH_STATE
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
 const args = process.argv.slice(2)
@@ -42,10 +41,9 @@ if (args[1] === 'view' && args.includes('--json')) {
   process.exit(2)
 }
 `)
-  await chmod(fakeGh, 0o755)
   const env = {
     ...process.env,
-    PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+    PRUNE_GITHUB_GH: fakeGh,
     FAKE_GH_STATE: statePath,
     GITHUB_REPOSITORY: 'dataelement/bisheng-work'
   }

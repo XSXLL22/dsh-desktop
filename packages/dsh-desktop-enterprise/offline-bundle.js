@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
+import { existsSync } from 'node:fs'
 import { lstat, mkdir, readFile, readdir, rename, rm, statfs, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { generationId, writeGenerationMeta } from 'dsh-desktop-market-installer/generations/registry'
@@ -83,9 +84,16 @@ export function validateOfflineBundle(bytes, expected, target) {
   return { manifest, files }
 }
 
-export async function installOfflineBundle(home, bytes, expected, target) {
+export async function installOfflineBundle(home, bytes, expected, target, options = {}) {
   const { files, manifest } = validateOfflineBundle(bytes, expected, target)
-  // Keep host peer resolution through profiles/node_modules, with an enterprise-owned lifecycle.
+  // Host singletons are checked against the running installation when its DSH
+  // entry is supplied. A missing entry must not fall through to an unanchored
+  // check: Electron's module paths can then report the application copy as an
+  // ordinary closure escape.
+  const dshEntryPath = options.dshEntryPath
+  if (dshEntryPath !== undefined && (typeof dshEntryPath !== 'string' || !existsSync(dshEntryPath))) {
+    fail(`Enterprise host entry was not found: ${String(dshEntryPath)}`)
+  }
   const layout = { staging: join(home, 'profiles', '.enterprise-staging'), generations: join(home, 'profiles', '.enterprise-generations') }
   await mkdir(layout.staging, { recursive: true })
   await mkdir(layout.generations, { recursive: true })
@@ -104,7 +112,7 @@ export async function installOfflineBundle(home, bytes, expected, target) {
       await writeFile(destination, file.data, { flag: 'wx', mode: file.executable ? 0o755 : 0o644 })
     }
     const generation = { id, directory: staging, pluginName: expected.name, version: expected.version, sourceSpec: `bisheng:${expected.digest}` }
-    const peers = await verifyGenerationPeers(home, generation)
+    const peers = await verifyGenerationPeers(home, generation, dshEntryPath === undefined ? {} : { dshEntryPath })
     if (!peers.ok) fail(peers.problems.join('; '))
     await writeFile(join(staging, 'enterprise-bundle.zip'), bytes, { flag: 'wx', mode: 0o600 })
     await writeGenerationMeta(staging, generation)

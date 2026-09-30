@@ -10,7 +10,7 @@
 
 ## generation 宿主依赖校验
 
-Harness 0.1.7 可以通过运行时 resolver 将宿主依赖解析到当前安装，而旧 `profiles/node_modules` 链接仍指向另一安装。Desktop 的两条 generation 安装入口现在传入当前 DSH 入口。校验只对约定的宿主单例核对该入口提供的精确解析结果，不将整个安装目录作为普通第三方依赖的允许范围。
+Harness 0.1.7 可以通过运行时 resolver 将宿主依赖解析到当前安装，而旧 `profiles/node_modules` 链接仍指向另一安装。Desktop 的社区 generation 安装和企业离线包安装都传入当前 DSH 入口。企业入口由已加载的企业插件解析 `@deepseek-ai/dsh/lib/bin.js`；解析失败时保留原始错误并终止安装，不退回无 anchor 的闭包目录检查。校验只对约定的宿主单例核对该入口提供的精确解析结果，不将整个安装目录作为普通第三方依赖的允许范围，也不为缺失的 `react-dom` 补写 Profile 链接。
 
 回归覆盖：旧共享链接与当前宿主不同、当前宿主可用、普通第三方依赖逃逸仍被拒绝。实际 Dev 的 `dsh-antigravity@0.0.7` 已安装并显示模型。Windows 安装包尚未验收。
 
