@@ -3,14 +3,14 @@ import { promisify } from 'node:util'
 import { isolatePackage } from './helpers/isolated-package-tree.mjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { Loader } from '@deepseek-ai/cordis-plugin-loader'
 import { createMarketRuntime } from '../packages/dsh-desktop-enterprise/market-runtime.js'
-import { createMarketController, isMarketVersionCompatible } from '../packages/dsh-desktop-enterprise/market.js'
+import { createMarketController, hostDshEntryPath, isMarketVersionCompatible } from '../packages/dsh-desktop-enterprise/market.js'
 import { installOfflineBundle, readBundleZip, sha256, validateOfflineBundle, verifyInstalledBundle } from '../packages/dsh-desktop-enterprise/offline-bundle.js'
 import { verifyMarketLease } from '../packages/dsh-desktop-enterprise/market-policy.js'
 import { sweepRegistry } from 'dsh-desktop-market-installer/generations/registry'
@@ -30,6 +30,35 @@ function bundle(version = '1.0.0', source = 'export function apply(ctx) { ctx.ef
   return { bytes, manifest, expected: { name: 'company-demo', version, digest: sha256(bytes) } }
 }
 async function home() { const directory = await mkdtemp(join(tmpdir(), 'enterprise-market-')); paths.push(directory); await mkdir(join(directory, 'profiles/node_modules'), { recursive: true }); return directory }
+
+async function installHost(root: string) {
+  const reactDom = join(root, 'node_modules/react-dom')
+  const dshLib = join(root, 'node_modules/@deepseek-ai/dsh/lib')
+  await mkdir(reactDom, { recursive: true })
+  await mkdir(dshLib, { recursive: true })
+  await writeFile(join(reactDom, 'package.json'), JSON.stringify({ name: 'react-dom', main: 'index.js' }))
+  await writeFile(join(reactDom, 'index.js'), 'module.exports = {}\n')
+  await writeFile(join(dshLib, '..', 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', bin: { dsh: 'lib/bin.js' } }))
+  await writeFile(join(dshLib, 'bin.js'), 'process.exit(0)\n')
+  return join(dshLib, 'bin.js')
+}
+
+function namedBundle(name: string, fields: Record<string, unknown>) {
+  const files = {
+    [`node_modules/${name}/package.json`]: Buffer.from(JSON.stringify({ name, version: '1.0.0', type: 'module', main: 'index.js', ...fields })),
+    [`node_modules/${name}/index.js`]: Buffer.from('export function apply() {}')
+  }
+  const manifest = {
+    ...bundle().manifest,
+    plugin: { ...bundle().manifest.plugin, name },
+    targets: { [target]: Object.fromEntries(Object.entries(files).map(([path, value]) => [path, sha256(value)])) }
+  }
+  const bytes = zipEntries({
+    'manifest.json': Buffer.from(JSON.stringify(manifest)),
+    ...Object.fromEntries(Object.entries(files).map(([path, value]) => [`bundles/${target}/${path}`, value]))
+  })
+  return { bytes, expected: { name, version: '1.0.0', digest: sha256(bytes) } }
+}
 
 describe('offline bundles', () => {
   it('resolves a real host peer from an enterprise generation retained by community cleanup', async () => {
@@ -90,6 +119,43 @@ describe('offline bundles', () => {
     const result = await installOfflineBundle(root, data.bytes, data.expected, target)
     await writeFile(join(result.directory, 'node_modules/company-demo/index.js'), 'tampered')
     await expect(verifyInstalledBundle({ ...result, ...data.expected }, target)).rejects.toThrow(/changed/)
+  })
+
+  it('accepts react-dom from the current host entry without a profile link', async () => {
+    const root = await home()
+    const entry = await installHost(root)
+    const data = namedBundle('company-ui', { peerDependencies: { 'react-dom': '*' } })
+    const generation = await installOfflineBundle(root, data.bytes, data.expected, target, { dshEntryPath: entry })
+    expect(generation.pluginName).toBe('company-ui')
+    await expect(lstat(join(root, 'profiles/node_modules/react-dom'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('keeps the missing host entry path when installation cannot be anchored', async () => {
+    const root = await home()
+    await installHost(root)
+    const data = namedBundle('company-ui', { peerDependencies: { 'react-dom': '*' } })
+    const missing = join(root, 'missing-host', 'bin.js')
+    await expect(installOfflineBundle(root, data.bytes, data.expected, target, { dshEntryPath: missing })).rejects.toThrow(missing)
+    await expect(lstat(join(root, 'profiles/.enterprise-generations'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not accept an ordinary dependency from the host tree when the anchor is set', async () => {
+    const root = await home()
+    const entry = await installHost(root)
+    const unrelated = join(root, 'node_modules/unrelated')
+    await mkdir(unrelated, { recursive: true })
+    await writeFile(join(unrelated, 'package.json'), JSON.stringify({ name: 'unrelated', main: 'index.js' }))
+    await writeFile(join(unrelated, 'index.js'), 'module.exports = {}\n')
+    const data = namedBundle('company-extra', {
+      peerDependencies: { 'react-dom': '*' },
+      dependencies: { unrelated: '*' }
+    })
+    await expect(installOfflineBundle(root, data.bytes, data.expected, target, { dshEntryPath: entry }))
+      .rejects.toThrow(/unrelated resolves outside the generation and installation closure/)
+  })
+
+  it('resolves the enterprise host entry to the current DSH installation', async () => {
+    expect(await realpath(hostDshEntryPath())).toBe(await realpath(join(process.cwd(), 'node_modules/@deepseek-ai/dsh/lib/bin.js')))
   })
 })
 
