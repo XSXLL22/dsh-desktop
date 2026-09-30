@@ -475,7 +475,10 @@ describe('prerelease parity workflow', () => {
       yml.indexOf('\n  publish:'),
       yml.indexOf('\n  publish-prerelease:')
     )
-    const publishPrerelease = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    const publishPrerelease = yml.slice(
+      yml.indexOf('\n  publish-prerelease:'),
+      yml.indexOf('\n  publish-signed:')
+    )
 
     expect(yml).toContain('publish-prerelease:')
     expect(yml).toContain('  - development')
@@ -501,11 +504,15 @@ describe('prerelease parity workflow', () => {
 
   it('publishes prereleases to their separate ModelScope path', async () => {
     const yml = await load()
-    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    const prereleaseJob = yml.slice(
+      yml.indexOf('\n  publish-prerelease:'),
+      yml.indexOf('\n  publish-signed:')
+    )
     expect(prereleaseJob).toContain('Mirror pre-release assets to ModelScope')
     expect(prereleaseJob).toContain('MODELSCOPE_TOKEN')
     expect(prereleaseJob).toContain('releases/prerelease/latest')
     expect(prereleaseJob).toContain('--draft=false --prerelease')
+    expect(prereleaseJob).not.toContain('releases/test/')
   })
 
   it('keeps formal and pre-release ModelScope paths separate', async () => {
@@ -514,7 +521,11 @@ describe('prerelease parity workflow', () => {
       yml.indexOf('\n  publish:'),
       yml.indexOf('\n  publish-prerelease:')
     )
-    const prereleaseJob = yml.slice(yml.indexOf('\n  publish-prerelease:'))
+    const prereleaseJob = yml.slice(
+      yml.indexOf('\n  publish-prerelease:'),
+      yml.indexOf('\n  publish-signed:')
+    )
+    const signedJob = yml.slice(yml.indexOf('\n  publish-signed:'))
     expect(yml).toContain('Require ModelScope token for published releases')
     expect(publishJob).toContain('Mirror formal release to ModelScope')
     expect(publishJob).toContain('MODELSCOPE_REPO_ID: alexyaojin/bisheng-work')
@@ -522,6 +533,14 @@ describe('prerelease parity workflow', () => {
     expect(publishJob).toContain('"releases/latest"')
     expect(prereleaseJob).toContain('releases/prerelease/{tag}')
     expect(prereleaseJob).not.toContain('"releases/latest"')
+    expect(signedJob).toContain('Mirror signed test assets to ModelScope')
+    expect(signedJob).toContain('releases/test/{tag}')
+    expect(signedJob).toContain('releases/test/latest')
+    expect(signedJob).not.toContain('releases/prerelease/')
+    expect(signedJob).not.toContain('"releases/latest"')
+    expect(signedJob).not.toContain('--draft=false')
+    expect(signedJob).not.toContain('--prerelease')
+    expect(publishJob).not.toContain('releases/test/')
   })
 
   it('parametrises the Windows smoke test executable', async () => {

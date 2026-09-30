@@ -21,7 +21,7 @@ on:
           - windows
           - macos
       mode:
-        description: development=unsigned Dev; signed=sign only; prerelease=GitHub and ModelScope
+        description: development=unsigned Dev; signed=ModelScope test channel; prerelease=GitHub and ModelScope
         required: false
         default: development
         type: choice
@@ -86,6 +86,11 @@ jobs:
                 echo "::error::signed_version must be a non-v semver (e.g. 0.9.2-test.1)"
                 exit 1
               fi
+              if [ "$TARGET" = "all" ]; then
+                echo "::notice::signed mode publishes to ModelScope releases/test/$SIGNED_VERSION/ and releases/test/latest/; the GitHub Release stays a draft"
+              else
+                echo "::notice::target=$TARGET signed mode publishes to ModelScope releases/test/$SIGNED_VERSION/; the GitHub Release stays a draft"
+              fi
               ;;
             development|'')
               ;;
@@ -98,7 +103,7 @@ jobs:
         if: github.event_name != 'workflow_dispatch'
         run: echo "No dispatch inputs to validate."
       - name: Require ModelScope token for published releases
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
         run: |
@@ -110,16 +115,22 @@ jobs:
           fi
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
       - name: Prepare draft release for verified publication
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
           PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+          SIGNED_VERSION: ${{ inputs.signed_version }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             release_tag="$GITHUB_REF_NAME"
             tag_args=(--verify-tag)
             note_args=(--notes 'Release build in progress.')
+          elif [ "${MODE:-}" = "signed" ]; then
+            release_tag="$SIGNED_VERSION"
+            tag_args=(--target "$GITHUB_SHA")
+            note_args=(--notes 'Signed test build in progress.')
           else
             release_tag="$PRERELEASE_TAG"
             tag_args=(--target "$GITHUB_SHA")
@@ -259,10 +270,10 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-arm64.dmg
           xcrun stapler validate dist/bisheng-work-mac-arm64.dmg
       - name: Stage signed Apple Silicon assets in draft release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.prerelease_tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
             dist/bisheng-work-mac-arm64.dmg \
@@ -271,7 +282,7 @@ jobs:
             dist/latest-mac-arm64.yml \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target != 'all'))
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
         with:
           name: macos-apple-silicon
           retention-days: 7
@@ -417,10 +428,10 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-x64.dmg
           xcrun stapler validate dist/bisheng-work-mac-x64.dmg
       - name: Stage signed Intel assets in draft release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.prerelease_tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
             dist/bisheng-work-mac-x64.dmg \
@@ -429,7 +440,7 @@ jobs:
             dist/latest-mac-x64.yml \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target != 'all'))
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
         with:
           name: macos-intel
           retention-days: 7
@@ -614,11 +625,11 @@ jobs:
         run: |
           tar -czf dist/win-unpacked.tar.gz -C dist win-unpacked
       - name: Stage unsigned Windows assets in draft release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.prerelease_tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$env:RELEASE_TAG" `
             dist/bisheng-work-windows-x64-setup.exe `
@@ -628,7 +639,7 @@ jobs:
             --clobber --repo "$env:GITHUB_REPOSITORY"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target != 'all'))
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
         with:
           name: windows-x64-unsigned
           path: |
@@ -688,10 +699,10 @@ jobs:
           mkdir -p "$work_dir/release"
           echo "WINDOWS_SIGNING_WORK_DIR=$work_dir" >> "$GITHUB_ENV"
       - name: Download unsigned Windows assets from draft release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.prerelease_tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           set -euo pipefail
           gh release download "$RELEASE_TAG" \
@@ -706,7 +717,7 @@ jobs:
             bisheng-work-windows-x64-setup.exe.blockmap \
             win-unpacked.tar.gz latest.yml
       - uses: actions/download-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target != 'all'))
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
         with:
           name: windows-x64-unsigned
           path: ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release
@@ -812,10 +823,10 @@ jobs:
           test -f "$WINDOWS_SIGNING_WORK_DIR/release/latest.yml"
           test -f "$WINDOWS_SIGNING_WORK_DIR"/release/*.exe.blockmap
       - name: Stage signed Windows assets in draft release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target == 'all')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.prerelease_tag }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
             "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-work-windows-x64-setup.exe" \
@@ -823,7 +834,7 @@ jobs:
             "$WINDOWS_SIGNING_WORK_DIR/release/latest.yml" \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target != 'all'))
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
         with:
           name: windows-x64
           retention-days: 7
@@ -1243,3 +1254,168 @@ jobs:
             --prerelease \
             --notes .github/release-artifacts/feishu-release-notes.md \
             --webhook "$FEISHU_RELEASE_WEBHOOK"
+
+  publish-signed:
+    name: Publish signed test build to ModelScope
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'signed' &&
+      inputs.signed_version != '' &&
+      (
+        (inputs.target == 'all' && needs.macos-apple-silicon.result == 'success' && needs.macos-intel.result == 'success' && needs.sign-windows.result == 'success') ||
+        (inputs.target == 'macos' && needs.macos-apple-silicon.result == 'success' && needs.macos-intel.result == 'success') ||
+        (inputs.target == 'windows' && needs.sign-windows.result == 'success')
+      )
+    needs:
+      - macos-apple-silicon
+      - macos-intel
+      - sign-windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Download verified signed test assets from draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.signed_version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          assets=()
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "macos" ]; then
+            assets+=(
+              bisheng-work-mac-arm64.dmg
+              bisheng-work-mac-arm64.zip
+              bisheng-work-mac-arm64.zip.blockmap
+              latest-mac-arm64.yml
+              bisheng-work-mac-x64.dmg
+              bisheng-work-mac-x64.zip
+              bisheng-work-mac-x64.zip.blockmap
+              latest-mac-x64.yml
+            )
+          fi
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "windows" ]; then
+            assets+=(
+              bisheng-work-windows-x64-setup.exe
+              bisheng-work-windows-x64-setup.exe.blockmap
+              latest.yml
+            )
+          fi
+          patterns=()
+          for asset in "${assets[@]}"; do
+            patterns+=(--pattern "$asset")
+          done
+          gh release download "$RELEASE_TAG" \
+            "${patterns[@]}" \
+            --dir release-assets \
+            --repo "$GITHUB_REPOSITORY"
+          node scripts/verify-release-staging.mjs "$RELEASE_TAG" release-assets "${assets[@]}"
+      - name: Merge macOS update metadata
+        if: inputs.target == 'all' || inputs.target == 'macos'
+        run: |
+          set -euo pipefail
+          node scripts/merge-mac-update-metadata.mjs \
+            release-assets/latest-mac-arm64.yml \
+            release-assets/latest-mac-x64.yml \
+            release-assets/latest-mac.yml
+          find release-assets -maxdepth 1 \
+            \( -name latest-mac-arm64.yml -o -name latest-mac-x64.yml \) \
+            -delete
+      - name: Verify signed test assets before publication
+        if: inputs.target == 'all'
+        run: node scripts/verify-release-assets.mjs release-assets "${{ inputs.signed_version }}"
+      - name: Mirror signed test assets to ModelScope
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_REPO_ID: alexyaojin/bisheng-work
+          RELEASE_TAG: ${{ inputs.signed_version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
+          python3 -m venv "$RUNNER_TEMP/ms-env"
+          "$RUNNER_TEMP/ms-env/bin/pip" install -q modelscope
+          "$RUNNER_TEMP/ms-env/bin/python3" <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+
+          tag = os.environ["RELEASE_TAG"]
+          repo_id = os.environ["MODELSCOPE_REPO_ID"]
+          token = os.environ["MODELSCOPE_TOKEN"]
+          destinations = [f"releases/test/{tag}"]
+          if os.environ["TARGET"] == "all":
+              destinations.append("releases/test/latest")
+          api = HubApi()
+          for destination in destinations:
+              api.upload_folder(
+                  repo_id=repo_id,
+                  folder_path="release-assets",
+                  path_in_repo=destination,
+                  commit_message=f"Signed test {tag}",
+                  token=token,
+              )
+              print(f"Uploaded {tag} to {repo_id}/{destination}")
+          PY
+      - name: Verify public ModelScope signed test metadata
+        env:
+          RELEASE_TAG: ${{ inputs.signed_version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          base='https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/test'
+          destinations=("$RELEASE_TAG")
+          metadata_files=()
+          if [ "$TARGET" = "all" ]; then
+            destinations+=(latest)
+          fi
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "windows" ]; then
+            metadata_files+=(latest.yml)
+          fi
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "macos" ]; then
+            metadata_files+=(latest-mac.yml)
+          fi
+          for destination in "${destinations[@]}"; do
+            for metadata in "${metadata_files[@]}"; do
+              verified=false
+              for attempt in 1 2 3 4 5 6; do
+                if curl --fail --location --silent --show-error \
+                  "$base/$destination/$metadata" --output "$RUNNER_TEMP/$metadata" && \
+                  grep -Fqx "version: $RELEASE_TAG" "$RUNNER_TEMP/$metadata"; then
+                  verified=true
+                  break
+                fi
+                sleep 10
+              done
+              if [ "$verified" != true ]; then
+                echo "::error::ModelScope $destination/$metadata is not publicly serving $RELEASE_TAG"
+                exit 1
+              fi
+            done
+          done
+      - name: Record signed test downloads
+        env:
+          RELEASE_TAG: ${{ inputs.signed_version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          base="https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/test/$RELEASE_TAG"
+          echo "## Signed test downloads" >> "$GITHUB_STEP_SUMMARY"
+          case "$TARGET" in
+            all)
+              echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe) · [macOS Apple Silicon DMG]($base/bisheng-work-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-work-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            macos)
+              echo "[macOS Apple Silicon DMG]($base/bisheng-work-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-work-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            windows)
+              echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe)" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
