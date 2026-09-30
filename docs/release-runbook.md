@@ -24,11 +24,11 @@ The self-hosted signer downloads artifacts in six concurrent 32 MiB ranges throu
 
 PPT packages are generated under `.build/ppt-runtime/packages/` and overlaid into the Electron package. The `afterPack` gate checks the physical `dsh-ppt` and `dsh-ppt-composer` directories, including native imports and template previews. A successful source build alone does not verify the packaged paths.
 
-## Local macOS packaging runner
+## macOS packaging runners
 
-Both macOS jobs use the same self-hosted Apple Silicon runner as CoAligne, with the `self-hosted`, `macOS`, and `ARM64` labels. They run serially when only one runner is available. The Apple Silicon job installs ARM64 Node 22. The Intel job requires Rosetta 2, installs x64 Node 22, and runs `npm ci`, tests, typecheck, and packaging under x64 Bash. Keep the two installs in separate Actions job workspaces: `verify-target` checks the executing Node and the bundled Node architecture before packaging.
+The Apple Silicon job uses the self-hosted runner with the `self-hosted`, `macOS`, and `ARM64` labels and installs ARM64 Node 22. The Intel job uses GitHub-hosted `macos-15-intel` with x64 Node 22. Both jobs depend only on dispatch validation, so they can run concurrently in separate machines and workspaces, with separate dependencies and signing keychains. Intel packaging does not require Rosetta. `verify-target` still checks the executing Node and the bundled Node architecture before packaging. Windows UKey signing continues to share the self-hosted runner with Apple Silicon and can queue behind that job; Intel no longer occupies it.
 
-Before dispatching, confirm that GitHub Actions is enabled for this repository, that the organization runner group grants it access, and that the runner is online. Install Rosetta 2 on the runner once (`softwareupdate --install-rosetta --agree-to-license`) if the Intel job's preflight reports it missing. Do not install dependencies on the runner's persistent checkout by hand; each job uses `npm ci`.
+Before dispatching, confirm that GitHub Actions is enabled for this repository, that the organization runner group grants it access, and that the runner is online. Do not install dependencies on the runner's persistent checkout by hand; each job uses `npm ci`.
 
 For a first packaging check, dispatch `Release desktop installers` on `main` with `target=macos` and `mode=development`. This creates unsigned, isolated Dev artifacts in the workflow run and does not publish them. Signed builds additionally require the Apple signing and notarization secrets listed in the workflow. Verify both architecture artifacts and their bundled runtime before using a signed package as a release candidate.
 

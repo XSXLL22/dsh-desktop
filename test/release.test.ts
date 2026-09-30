@@ -326,11 +326,12 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(3)
+    expect(workflow.match(/runs-on: \[self-hosted, macOS, ARM64\]/g)).toHaveLength(2)
+    expect(workflow).toContain('runs-on: macos-15-intel')
     expect(workflow).toContain('architecture: arm64')
     expect(workflow).toContain('architecture: x64')
-    expect(workflow).toContain('shell: arch -x86_64 /bin/bash --noprofile --norc -e -o pipefail {0}')
-    expect(workflow).toContain('arch -x86_64 /usr/bin/true')
+    expect(workflow).not.toContain('shell: arch -x86_64 /bin/bash')
+    expect(workflow).not.toContain('Require Rosetta for Intel packaging')
     expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
@@ -389,7 +390,7 @@ describe('GitHub release contract', () => {
       /macos-apple-silicon:\r?\n\s+name: macOS Apple Silicon\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
-      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: \[self-hosted, macOS, ARM64\]\r?\n\s+defaults:/
+      /macos-intel:\r?\n\s+name: macOS Intel\r?\n(?:[\s\S]*?)runs-on: macos-15-intel\r?\n\s+steps:/
     )
     expect(workflow).toMatch(
       /windows-x64:\r?\n\s+name: Windows x64\r?\n(?:[\s\S]*?)runs-on: windows-2022\r?\n\s+steps:/
