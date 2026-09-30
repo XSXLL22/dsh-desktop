@@ -13,6 +13,10 @@ if (!tag || process.argv.length !== 3 || !repository) {
 }
 
 function gh(args) {
+  // Tests pass a Node stand-in. On Windows, execFileSync('gh') resolves gh.exe
+  // and ignores a PATH directory that only contains gh or gh.cmd.
+  const standIn = process.env.PRUNE_GITHUB_GH
+  if (standIn) return execFileSync(process.execPath, [standIn, ...args], { encoding: 'utf8' })
   return execFileSync('gh', args, { encoding: 'utf8' })
 }
 
