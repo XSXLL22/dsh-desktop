@@ -55,7 +55,13 @@ describe('Feishu release notes pipeline', () => {
   it(
     'builds a prompt with valid metadata and evidence blocks',
     () => {
+      // Use bounded history rather than diffing the developer/runner checkout.
+      const fixture = buildTagFixtureRepo([
+        { message: 'Initial release', date: '2026-01-01T00:00:00Z', tag: 'v0.3.0' },
+        { message: 'Improve welcome branding', date: '2026-01-02T00:00:00Z', tag: 'v0.4.0' }
+      ])
       const output = execFileSync('python3', [scriptPath, 'build-prompt', '--tag', 'v0.4.0'], {
+        cwd: fixture,
         encoding: 'utf8',
         env: pythonEnv
       })
@@ -68,6 +74,8 @@ describe('Feishu release notes pipeline', () => {
       expect(output).toContain('<commit-details>')
       expect(output).toContain('<diff-statistics>')
       expect(output).toContain('<code-diff>')
+      expect(output).toContain('Improve welcome branding')
+      expect(output).toContain('Previous stable tag: v0.3.0')
     },
     pythonTestTimeoutMs
   )
