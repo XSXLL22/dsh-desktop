@@ -5,6 +5,31 @@ import { describe, expect, it } from 'vitest'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
+it('builds Windows only for release tags or an explicit manual platform selection', async () => {
+  const yaml = createRequire(import.meta.url)('js-yaml') as {
+    load: (source: string) => {
+      on: { pull_request?: unknown; workflow_dispatch: { inputs: { target: { default: string } } } }
+      jobs: Record<string, { if: string }>
+    }
+  }
+  const workflow = yaml.load(await readFile(path.join(projectRoot, '.github/workflows/release.yml'), 'utf8'))
+  expect(workflow.on.pull_request).toBeUndefined()
+  expect(workflow.on.workflow_dispatch.inputs.target.default).toBe('macos')
+  const evaluate = new Function('github', 'inputs', 'startsWith', `return (${workflow.jobs['windows-x64']?.if})`) as
+    (github: { event_name: string; ref: string }, inputs: { target: string },
+     startsWith: (value: string, prefix: string) => boolean) => boolean
+  for (const [event, ref, target, expected] of [
+    ['pull_request', 'refs/pull/1/merge', 'all', false],
+    ['push', 'refs/heads/main', 'all', false],
+    ['push', 'refs/tags/v1.0.2', '', true],
+    ['workflow_dispatch', 'refs/heads/main', 'macos', false],
+    ['workflow_dispatch', 'refs/heads/main', 'windows', true],
+    ['workflow_dispatch', 'refs/heads/main', 'all', true]
+  ] as const) {
+    expect(evaluate({ event_name: event, ref }, { target }, (value, prefix) => value.startsWith(prefix))).toBe(expected)
+  }
+})
+
 const releaseAssets = [
   'bisheng-work-mac-arm64.dmg',
   'bisheng-work-mac-x64.dmg',
