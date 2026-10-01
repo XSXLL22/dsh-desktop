@@ -263,6 +263,8 @@ describe('GitHub release contract', () => {
     ) as {
       dependencies: Record<string, string>
       build: {
+        productName: string
+        protocols: Array<{ name: string; schemes: string[] }>
         publish: Array<{ provider: string; url?: string; owner?: string; repo?: string }>
         win: { verifyUpdateCodeSignature: boolean; signtoolOptions: { publisherName: string } }
       }
@@ -273,6 +275,10 @@ describe('GitHub release contract', () => {
     )
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
+    expect(packageJson.build.productName).toBe('BISHENG')
+    expect(packageJson.build.protocols).toEqual([
+      { name: 'BISHENG Enterprise Login', schemes: ['bisheng-work'] }
+    ])
     expect(packageJson.build.publish).toEqual([
       {
         provider: 'generic',
@@ -295,6 +301,11 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('merge-mac-update-metadata.mjs')
     expect(workflow).toContain('Verify release assets before publication')
     expect(workflow).toContain('verify-release-assets.mjs release-assets')
+    expect(workflow).toContain('dist/mac-arm64/BISHENG.app')
+    expect(workflow).toContain('dist/mac/BISHENG.app')
+    expect(workflow).toContain('dist\\win-unpacked\\BISHENG.exe')
+    expect(workflow).toContain("--name 'BISHENG'")
+    expect(workflow).toContain('--title "BISHENG $release_tag"')
   })
 
   it('keeps builder jobs from attempting implicit tag publishing', async () => {
@@ -322,6 +333,7 @@ describe('GitHub release contract', () => {
     const developmentConfig = createRequire(import.meta.url)('../electron-builder.dev.cjs') as {
       appId: string
       productName: string
+      protocols: Array<{ name: string; schemes: string[] }>
       directories: { output: string }
       extraMetadata: { dshDesktopChannel: string }
       artifactName: string
@@ -339,6 +351,9 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
     expect(developmentConfig.appId).toBe('io.bisheng.work.dev')
     expect(developmentConfig.productName).toBe('BISHENG Dev')
+    expect(developmentConfig.protocols).toEqual([
+      { name: 'BISHENG Dev Enterprise Login', schemes: ['bisheng-work-dev'] }
+    ])
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
     expect(developmentConfig.artifactName).toBe('bisheng-work-dev-${os}-${arch}.${ext}')

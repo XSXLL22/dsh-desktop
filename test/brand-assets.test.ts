@@ -26,6 +26,20 @@ async function alphaBounds(file: string | Buffer) {
   return { left, top, right, bottom }
 }
 
+async function alphaRowBounds(file: string | Buffer, y: number) {
+  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  let left = info.width
+  let right = -1
+
+  for (let x = 0; x < info.width; x += 1) {
+    if (data[(y * info.width + x) * info.channels + 3] === 0) continue
+    left = Math.min(left, x)
+    right = Math.max(right, x)
+  }
+
+  return { left, right }
+}
+
 async function largestIcnsPng(file: string) {
   const icns = await readFile(file)
   expect(icns.subarray(0, 4).toString('ascii')).toBe('icns')
@@ -51,6 +65,7 @@ describe('BISHENG brand assets', () => {
     const horizontal = await readFile(build('bisheng-logo-horizontal.svg'), 'utf8')
 
     expect(mark).toContain('viewBox="0 0 2400 2400"')
+    expect(mark).toContain('<rect width="2400" height="2400" rx="360" fill="#000000"/>')
     expect(mark).toContain('fill="#000000"')
     expect(mark).not.toContain('#034FE5')
     expect(mark.match(/<path /g)).toHaveLength(8)
@@ -102,6 +117,14 @@ describe('BISHENG brand assets', () => {
       right: 1023,
       bottom: 1023
     })
+
+    // The mac-only rx=512 contour is noticeably rounder than the old rx=360
+    // source contour: 50 px below the mark's top edge starts around x=152,
+    // rather than the old profile's x=123, while retaining the same footprint.
+    await expect(alphaRowBounds(build('app-icon.png'), 150)).resolves.toEqual({
+      left: 152,
+      right: 871
+    })
   })
 
   it('builds the macOS icns from the same padded app icon', async () => {
@@ -117,11 +140,21 @@ describe('BISHENG brand assets', () => {
       right: 923,
       bottom: 923
     })
+    await expect(alphaRowBounds(largestFrame, 150)).resolves.toEqual(
+      await alphaRowBounds(build('app-icon.png'), 150)
+    )
 
     const generator = await readFile(
       path.join(projectRoot, 'scripts', 'generate-app-icons.mjs'),
       'utf8'
     )
+    expect(generator).toContain(
+      'const sourceMarkBackground = \'<rect width="2400" height="2400" rx="360" fill="#000000"/>\''
+    )
+    expect(generator).toContain(
+      'const macAppIconBackground = \'<rect width="2400" height="2400" rx="512" fill="#000000"/>\''
+    )
+    expect(generator).toContain('if (matches !== 1)')
     expect(generator).toContain('await sharp(appIcon).resize(size, size)')
     expect(generator).toContain('await sharp(appIcon).resize(size * 2, size * 2)')
   })

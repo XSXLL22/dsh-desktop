@@ -1,8 +1,8 @@
-# Bisheng 私有仓库开发说明
+# BISHENG 私有仓库开发说明
 
 ## 定位与基线
 
-Bisheng 基于 DSH Desktop，面向个人、团队及企业工作场景，承载非开源扩展。继续复用 Harness runtime 和 Web UI，遵循仓库 AGENTS.md 及现有模块边界。
+BISHENG 基于 DSH Desktop，面向个人、团队及企业工作场景，承载非开源扩展。继续复用 Harness runtime 和 Web UI，遵循仓库 AGENTS.md 及现有模块边界。
 
 - 私有仓库：`https://github.com/dataelement/bisheng-work`
 - 上游仓库：`https://github.com/dataelement/dsh-desktop`
@@ -52,4 +52,4 @@ git merge upstream/main
 - 独立签名、发布凭据及对应 workflow 权限。
 - 产品文档、支持入口、隐私说明及新增模块的许可范围。
 
-在完成隔离前，不应将沿用上游身份和更新配置的构建作为 Bisheng 正式安装包分发。开发调试使用临时目录或独立开发 Profile，避免影响现有 DSH Desktop 数据。
+在完成隔离前，不应将沿用上游身份和更新配置的构建作为 BISHENG 正式安装包分发。开发调试使用临时目录或独立开发 Profile，避免影响现有 DSH Desktop 数据。
