@@ -170,8 +170,10 @@ export async function startEnterpriseCredentialBroker(
       }
     } catch (error) {
       const status = Number((error as { status?: number }).status)
+      const code = (error as { code?: unknown }).code
       sendJson(response, Number.isInteger(status) && status >= 400 && status < 600 ? status : 400, {
-        error: error instanceof Error ? error.message : 'Enterprise request failed.'
+        error: error instanceof Error ? error.message : 'Enterprise request failed.',
+        ...(typeof code === 'string' && code.length > 0 ? { errorCode: code } : {})
       })
     }
   }
