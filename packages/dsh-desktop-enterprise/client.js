@@ -824,6 +824,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [errorCode, setErrorCode] = useState('')
       const [confirmation, setConfirmation] = useState(null)
+      const stateRef = useRef(null)
       const clearFailure = () => {
         setError('')
         setErrorCode('')
@@ -833,25 +834,36 @@ window.__ModuleLoader__.load({
         setError(failure.message)
         setErrorCode(failure.code)
       }
+      const applyAccountState = useCallback((next) => {
+        stateRef.current = next
+        setState(next)
+        if (next?.connected === true) setConfirmation(null)
+      }, [])
 
       const refreshState = useCallback(async () => {
         const next = await api('/api/enterprise.state')
-        setState(next)
+        applyAccountState(next)
         if (next.base) {
           setBase(next.base)
           rememberBase(next.base)
         }
         return next
-      }, [])
+      }, [applyAccountState])
 
       const inspectDeepLink = useCallback(async (url) => {
         setBusy(true)
         clearFailure()
         try {
-          setConfirmation({
+          const inspected = {
             ...(await api('/api/enterprise.deep-link.inspect', { url })),
             fromDeepLink: true
-          })
+          }
+          const current = stateRef.current
+          if (
+            current?.base === inspected.base
+            && (current.phase === 'authorizing' || current.connected === true)
+          ) return
+          setConfirmation(inspected)
         } catch (cause) {
           showFailure(cause)
         } finally {
@@ -924,7 +936,11 @@ window.__ModuleLoader__.load({
             className: 'dshEnterpriseLogout',
             type: 'button',
             disabled: busy,
-            onClick: () => run(async () => setState(await api('/api/enterprise.logout', {})))
+            onClick: () => run(async () => {
+              const next = await api('/api/enterprise.logout', {})
+              setConfirmation(null)
+              applyAccountState(next)
+            })
           }, t('logout')))
         : null
 
@@ -938,7 +954,7 @@ window.__ModuleLoader__.load({
               title: t('refresh'),
               'aria-label': t('refresh'),
               disabled: busy,
-              onClick: () => run(async () => setState(await api('/api/enterprise.refresh', {})))
+              onClick: () => run(async () => applyAccountState(await api('/api/enterprise.refresh', {})))
             }, h('span', { 'aria-hidden': 'true' }, '↻'))),
           models.length
             ? h('ul', { className: `dshEnterpriseModels${state.modelsAvailable ? '' : ' paused'}` },
@@ -995,7 +1011,7 @@ window.__ModuleLoader__.load({
               type: 'button',
               disabled: busy || !ticket.trim(),
               onClick: () => run(async () => {
-                setState(await api('/api/enterprise.login.manual', { identityTicket: ticket.trim() }))
+                applyAccountState(await api('/api/enterprise.login.manual', { identityTicket: ticket.trim() }))
                 setTicket('')
               })
             }, t('submitTicket'))))
