@@ -1,5 +1,10 @@
 export interface MobilePageOptions {
   locale: 'en' | 'zh'
+  product?: string | null
+}
+
+export function isBishengProduct(product: string | null | undefined): boolean {
+  return product === 'bisheng'
 }
 
 export interface PendingCreatedSession {
@@ -44,8 +49,14 @@ export function applyPendingCreatedSessions(
   return stillPending
 }
 
-export function renderMobilePage({ locale }: MobilePageOptions): string {
+export function renderMobilePage({ locale, product }: MobilePageOptions): string {
   const zh = locale === 'zh'
+  const bisheng = isBishengProduct(product)
+  const appTitle = bisheng ? 'BISHENG' : 'DSH Mobile'
+  const disconnectedPath = bisheng ? '/disconnected?product=bisheng' : '/disconnected'
+  const header = bisheng
+    ? ''
+    : `<header><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="DSH Desktop"><img class="dark-logo" src="/brand-logo/dark" alt="DSH Desktop"><span>DSH Desktop</span></div><div id="status" class="status connecting" role="status" aria-label="${zh ? '正在连接' : 'Connecting'}"></div></header>`
   return `<!doctype html>
 <html lang="${zh ? 'zh-CN' : 'en'}">
 <head>
@@ -54,10 +65,10 @@ export function renderMobilePage({ locale }: MobilePageOptions): string {
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)">
   <meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="DSH Mobile">
+  <meta name="apple-mobile-web-app-title" content="${appTitle}">
   <link rel="icon" href="/app-icon">
   <link rel="apple-touch-icon" href="/app-icon">
-  <title>DSH Mobile</title>
+  <title>${appTitle}</title>
   <style>
     :root{color-scheme:light;--paper:#fff;--sidebar:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--card:#fff;--hover:#f2f3f5;--surface:#f7f7f5;--brand:#034FE5;--tunnel-warn-h:0px}
     @media(prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#141416;--sidebar:#19191b;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--card:#1d1d20;--hover:#29292d;--surface:#202023;--brand:#034FE5}}
@@ -78,7 +89,7 @@ export function renderMobilePage({ locale }: MobilePageOptions): string {
 </head>
 <body><main class="shell">
   <div id="toast" class="toast" role="status"></div>
-  <header><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"><span>BISHENG</span></div><div id="status" class="status connecting" role="status" aria-label="${zh ? '正在连接' : 'Connecting'}"></div></header>
+  ${header}
   <section id="sessionsView" class="view active">
     <div class="session-hero"><div class="session-heading"><p>${zh ? '移动工作台' : 'Mobile workspace'}</p><h1>${zh ? '继续对话' : 'Continue working'}</h1></div><button id="newSession" class="new-session" disabled><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${zh ? '新会话' : 'New session'}</button></div>
     <div class="workspace-panel"><label class="workspace-label" for="workspace">${zh ? '当前工作区' : 'Current workspace'}</label><div class="session-actions"><select id="workspace" aria-label="${zh ? '当前工作区' : 'Current workspace'}"></select><button id="refresh" class="icon-button" aria-label="${zh ? '刷新' : 'Refresh'}"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M16 7.5A6.5 6.5 0 1 0 16 13M16 7.5V3.5M16 7.5H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><div id="workspaceHint" class="workspace-hint"></div></div>
@@ -234,7 +245,7 @@ let unreachableStreak=0,tunnelExpiryTimer=null;
 function showUnreachableOverlay(){let host=$('unreachable');if(!host){host=document.createElement('div');host.id='unreachable';host.style.cssText='position:fixed;inset:0;z-index:9;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--paper) 88%,transparent)';host.innerHTML='<div style="max-width:320px;text-align:center"><strong style="font-size:20px">'+${JSON.stringify(zh ? '连接已断开' : 'Connection lost')}+'</strong><p style="color:var(--muted);line-height:1.6">'+unreachableCopy+'</p></div>';document.body.appendChild(host)}host.hidden=false}
 function hideUnreachableOverlay(){const host=$('unreachable');if(host)host.hidden=true}
 function renderTunnelWarning(expiresAt){const host=$('tunnelWarn');if(!host)return;if(!expiresAt){host.hidden=true;document.body.classList.remove('tunnel-warn-open');return}const minutes=Math.max(0,Math.ceil((expiresAt-Date.now())/60000));host.textContent=tunnelWarnCopy.replace('{n}',String(minutes));const show=minutes>0;host.hidden=!show;document.body.classList.toggle('tunnel-warn-open',show)}
-async function checkConnection(){if(document.hidden)return;const status=$('status');try{const response=await fetch('/api/status',{cache:'no-store'});status.classList.remove('connecting','error-state');if(response.ok){unreachableStreak=0;hideUnreachableOverlay();status.setAttribute('aria-label',${JSON.stringify(zh ? '已连接' : 'Connected')});let body={};try{body=await response.json()}catch{}renderTunnelWarning(typeof body.tunnelExpiresAt==='number'?body.tunnelExpiresAt:undefined)}else{if(response.status===401){location.replace('/disconnected');return}status.classList.add('error-state');$('listError').textContent='';$('chatError').textContent='';status.setAttribute('aria-label',${JSON.stringify(zh ? '已断开' : 'Disconnected')})}}catch{status.classList.remove('connecting');status.classList.add('error-state');$('listError').textContent='';$('chatError').textContent='';status.setAttribute('aria-label',${JSON.stringify(zh ? '已断开' : 'Disconnected')});unreachableStreak+=1;if(unreachableStreak>=3)showUnreachableOverlay()}}
+async function checkConnection(){if(document.hidden)return;const status=$('status');try{const response=await fetch('/api/status',{cache:'no-store'});if(status)status.classList.remove('connecting','error-state');if(response.ok){unreachableStreak=0;hideUnreachableOverlay();if(status)status.setAttribute('aria-label',${JSON.stringify(zh ? '已连接' : 'Connected')});let body={};try{body=await response.json()}catch{}renderTunnelWarning(typeof body.tunnelExpiresAt==='number'?body.tunnelExpiresAt:undefined)}else{if(response.status===401){location.replace('${disconnectedPath}');return}if(status){status.classList.add('error-state');status.setAttribute('aria-label',${JSON.stringify(zh ? '已断开' : 'Disconnected')})}$('listError').textContent='';$('chatError').textContent=''}}catch{if(status){status.classList.remove('connecting');status.classList.add('error-state');status.setAttribute('aria-label',${JSON.stringify(zh ? '已断开' : 'Disconnected')})}$('listError').textContent='';$('chatError').textContent='';unreachableStreak+=1;if(unreachableStreak>=3)showUnreachableOverlay()}}
 setInterval(checkConnection,1500);checkConnection();
 (async()=>{try{await loadWorkspaces();syncWorkspaceUi();await loadSessions();await openRecentSession()}catch(e){showError('listError',e)}})();
 </script></body></html>`
@@ -243,13 +254,21 @@ setInterval(checkConnection,1500);checkConnection();
 export function renderMobileReconnectPage(
   locale: 'en' | 'zh',
   connectionMode: 'lan' | 'tunnel' = 'lan',
-  options: { expired?: boolean; resumeUnavailable?: boolean } = {}
+  options: { expired?: boolean; resumeUnavailable?: boolean; product?: string | null } = {}
 ): string {
   const zh = locale === 'zh'
   const expired = options.expired === true
   const resumeUnavailable = options.resumeUnavailable === true
+  const bisheng = isBishengProduct(options.product)
+  const reconnectHref = bisheng ? '/reconnect?product=bisheng' : '/reconnect'
   const text = {
-    title: zh ? '重新连接 DSH' : 'Reconnect DSH',
+    title: bisheng
+      ? zh
+        ? '重新连接'
+        : 'Reconnect'
+      : zh
+        ? '重新连接 DSH'
+        : 'Reconnect DSH',
     heading: zh ? '连接已断开' : 'Connection lost',
     action:
       connectionMode === 'tunnel' && !expired
@@ -277,8 +296,14 @@ export function renderMobileReconnectPage(
   }
   const action = resumeUnavailable
     ? ''
-    : `<a class="primary" href="/reconnect">${text.action}<svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`
-  return `<!doctype html><html lang="${zh ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"><meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)"><title>${text.title}</title><style>:root{color-scheme:light;--bg:#fff;--ink:#18191c;--muted:#81858c}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--ink:#f5f5f6;--muted:#95979d}}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{width:100%;max-width:340px;text-align:center}.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:22px;font-size:13px;font-weight:600}.brand img{width:28px;height:28px;object-fit:contain}.brand .dark-logo{display:none}@media(prefers-color-scheme:dark){.brand .light-logo{display:none}.brand .dark-logo{display:block}}h1{margin:0;font-size:28px;line-height:1.18;letter-spacing:-.03em}.guidance{margin:13px auto 0;max-width:310px;color:var(--muted);font-size:14px;line-height:1.65}.primary{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;height:50px;margin-top:26px;border-radius:15px;background:var(--ink);color:var(--bg);font-weight:650;text-decoration:none}</style></head><body><main class="card"><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"><span>BISHENG</span></div><h1>${text.heading}</h1><p class="guidance">${text.guidance}</p>${action}</main></body></html>`
+    : `<a class="primary" href="${reconnectHref}">${text.action}<svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`
+  const brandCss = bisheng
+    ? ''
+    : `.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:22px;font-size:13px;font-weight:600}.brand img{width:28px;height:28px;object-fit:contain}.brand .dark-logo{display:none}@media(prefers-color-scheme:dark){.brand .light-logo{display:none}.brand .dark-logo{display:block}}`
+  const brand = bisheng
+    ? ''
+    : `<div class="brand"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"><span>BISHENG</span></div>`
+  return `<!doctype html><html lang="${zh ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"><meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)"><title>${text.title}</title><style>:root{color-scheme:light;--bg:#fff;--ink:#18191c;--muted:#81858c}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--ink:#f5f5f6;--muted:#95979d}}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{width:100%;max-width:340px;text-align:center}${brandCss}h1{margin:0;font-size:28px;line-height:1.18;letter-spacing:-.03em}.guidance{margin:13px auto 0;max-width:310px;color:var(--muted);font-size:14px;line-height:1.65}.primary{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;height:50px;margin-top:26px;border-radius:15px;background:var(--ink);color:var(--bg);font-weight:650;text-decoration:none}</style></head><body><main class="card">${brand}<h1>${text.heading}</h1><p class="guidance">${text.guidance}</p>${action}</main></body></html>`
 }
 
 export function renderDesktopPairingPage(options: {
@@ -349,7 +374,7 @@ export function renderDesktopPairingPage(options: {
     ? text.pinHintDurable
     : text.pinHintTemp + (pinHintRemaining ? ` (${pinHintRemaining}s)` : '')
   return `<!doctype html><html lang="${zh ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${text.title}</title><style>
-  :root{color-scheme:light;--bg:#fff;--surface:#fff;--panel:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--brand:#034FE5;--success-bg:#f2f8f4;--success-ink:#277347;--success-muted:#557565}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--surface:#1d1d20;--panel:#202023;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--brand:#034FE5;--success-bg:#17261d;--success-ink:#75c991;--success-muted:#8ab99a}}*{box-sizing:border-box}html,body{min-height:100%;background:var(--bg)}body{margin:0;color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:520px;margin:auto;padding:26px 32px 30px;text-align:center}.brand{display:flex;align-items:center;justify-content:center;gap:9px;font-size:16px;font-weight:600;margin-bottom:14px}.brand img{width:20px;height:20px;object-fit:contain}.brand .dark-logo{display:none}@media(prefers-color-scheme:dark){.brand .light-logo{display:none}.brand .dark-logo{display:block}}h1{font-size:24px;line-height:1.25;font-weight:600;margin:0}p{margin:0;color:var(--muted)}
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--panel:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--brand:#034FE5;--success-bg:#f2f8f4;--success-ink:#277347;--success-muted:#557565}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--surface:#1d1d20;--panel:#202023;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--brand:#034FE5;--success-bg:#17261d;--success-ink:#75c991;--success-muted:#8ab99a}}*{box-sizing:border-box}html,body{min-height:100%;background:var(--bg)}body{margin:0;color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:520px;margin:auto;padding:26px 32px 30px;text-align:center}h1{font-size:24px;line-height:1.25;font-weight:600;margin:0}p{margin:0;color:var(--muted)}
   .mode-panel{max-width:410px;margin:18px auto 0;padding:5px 8px 10px;border:1px solid var(--line);border-radius:15px;background:var(--panel)}
   .mode-switch{display:grid;grid-template-columns:1fr 1fr;width:100%;padding:3px;border-radius:11px;gap:3px}
   .mode-btn{min-width:0;height:34px;border:0;background:transparent;color:var(--muted);padding:0 10px;border-radius:9px;font-size:13px;font-weight:550;cursor:pointer;transition:background .15s,color .15s}
@@ -365,7 +390,7 @@ export function renderDesktopPairingPage(options: {
   .url-row{display:flex;align-items:center;gap:8px;margin:10px auto 0;max-width:410px}.url{min-width:0;flex:1;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--panel);border-radius:9px;padding:9px 11px;text-align:left}.copy{position:relative;display:grid;place-items:center;width:28px;height:28px;flex:none;border:0;background:transparent;color:var(--muted);padding:0;cursor:pointer}.copy:hover{color:var(--ink)}.copy-icon{display:block}.copy-done{display:none;place-items:center;width:16px;height:16px;border-radius:50%;background:#35a867;color:#fff}.copy.copied .copy-icon{display:none}.copy.copied .copy-done{display:grid}.copy-done svg{display:block}.copy-tip{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);background:#fff;color:#18191c;border-radius:6px;padding:5px 8px;font-size:12px;line-height:1.2;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.12);opacity:0;pointer-events:none}.copy-tip:after{content:'';position:absolute;left:50%;top:100%;transform:translateX(-50%);border:5px solid transparent;border-top-color:#fff}.copy:hover .copy-tip,.copy.copied .copy-tip{opacity:1}  .fallback-link{display:inline-block;margin:8px auto 0;border:0;background:transparent;color:var(--muted);font-size:12.5px;text-decoration:underline;text-underline-offset:2px;cursor:pointer}.fallback-link.hide{display:none}.expires{font-size:12px;margin-top:8px}
   .pin-panel{display:none;max-width:410px;margin:16px auto 0;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.pin-panel.show{display:block}.pin-label{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}.pin-value{margin:8px 0 6px;font:40px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.18em}.pin-hint{color:var(--muted);font-size:12px}.pin-consent{display:flex;gap:8px;align-items:flex-start;margin-top:12px;text-align:left;font-size:13px}.pin-actions{display:flex;justify-content:center;gap:8px;margin-top:12px}.pin-actions[hidden]{display:none}.pin-actions button{border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);padding:7px 12px;cursor:pointer}
   .tunnel-err{display:none;color:#e34d59;font-size:12px;margin:5px 7px 0}.tunnel-err.show{display:block}
-  </style></head><body class="${options.connected ? 'phone-connected manage-connected' : ''}"><div class="wrap"><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"><span>BISHENG</span></div><h1>${options.connected ? text.manageHeading : text.heading}</h1>
+  </style></head><body class="${options.connected ? 'phone-connected manage-connected' : ''}"><div class="wrap"><h1>${options.connected ? text.manageHeading : text.heading}</h1>
   <div class="mode-panel"><div class="mode-switch"><button id="btnLan" class="mode-btn${!options.tunnelActive ? ' active' : ''}" onclick="switchMode(false)"${options.connected ? ' disabled' : ''}>${text.modeLan}</button><button id="btnTunnel" class="mode-btn${options.tunnelActive ? ' active' : ''}" onclick="switchMode(true)"${options.connected ? ' disabled' : ''}>${text.modeTunnel}</button></div><p class="hint" id="modeHint">${options.tunnelActive ? text.tunnelHint : text.lanHint}</p><div id="tunnelError" class="tunnel-err${options.tunnelActive && options.tunnelError ? ' show' : ''}">${options.tunnelActive && options.tunnelError ? text.tunnelError + options.tunnelError : ''}</div></div>
   <div id="connection" class="connection${options.connected ? ' show' : ''}"><div class="connection-title">${text.connected}</div><p class="connection-hint">${text.closeHint}</p><div class="connection-actions"><button onclick="disconnectPhone()">${text.disconnect}</button><button class="done" onclick="window.close()">${text.done}</button></div></div>
   <div class="pairing-content"><div id="qrContainer" class="qr"><div id="qrCode">${options.qrSvg}</div><div id="qrLoading" class="qr-loading${options.tunnelLoading ? ' show' : ''}"><div class="loading-copy"><span id="tunnelLoadingText">${text.tunnelLoading}</span><span id="tunnelProgressValue" class="loading-value">0%</span></div><div class="tunnel-progress" aria-hidden="true"><span id="tunnelProgressBar"></span></div></div></div><div class="url-row"><div class="url" id="url">${escapeHtml(options.pairingUrl)}</div><button type="button" id="copyBtn" class="copy" onclick="copyUrl()" aria-label="${text.copy}"><svg class="copy-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.25" y="5.25" width="7.5" height="7.5" rx="1.4" stroke="currentColor" stroke-width="1.3"/><path d="M3.75 10.25V3.75h6.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="copy-done" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2.4 6.2 4.7 8.5 9.6 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="copy-tip" id="copyTip">${text.copy}</span></button></div><button type="button" id="fallbackLink" class="fallback-link${showFallback ? '' : ' hide'}" onclick="switchFallback()">${text.fallbackLink}</button><p id="expires" class="expires"></p><div id="pinPanel" class="pin-panel${options.tunnelActive && options.pairingPin ? ' show' : ''}"><div class="pin-label">${text.pinLabel}</div><div id="pinValue" class="pin-value">${escapeHtml(options.pairingPin ?? '')}</div><p id="pinHint" class="pin-hint">${initialPinHint}</p><label class="pin-consent"><input id="pinConsent" type="checkbox"${options.pinConsent ? ' checked' : ''} onchange="setPinConsent(this.checked)"><span>${text.pinConsent}<br><small>${text.pinPrivacy}</small></span></label><div id="pinActions" class="pin-actions"${options.pinConsent ? '' : ' hidden'}><button type="button" onclick="resetPin()">${text.pinReset}</button><button type="button" onclick="setPinConsent(false)">${text.pinCancel}</button></div></div></div></div>
@@ -391,10 +416,18 @@ export function renderDesktopPairingPage(options: {
   setInterval(poll,800);poll()</script></body></html>`
 }
 
-export function renderPairingPinPage(locale: 'en' | 'zh'): string {
+export function renderPairingPinPage(locale: 'en' | 'zh', product?: string | null): string {
   const zh = locale === 'zh'
+  const bisheng = isBishengProduct(product)
+  const homePath = bisheng ? '/?product=bisheng' : '/'
   const text = {
-    title: zh ? '连接 DSH' : 'Pairing DSH',
+    title: bisheng
+      ? zh
+        ? '连接 BISHENG'
+        : 'Pairing BISHENG'
+      : zh
+        ? '连接 DSH'
+        : 'Pairing DSH',
     heading: zh ? '输入连接密码' : 'Enter pairing password',
     hint: zh ? '在电脑「连接手机」窗口查看 6 位密码。' : 'Find the 6-digit password in Connect Phone on the computer.',
     submit: zh ? '连接' : 'Connect',
@@ -405,8 +438,14 @@ export function renderPairingPinPage(locale: 'en' | 'zh'): string {
     unavailable: zh ? '暂时无法连接桌面端，请先启动 BISHENG。' : 'Cannot reach the desktop. Start BISHENG and try again.',
     connecting: zh ? '正在连接…' : 'Connecting…'
   }
-  return `<!doctype html><html lang="${zh ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"><meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)"><title>${text.title}</title><style>:root{color-scheme:light;--bg:#fff;--card:#fff;--panel:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--brand:#034FE5}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--card:#1d1d20;--panel:#202023;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--brand:#034FE5}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}.card{width:100%;max-width:340px;text-align:center}.logo{width:54px;height:54px;display:grid;place-items:center;margin:0 auto 22px;border:1px solid var(--line);border-radius:16px;background:var(--card)}.logo img{width:36px;height:36px;object-fit:contain}.logo .dark-logo{display:none}@media(prefers-color-scheme:dark){.logo .light-logo{display:none}.logo .dark-logo{display:block}}h1{font-size:24px;line-height:1.25;font-weight:600;margin:0 0 8px}p{margin:0;color:var(--muted)}input{width:100%;height:52px;margin-top:22px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);text-align:center;font:28px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.28em}button{width:100%;height:44px;margin-top:12px;border:1px solid var(--ink);border-radius:12px;background:var(--ink);color:var(--bg);font:inherit;font-weight:600;cursor:pointer}button.quiet{border-color:var(--line);background:transparent;color:var(--ink)}.note{min-height:20px;margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--panel);color:#e34d59;font-size:13px}button:disabled{opacity:.55;cursor:default}</style></head><body><div class="card"><div class="logo"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"></div><h1>${text.heading}</h1><p>${text.hint}</p><form onsubmit="return submitPin(event)"><input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required><button id="submit" type="submit">${text.submit}</button></form><button class="quiet" type="button" onclick="showPinOnDesktop()">${text.showPin}</button><div id="status" class="note"></div></div><script>const T=${JSON.stringify(text)};
-async function submitPin(event){event.preventDefault();const pin=document.getElementById('pin').value.trim(),status=document.getElementById('status'),submit=document.getElementById('submit');submit.disabled=true;status.textContent=T.connecting;try{const r=await fetch('/pair/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pin})});const j=await r.json();if(r.status===429){const minutes=Math.max(1,Math.ceil(Number(j.retryAfter||r.headers.get('retry-after')||60)/60));status.textContent=T.rateLimited.replace('{n}',String(minutes));return false}if(j.ok){location.replace('/');return false}status.textContent=j.rescan||j.error==='expired'?T.expired:T.invalid}catch{status.textContent=T.unavailable}finally{submit.disabled=false}return false}
+  const logoCss = bisheng
+    ? ''
+    : `.logo{width:54px;height:54px;display:grid;place-items:center;margin:0 auto 22px;border:1px solid var(--line);border-radius:16px;background:var(--card)}.logo img{width:36px;height:36px;object-fit:contain}.logo .dark-logo{display:none}@media(prefers-color-scheme:dark){.logo .light-logo{display:none}.logo .dark-logo{display:block}}`
+  const logo = bisheng
+    ? ''
+    : `<div class="logo"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"></div>`
+  return `<!doctype html><html lang="${zh ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"><meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)"><title>${text.title}</title><style>:root{color-scheme:light;--bg:#fff;--card:#fff;--panel:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--brand:#034FE5}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#141416;--card:#1d1d20;--panel:#202023;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--brand:#034FE5}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}.card{width:100%;max-width:340px;text-align:center}${logoCss}h1{font-size:24px;line-height:1.25;font-weight:600;margin:0 0 8px}p{margin:0;color:var(--muted)}input{width:100%;height:52px;margin-top:22px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);text-align:center;font:28px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.28em}button{width:100%;height:44px;margin-top:12px;border:1px solid var(--ink);border-radius:12px;background:var(--ink);color:var(--bg);font:inherit;font-weight:600;cursor:pointer}button.quiet{border-color:var(--line);background:transparent;color:var(--ink)}.note{min-height:20px;margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--panel);color:#e34d59;font-size:13px}.note:empty{display:none}button:disabled{opacity:.55;cursor:default}</style></head><body><div class="card">${logo}<h1>${text.heading}</h1><p>${text.hint}</p><form onsubmit="return submitPin(event)"><input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required><button id="submit" type="submit">${text.submit}</button></form><button class="quiet" type="button" onclick="showPinOnDesktop()">${text.showPin}</button><div id="status" class="note"></div></div><script>const T=${JSON.stringify(text)};
+async function submitPin(event){event.preventDefault();const pin=document.getElementById('pin').value.trim(),status=document.getElementById('status'),submit=document.getElementById('submit');submit.disabled=true;status.textContent=T.connecting;try{const r=await fetch('/pair/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pin})});const j=await r.json();if(r.status===429){const minutes=Math.max(1,Math.ceil(Number(j.retryAfter||r.headers.get('retry-after')||60)/60));status.textContent=T.rateLimited.replace('{n}',String(minutes));return false}if(j.ok){location.replace('${homePath}');return false}status.textContent=j.rescan||j.error==='expired'?T.expired:T.invalid}catch{status.textContent=T.unavailable}finally{submit.disabled=false}return false}
 async function showPinOnDesktop(){try{await fetch('/pair/retry',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})}catch{}}</script></body></html>`
 }
 

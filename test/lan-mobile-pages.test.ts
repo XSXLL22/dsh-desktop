@@ -24,8 +24,10 @@ describe('LAN mobile page', () => {
     expect(html).toContain('content="#141416" media="(prefers-color-scheme:dark)"')
     expect(html).toContain('/brand-logo/light')
     expect(html).toContain('.brand img{width:28px;height:28px')
-    expect(html).toContain('src="/brand-logo/light" alt="BISHENG"')
-    expect(html).not.toContain('alt="DSH"')
+    expect(html).toContain('src="/brand-logo/light" alt="DSH Desktop"')
+    expect(html).toContain('<span>DSH Desktop</span>')
+    expect(html).toContain('content="DSH Mobile"')
+    expect(html).toContain('<title>DSH Mobile</title>')
     expect(html).not.toContain('id="chatTitle"')
     expect(html).toContain('body.chat-open header{display:none}')
     expect(html).toContain('body.chat-open .shell{padding:env(safe-area-inset-top) 14px 0}')
@@ -227,6 +229,45 @@ describe('LAN mobile page', () => {
     }
   })
 
+  it('uses the enterprise mobile presentation only for product=bisheng', () => {
+    const session = renderMobilePage({ locale: 'zh', product: 'bisheng' })
+    expect(session).not.toContain('<header>')
+    expect(session).not.toContain('/brand-logo/')
+    expect(session).toContain('<title>BISHENG</title>')
+    expect(session).toContain('content="BISHENG"')
+    expect(session).toContain('继续对话')
+    expect(session).toContain('请先在 BISHENG 中创建第一个工作区。')
+    expect(session).toContain("location.replace('/disconnected?product=bisheng')")
+    expect(session).toContain('if(status)')
+
+    const dsh = renderMobilePage({ locale: 'zh' })
+    expect(dsh).toContain('<span>DSH Desktop</span>')
+    expect(dsh).toContain('id="status"')
+    expect(dsh).toContain('<title>DSH Mobile</title>')
+    expect(dsh).not.toContain('product=bisheng')
+
+    const pin = renderPairingPinPage('zh', 'bisheng')
+    expect(pin).not.toContain('class="logo"')
+    expect(pin).not.toContain('/brand-logo/')
+    expect(pin).toContain('<title>连接 BISHENG</title>')
+    expect(pin).toContain('输入连接密码')
+    expect(pin).toContain("location.replace('/?product=bisheng')")
+    expect(pin).toContain('请先启动 BISHENG。')
+    expect(pin).toContain('.note:empty{display:none}')
+
+    const reconnect = renderMobileReconnectPage('zh', 'lan', { product: 'bisheng' })
+    expect(reconnect).not.toContain('class="brand"')
+    expect(reconnect).not.toContain('BISHENG')
+    expect(reconnect).toContain('<title>重新连接</title>')
+    expect(reconnect).toContain('连接已断开')
+    expect(reconnect).toContain('href="/reconnect?product=bisheng"')
+
+    const dshReconnect = renderMobileReconnectPage('zh')
+    expect(dshReconnect).toContain('class="brand"')
+    expect(dshReconnect).toContain('href="/reconnect">')
+    expect(dshReconnect).not.toContain('product=bisheng')
+  })
+
   it('uses BISHENG styling on both pairing surfaces', () => {
     const desktop = renderDesktopPairingPage({
       qrSvg: '<svg></svg>',
@@ -237,18 +278,19 @@ describe('LAN mobile page', () => {
     })
     const phone = renderPairingPinPage('en')
     for (const html of [desktop, phone]) {
-      expect(html).toContain('/brand-logo/light')
       for (const script of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
         (match) => match[1]!
       ))
         expect(() => new Function(script)).not.toThrow()
     }
+    expect(phone).toContain('/brand-logo/light')
+    expect(phone).toContain('.note:empty{display:none}')
+    expect(desktop).not.toContain('/brand-logo/')
     expect(desktop).toContain('/desktop/disconnect')
     expect(desktop).toContain('class="pin-panel')
     expect(desktop).not.toContain('--request-bg:#f5f7ff')
     expect(desktop).toContain('prefers-color-scheme:dark')
-    expect(desktop).toContain('/brand-logo/dark')
-    expect(desktop).toContain(
+    expect(desktop).not.toContain(
       '.brand{display:flex;align-items:center;justify-content:center;gap:9px;font-size:16px;font-weight:600;margin-bottom:14px}'
     )
     expect(renderMobilePage({ locale: 'en' })).toContain(
@@ -257,13 +299,10 @@ describe('LAN mobile page', () => {
     expect(renderMobileReconnectPage('en')).toContain(
       '.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:22px;font-size:13px;font-weight:600}'
     )
-    expect(desktop).toContain('.brand img{width:20px;height:20px;object-fit:contain}')
-    expect(renderMobilePage({ locale: 'en' })).toContain(
-      '.brand img{width:28px;height:28px;object-fit:contain}'
-    )
     expect(renderMobileReconnectPage('en')).toContain(
       '.brand img{width:28px;height:28px;object-fit:contain}'
     )
+    expect(desktop).not.toContain('.brand img{width:20px;height:20px;object-fit:contain}')
     expect(desktop).toContain('--bg:#141416')
     expect(desktop).toContain('.qr{display:inline-flex;background:#fff')
     expect(desktop).toContain('Creating a global network link')
