@@ -2,12 +2,12 @@ const packageJson = require('./package.json')
 
 module.exports = {
   ...packageJson.build,
-  appId: 'io.bisheng.work.dev',
+  appId: 'io.bisheng.dev',
   productName: 'BISHENG Dev',
   protocols: [
     {
       name: 'BISHENG Dev Enterprise Login',
-      schemes: ['bisheng-work-dev']
+      schemes: ['bisheng-dev']
     }
   ],
   directories: {
@@ -19,10 +19,10 @@ module.exports = {
     productName: 'BISHENG Dev',
     dshDesktopChannel: 'development'
   },
-  artifactName: 'bisheng-work-dev-${os}-${arch}.${ext}',
+  artifactName: 'bisheng-dev-${os}-${arch}.${ext}',
   nsis: {
     ...packageJson.build.nsis,
-    artifactName: 'bisheng-work-dev-windows-${arch}-setup.${ext}'
+    artifactName: 'bisheng-dev-windows-${arch}-setup.${ext}'
   },
   publish: null
 }

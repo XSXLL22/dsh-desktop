@@ -6,14 +6,14 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 
 const REQUIRED_ASSETS = [
-  'bisheng-work-mac-arm64.dmg',
-  'bisheng-work-mac-arm64.zip',
-  'bisheng-work-mac-arm64.zip.blockmap',
-  'bisheng-work-mac-x64.dmg',
-  'bisheng-work-mac-x64.zip',
-  'bisheng-work-mac-x64.zip.blockmap',
-  'bisheng-work-windows-x64-setup.exe',
-  'bisheng-work-windows-x64-setup.exe.blockmap',
+  'bisheng-mac-arm64.dmg',
+  'bisheng-mac-arm64.zip',
+  'bisheng-mac-arm64.zip.blockmap',
+  'bisheng-mac-x64.dmg',
+  'bisheng-mac-x64.zip',
+  'bisheng-mac-x64.zip.blockmap',
+  'bisheng-windows-x64-setup.exe',
+  'bisheng-windows-x64-setup.exe.blockmap',
   'latest-mac.yml',
   'latest.yml'
 ]
@@ -109,9 +109,9 @@ export async function verifyReleaseAssets(releaseDir, version, options = {}) {
     await assertFileHeader(file, kind, fileStat.size)
   }
 
-  await assertUpdateEntry(root, 'latest.yml', version, 'bisheng-work-windows-x64-setup.exe')
-  await assertUpdateEntry(root, 'latest-mac.yml', version, 'bisheng-work-mac-arm64.zip')
-  await assertUpdateEntry(root, 'latest-mac.yml', version, 'bisheng-work-mac-x64.zip')
+  await assertUpdateEntry(root, 'latest.yml', version, 'bisheng-windows-x64-setup.exe')
+  await assertUpdateEntry(root, 'latest-mac.yml', version, 'bisheng-mac-arm64.zip')
+  await assertUpdateEntry(root, 'latest-mac.yml', version, 'bisheng-mac-x64.zip')
 }
 
 async function main() {

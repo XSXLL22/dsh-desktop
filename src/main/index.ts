@@ -617,16 +617,15 @@ function attachWindowsMenuView(window: BrowserWindow): void {
 function configureAppIdentity(): void {
   if (developmentBuild) {
     app.setName('BISHENG Dev')
-    app.setPath('userData', join(app.getPath('appData'), 'bisheng-work-dev'))
+    app.setPath('userData', join(app.getPath('appData'), 'bisheng-dev'))
     return
   }
 
   app.setName('BISHENG')
-  // Keep the historical lowercase directory stable across product-name and
-  // branding changes. Harness stores workspaces, sessions, credentials, and
-  // custom presets below userData, so deriving this path from app.getName()
-  // would make an ordinary upgrade look like a fresh installation.
-  app.setPath('userData', join(app.getPath('appData'), 'bisheng-work'))
+  // Keep this directory explicit. Harness stores workspaces, sessions,
+  // credentials, and custom presets below userData, so deriving the path from
+  // app.getName() would make a later display-name change look like a fresh install.
+  app.setPath('userData', join(app.getPath('appData'), 'bisheng'))
 }
 
 async function syncNativeTheme(window: BrowserWindow): Promise<void> {

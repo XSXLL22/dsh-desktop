@@ -474,9 +474,9 @@ def modelscope_download_links(release_tag: str, prerelease: bool) -> str:
     return "\n".join(
         (
             "**ModelScope 下载地址**",
-            f"[Windows x64 安装包]({base}/bisheng-work-windows-x64-setup.exe)",
-            f"[macOS Apple Silicon 安装包]({base}/bisheng-work-mac-arm64.dmg)",
-            f"[macOS Intel 安装包]({base}/bisheng-work-mac-x64.dmg)",
+            f"[Windows x64 安装包]({base}/bisheng-windows-x64-setup.exe)",
+            f"[macOS Apple Silicon 安装包]({base}/bisheng-mac-arm64.dmg)",
+            f"[macOS Intel 安装包]({base}/bisheng-mac-x64.dmg)",
         )
     )
 
