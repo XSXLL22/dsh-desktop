@@ -52,11 +52,10 @@ export function applyPendingCreatedSessions(
 export function renderMobilePage({ locale, product }: MobilePageOptions): string {
   const zh = locale === 'zh'
   const bisheng = isBishengProduct(product)
-  const appTitle = bisheng ? 'BISHENG' : 'DSH Mobile'
   const disconnectedPath = bisheng ? '/disconnected?product=bisheng' : '/disconnected'
   const header = bisheng
     ? ''
-    : `<header><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="DSH Desktop"><img class="dark-logo" src="/brand-logo/dark" alt="DSH Desktop"><span>DSH Desktop</span></div><div id="status" class="status connecting" role="status" aria-label="${zh ? '正在连接' : 'Connecting'}"></div></header>`
+    : `<header><div class="brand"><img class="light-logo" src="/brand-logo/light" alt="BISHENG"><img class="dark-logo" src="/brand-logo/dark" alt="BISHENG"><span>BISHENG</span></div><div id="status" class="status connecting" role="status" aria-label="${zh ? '正在连接' : 'Connecting'}"></div></header>`
   return `<!doctype html>
 <html lang="${zh ? 'zh-CN' : 'en'}">
 <head>
@@ -65,10 +64,10 @@ export function renderMobilePage({ locale, product }: MobilePageOptions): string
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)">
   <meta name="theme-color" content="#141416" media="(prefers-color-scheme:dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="${appTitle}">
+  <meta name="apple-mobile-web-app-title" content="BISHENG">
   <link rel="icon" href="/app-icon">
   <link rel="apple-touch-icon" href="/app-icon">
-  <title>${appTitle}</title>
+  <title>BISHENG</title>
   <style>
     :root{color-scheme:light;--paper:#fff;--sidebar:#f7f8fa;--ink:#18191c;--muted:#81858c;--line:#e5e7eb;--card:#fff;--hover:#f2f3f5;--surface:#f7f7f5;--brand:#034FE5;--tunnel-warn-h:0px}
     @media(prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#141416;--sidebar:#19191b;--ink:#f5f5f6;--muted:#95979d;--line:#303034;--card:#1d1d20;--hover:#29292d;--surface:#202023;--brand:#034FE5}}
@@ -267,8 +266,8 @@ export function renderMobileReconnectPage(
         ? '重新连接'
         : 'Reconnect'
       : zh
-        ? '重新连接 DSH'
-        : 'Reconnect DSH',
+        ? '重新连接 BISHENG'
+        : 'Reconnect BISHENG',
     heading: zh ? '连接已断开' : 'Connection lost',
     action:
       connectionMode === 'tunnel' && !expired
@@ -421,13 +420,7 @@ export function renderPairingPinPage(locale: 'en' | 'zh', product?: string | nul
   const bisheng = isBishengProduct(product)
   const homePath = bisheng ? '/?product=bisheng' : '/'
   const text = {
-    title: bisheng
-      ? zh
-        ? '连接 BISHENG'
-        : 'Pairing BISHENG'
-      : zh
-        ? '连接 DSH'
-        : 'Pairing DSH',
+    title: zh ? '连接 BISHENG' : 'Pairing BISHENG',
     heading: zh ? '输入连接密码' : 'Enter pairing password',
     hint: zh ? '在电脑「连接手机」窗口查看 6 位密码。' : 'Find the 6-digit password in Connect Phone on the computer.',
     submit: zh ? '连接' : 'Connect',
