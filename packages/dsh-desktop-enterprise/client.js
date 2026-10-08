@@ -487,14 +487,15 @@ window.__ModuleLoader__.load({
       const installed = new Map((catalog?.installed || []).map(item => [item.plugin_id, item]))
       const available = new Set((catalog?.data || []).map(item => item.id))
       const rows = [...(catalog?.data || []), ...(catalog?.installed || []).filter(item => !available.has(item.plugin_id)).map(item => ({ id: item.plugin_id, display_name: item.display_name, description: item.description, versions: [], installedOnly: true }))]
+      const showEmpty = !loading && catalog && !rows.length
       return h('section', { className: 'dshEnterpriseMarket' },
         h('div', { className: 'dshEnterpriseMarketHead' },
-          h('div', null, h('strong', null, catalog?.tenant?.name || account.tenant.name), h('p', null, marketCopy.intro)),
+          h('div', null, h('strong', null, catalog?.tenant?.name || account.tenant.name), showEmpty ? null : h('p', null, marketCopy.intro)),
           h('button', { type: 'button', disabled: loading, onClick: refresh }, marketCopy.refresh)),
         loading ? h('p', { role: 'status' }, marketCopy.loading) : null,
         error ? h('div', { role: 'alert', className: 'dshEnterpriseMarketError' }, error) : null,
-        catalog && !catalog.installReady ? h('p', null, marketCopy.setup) : null,
-        !loading && catalog && !rows.length ? h('p', null, marketCopy.empty) : null,
+        catalog && !catalog.installReady && !showEmpty ? h('p', null, marketCopy.setup) : null,
+        showEmpty ? h('p', null, marketCopy.empty) : null,
         h('div', { className: 'dshEnterpriseMarketList' }, rows.map(plugin => {
           const current = plugin.versions.find(version => version.id === plugin.current_version_id)
           const local = installed.get(plugin.id)
