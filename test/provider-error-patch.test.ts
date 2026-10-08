@@ -53,6 +53,31 @@ describe('provider error classification patches', () => {
     }
   })
 
+  it('localizes enterprise chat failures from the platform code and hides that badge', async () => {
+    const patch = await readPatch('@deepseek-ai/dsh-client-ui-chat')
+    for (const copy of [
+      '模型服务调用失败，请稍后手动重试。',
+      'The model request failed. Try again manually later.',
+      '当前模型本月额度已用尽，请联系管理员调整额度，或等待下月重置。',
+      'This model\'s monthly allowance is used up. Ask an administrator to adjust it, or wait for the monthly reset.',
+      '额度服务暂不可用，请稍后重试。',
+      'The allowance service is temporarily unavailable. Try again later.',
+      '平台授权服务暂不可用，请稍后重试。',
+      'The authorization service is temporarily unavailable. Try again later.',
+      '当前模型服务尚未就绪，请确认账号已连接后再试。',
+      'This model service is not ready. Confirm the account is connected, then try again.'
+    ]) expect(patch).toContain(copy)
+    expect(patch).toContain('case "upstream_error": return "message.failure.upstreamError";')
+    expect(patch).toContain('case "monthly_token_limit_exceeded": return "message.failure.monthlyTokenLimit";')
+    expect(patch).toContain('case "quota_unavailable": return "message.failure.quotaUnavailable";')
+    expect(patch).toContain('case "NO_ADAPTER": return "message.failure.noAdapter";')
+    expect(patch).toContain('if (platformKey) return t(platformKey);')
+    expect(patch).toContain('code === "CONTEXT_WINDOW_EXCEEDED" && message === "Model context length exceeded"')
+    expect(patch).toContain('if (bishengContextWindowFailure(message, code)) return t("message.failure.contextLength");')
+    expect(patch).toContain('platformFailureKey(node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0')
+    expect(patch).not.toContain('case "CONTEXT_WINDOW_EXCEEDED"')
+  })
+
   it('recovers a provider terminal message that omits its content array', async () => {
     const patch = await readPatch('@deepseek-ai/dsh-llm-pi-ai')
     const additions = patch
