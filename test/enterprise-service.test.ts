@@ -221,6 +221,67 @@ describe('enterprise service login loop', () => {
     expect(cleared.connected).toBe(false)
     expect(cleared.phase).toBe('idle')
     expect(cleared.models).toEqual([])
+    expect(cleared.errorCode).toBe('invalid_refresh_token')
+    expect(cleared.error).toBe('Refresh token is invalid.')
+  })
+
+  it('clears the session and keeps the reason when the session has expired', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    let rejectRefresh = false
+    const fetchImpl: EnterpriseFetch = async (input, init) => {
+      if (rejectRefresh && String(input).includes('/api/dsh/token') && String(init?.body).includes('refresh_token')) {
+        return new Response(JSON.stringify({
+          error: { message: 'session expired', type: 'authentication_error', code: 'session_expired' }
+        }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      return globalThis.fetch(input, init)
+    }
+    const { service, notes } = await createService(createEnterpriseFetch(fetchImpl))
+    const started = await service.startLogin(origin)
+    await completeBrowserLogin(origin, started.authorizationUrl)
+    await waitFor(() => {
+      const snapshot = service.snapshot()
+      return snapshot.phase === 'connected' && snapshot.modelsAvailable === true
+    })
+    rejectRefresh = true
+    const cleared = await service.refresh()
+    expect(cleared.connected).toBe(false)
+    expect(cleared.phase).toBe('idle')
+    expect(cleared.models).toEqual([])
+    expect(cleared.errorCode).toBe('session_expired')
+    expect(cleared.error).toBe('session expired')
+    expect(notes).toContain('refresh_invalid')
+  })
+
+  it('publishes access_denied when browser sign-in is cancelled', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    const { service } = await createService()
+    const started = await service.startLogin(origin)
+    const authId = new URL(started.authorizationUrl).searchParams.get('auth_id')
+    const browserResponse = await fetch(`${origin}/__mock/authorize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ auth_id: authId ?? '', decision: 'deny' })
+    })
+    const html = await browserResponse.text()
+    const callbackLiteral = /location\.replace\((".*?")\)/u.exec(html)?.[1]
+    expect(callbackLiteral).toBeTruthy()
+    const callback = new URL(JSON.parse(callbackLiteral!))
+    expect(callback.searchParams.get('error')).toBe('access_denied')
+    expect(await fetch(callback).then((response) => response.status)).toBe(200)
+    await waitFor(() => service.snapshot().errorCode === 'access_denied')
+    expect(service.snapshot()).toMatchObject({
+      connected: false,
+      phase: 'idle',
+      errorCode: 'access_denied'
+    })
   })
 
   it.each(['seat_revoked', 'seat_not_assigned'])('publishes %s on login failure', async (code) => {

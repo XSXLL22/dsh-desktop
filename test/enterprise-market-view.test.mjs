@@ -9,7 +9,7 @@ const source = await readFile(new URL('../packages/dsh-desktop-enterprise/client
 let cleanup
 afterEach(async () => { await cleanup?.(); vi.unstubAllGlobals() })
 
-async function mountMarket({ action, update = false, holdRefresh = false } = {}) {
+async function mountMarket({ action, update = false, holdRefresh = false, plugins, installReady = true } = {}) {
   const dom = new JSDOM('<html lang="zh-CN"><div id="root"></div></html>', { url: 'http://localhost/' })
   vi.stubGlobal('window', dom.window)
   vi.stubGlobal('document', dom.window.document)
@@ -23,7 +23,8 @@ async function mountMarket({ action, update = false, holdRefresh = false } = {})
   const pendingCatalogs = []
   let catalogReads = 0
   if (installed) installedById.set(plugin.id, { plugin_id: plugin.id, version_id: update ? 'd'.repeat(32) : plugin.current_version_id, version: update ? '0.9.0' : '1.0.0', enabled })
-  const snapshot = () => ({ ...account, tenant: { id: '1', name: company }, target: 'darwin-arm64', desktopVersion: '0.1.1', installReady: true, data: [plugin, other], total: 2, installed: structuredClone([...installedById.values()]) })
+  const catalogPlugins = plugins ?? [plugin, other]
+  const snapshot = () => ({ ...account, tenant: { id: '1', name: company }, target: 'darwin-arm64', desktopVersion: '0.1.1', installReady, data: catalogPlugins, total: catalogPlugins.length, installed: structuredClone([...installedById.values()]) })
   const requests = []
   const fetch = async (path, options) => {
     requests.push({ path, body: options?.body && JSON.parse(options.body) })
@@ -71,6 +72,9 @@ async function mountMarket({ action, update = false, holdRefresh = false } = {})
 it('shows current catalog identity and refreshes renamed companies while keeping install actions usable', async () => {
   const { text, click, requests, plugin, rename } = await mountMarket()
   expect(text()).toContain('Current company')
+  expect(text()).toContain('安装企业提供的插件，供当前企业账号使用。')
+  expect(text()).not.toContain('企业市场暂未就绪，可联系管理员完成配置。')
+  expect(text()).not.toContain('企业暂未提供插件，请联系管理员导入。')
   expect(text()).not.toContain('Old company')
   rename('Renamed company')
   await click('刷新')
@@ -83,6 +87,23 @@ it('shows current catalog identity and refreshes renamed companies while keeping
   expect(text()).toContain('卸载')
 })
 
+
+it('shows only the empty notice when the enterprise has no plugins', async () => {
+  const { text } = await mountMarket({ plugins: [], installReady: false })
+  expect(text()).toContain('Current company')
+  expect(text()).toContain('刷新')
+  expect(text()).toContain('企业暂未提供插件，请联系管理员导入。')
+  expect(text()).not.toContain('安装企业提供的插件，供当前企业账号使用。')
+  expect(text()).not.toContain('企业市场暂未就绪，可联系管理员完成配置。')
+})
+
+it('keeps the intro and setup notice when plugins exist but the market is not ready', async () => {
+  const { text } = await mountMarket({ installReady: false })
+  expect(text()).toContain('安装企业提供的插件，供当前企业账号使用。')
+  expect(text()).toContain('企业市场暂未就绪，可联系管理员完成配置。')
+  expect(text()).not.toContain('企业暂未提供插件，请联系管理员导入。')
+  expect(text()).toContain('JSON 格式化')
+})
 
 it.each([
   { action: 'install', label: '安装', pending: '安装中…', complete: '已安装' },

@@ -22,7 +22,6 @@ describe('Desktop host plugin control in Plugins settings', () => {
       }
     })
     expect(registrations).toContainEqual(expect.objectContaining({ name: 'settings.plugins.tab', id: 'desktop-host-plugins' }))
-    expect(registrations.some(entry => entry.name === 'settings.plugins.tab' && entry.id === 'desktop-market-management')).toBe(false)
-    expect(registrations.some(entry => entry.name === 'settings.section' && entry.id === 'market')).toBe(false)
+    expect(registrations.some(entry => entry.name === 'settings.plugins.tab' && entry.id === 'desktop-market-management')).toBe(marketComposed)
   })
 })

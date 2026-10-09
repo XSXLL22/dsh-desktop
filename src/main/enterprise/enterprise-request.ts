@@ -73,6 +73,7 @@ export function isInvalidRefreshError(error: unknown): boolean {
   return (
     error.code === 'invalid_refresh_token' ||
     error.code === 'refresh_token_reused' ||
+    error.code === 'session_expired' ||
     error.code === 'session_revoked'
   )
 }

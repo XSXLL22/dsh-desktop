@@ -474,9 +474,9 @@ def modelscope_download_links(release_tag: str, prerelease: bool) -> str:
     return "\n".join(
         (
             "**ModelScope 下载地址**",
-            f"[Windows x64 安装包]({base}/bisheng-work-windows-x64-setup.exe)",
-            f"[macOS Apple Silicon 安装包]({base}/bisheng-work-mac-arm64.dmg)",
-            f"[macOS Intel 安装包]({base}/bisheng-work-mac-x64.dmg)",
+            f"[Windows x64 安装包]({base}/bisheng-windows-x64-setup.exe)",
+            f"[macOS Apple Silicon 安装包]({base}/bisheng-mac-arm64.dmg)",
+            f"[macOS Intel 安装包]({base}/bisheng-mac-x64.dmg)",
         )
     )
 
@@ -486,13 +486,16 @@ def send_feishu_notification(
     release_tag: str,
     release_notes: str,
     prerelease: bool = False,
+    test_build: bool = False,
 ) -> None:
     card_title = (
-        f"🧪 BISHENG {release_tag}（预发布）已发布"
+        f"🧪 BISHENG {release_tag} 测试打包完成"
+        if test_build
+        else f"🧪 BISHENG {release_tag}（预发布）已发布"
         if prerelease
         else f"✅ BISHENG {release_tag} 发布成功"
     )
-    card_template = "orange" if prerelease else "green"
+    card_template = "orange" if prerelease or test_build else "green"
     payload = {
         "msg_type": "interactive",
         "card": {

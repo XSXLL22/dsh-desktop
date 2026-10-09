@@ -4,7 +4,7 @@
 
 本仓库是独立的私有仓库，保留上游 Git 历史。初始化基线为上游 `main` 的 `a23788a7817b4f3980e3c4aa96ed48e24e653e74`。协作与同步方式见 [私有仓库开发说明](docs/bisheng-work.md)。
 
-当前应用产品名称为 BISHENG；为兼容已有安装，应用 ID、数据目录、登录协议及发布资产文件名继续保留 `bisheng-work` 标识。**以下下载、发布及产品介绍均属于上游 DSH Desktop，不代表 BISHENG 已发布。** 上游及第三方代码保留各自许可；新增非开源功能应明确其授权范围，不应默认沿用下方 MIT 标识。
+当前应用产品名称为 BISHENG。应用 ID 为 `io.bisheng`，数据目录、登录协议和发布资产文件名使用 `bisheng`（开发通道为 `bisheng-dev`）。更新地址、ModelScope 仓库 `alexyaojin/bisheng-work` 和 GitHub 仓库仍使用 `bisheng-work`。**以下下载、发布及产品介绍均属于上游 DSH Desktop，不代表 BISHENG 已发布。** 上游及第三方代码保留各自许可；新增非开源功能应明确其授权范围，不应默认沿用下方 MIT 标识。
 
 ---
 
@@ -34,7 +34,7 @@
 DSH Desktop packages the local DeepSeek Harness experience as an installed desktop application. It starts Harness automatically, keeps profiles, plugins, workspaces, model settings, and sessions outside the application directory, and opens the full Harness interface as soon as the local runtime is ready.
 
 > [!IMPORTANT]
-> DSH Desktop is an early preview built on the rapidly evolving `@deepseek-ai/dsh@0.1.7-rc.1`. macOS releases are code-signed and notarized by Apple. Windows x64 installers are code-signed; Windows security warnings may still decrease gradually as the publisher builds download and installation reputation.
+> DSH Desktop is an early preview built on the rapidly evolving `@deepseek-ai/dsh@0.2.0-rc.2`. macOS releases are code-signed and notarized by Apple. Windows x64 installers are code-signed; Windows security warnings may still decrease gradually as the publisher builds download and installation reputation.
 
 ## Download
 
@@ -61,6 +61,7 @@ DeepSeek Harness already provides the Agent runtime and Web UI. DSH Desktop adds
 - Supports official DeepSeek models and mainstream third-party model providers
 - Imports and exports complete custom Agent presets as portable [`.dshpreset` packages](docs/preset-packages.md), with conflict checks and a trust warning before installation
 - Turns source material into editable PPTX decks through the built-in PPT mode
+- Includes offline DOCX, PPTX and XLSX skills with bundled Python libraries on macOS and Windows
 - Preserves profiles, plugins, workspaces, sessions, and model settings across app upgrades
 - Detects startup and frontend plugin failures, keeps diagnostics in `harness.log`, and offers guided recovery actions
 - Provides a non-destructive Safe Mode that temporarily blocks third-party plugins

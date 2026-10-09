@@ -160,7 +160,8 @@ async function brokerJson(path, body) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
     throw Object.assign(new Error(typeof payload.error === 'string' ? payload.error : `Enterprise request failed (${response.status}).`), {
-      status: response.status
+      status: response.status,
+      ...(typeof payload.errorCode === 'string' && payload.errorCode ? { errorCode: payload.errorCode } : {})
     })
   }
   return payload

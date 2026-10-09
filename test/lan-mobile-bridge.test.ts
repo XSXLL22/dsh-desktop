@@ -1384,6 +1384,24 @@ describe('LAN vs tunnel pairing authorization', () => {
     expect(bridge.snapshot()).not.toHaveProperty('pairingPin')
   })
 
+  it('keeps product=bisheng on the pairing redirect and leaves other links unchanged', async () => {
+    const bridge = new LanMobileBridge({
+      harnessUrl: () => 'http://127.0.0.1:9999'
+    })
+    bridges.push(bridge)
+    const snapshot = await bridge.start()
+    const token = new URL(snapshot.pairingUrl!).searchParams.get('token')
+    expect(snapshot.pairingUrl).toContain('product=bisheng')
+    expect(new URL(snapshot.pairingUrl!).searchParams.get('product')).toBe('bisheng')
+
+    const branded = await fetch(
+      `http://127.0.0.1:${snapshot.port}/pair?token=${token}&product=bisheng`,
+      { redirect: 'manual' }
+    )
+    expect(branded.status).toBe(302)
+    expect(branded.headers.get('location')).toBe('/?product=bisheng')
+  })
+
   it('redirects a LAN /pair request to the active tunnel host', async () => {
     const bridge = new LanMobileBridge({
       harnessUrl: () => 'http://127.0.0.1:9999'

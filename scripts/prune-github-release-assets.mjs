@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 
 const INSTALLERS = [
-  'bisheng-work-mac-arm64.dmg',
-  'bisheng-work-mac-x64.dmg',
-  'bisheng-work-windows-x64-setup.exe'
+  'bisheng-mac-arm64.dmg',
+  'bisheng-mac-x64.dmg',
+  'bisheng-windows-x64-setup.exe'
 ]
 
 const [tag] = process.argv.slice(2)
