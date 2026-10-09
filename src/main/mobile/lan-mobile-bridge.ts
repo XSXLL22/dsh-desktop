@@ -165,6 +165,13 @@ interface MobileQuestionAnswer {
   custom?: string
 }
 
+function pairingLink(base: string, token: string): string {
+  const url = new URL('/pair', base)
+  url.searchParams.set('token', token)
+  url.searchParams.set('product', 'bisheng')
+  return url.toString()
+}
+
 export class LanMobileBridge {
   private server?: ReturnType<typeof createServer>
   private port?: number
@@ -425,9 +432,9 @@ export class LanMobileBridge {
       !tokenValid
         ? undefined
         : this.tunnelActive && this.tunnelInstance?.url
-          ? `${this.tunnelInstance.url}/pair?token=${this.pairingToken}`
+          ? pairingLink(this.tunnelInstance.url, this.pairingToken ?? '')
           : address
-            ? `http://${address}:${this.port}/pair?token=${this.pairingToken}`
+            ? pairingLink(`http://${address}:${this.port}`, this.pairingToken ?? '')
             : undefined
     return {
       running: true,
@@ -911,7 +918,9 @@ export class LanMobileBridge {
     if (request.method === 'GET' && url.pathname === '/disconnected') {
       const migrationUrl = this.tunnelMigrationUrl(url, connectionMode)
       if (migrationUrl) return this.redirect(response, migrationUrl)
-      return this.html(response, renderMobileReconnectPage(this.locale(), connectionMode))
+      return this.html(response, renderMobileReconnectPage(this.locale(), connectionMode, {
+        product: this.pageProduct(url)
+      }))
     }
 
     if (request.method === 'GET' && url.pathname === '/reconnect') {
@@ -919,17 +928,23 @@ export class LanMobileBridge {
       if (migrationUrl) return this.redirect(response, migrationUrl)
       if (connectionMode === 'tunnel') {
         if (this.tunnelPinAcceptsReconnect()) {
-          return this.html(response, renderPairingPinPage(this.locale()))
+          return this.html(response, renderPairingPinPage(this.locale(), this.pageProduct(url)))
         }
-        return this.html(response, renderMobileReconnectPage(this.locale(), 'tunnel', { expired: true }))
+        return this.html(response, renderMobileReconnectPage(this.locale(), 'tunnel', {
+          expired: true,
+          product: this.pageProduct(url)
+        }))
       }
       // The phone that was just disconnected still holds its cookie. Restoring
       // that one session does not admit a neighbor who only knows the port.
       if (this.resumeSuspendedMobileSession(request) || this.mobileSessionActive(request)) {
-        return this.redirect(response, '/')
+        return this.redirect(response, this.phoneHome(url))
       }
       this.options.onReconnectRequested?.()
-      return this.html(response, renderMobileReconnectPage(this.locale(), 'lan', { resumeUnavailable: true }))
+      return this.html(response, renderMobileReconnectPage(this.locale(), 'lan', {
+        resumeUnavailable: true,
+        product: this.pageProduct(url)
+      }))
     }
 
     if (request.method === 'POST' && url.pathname === '/pair/retry') {
@@ -952,7 +967,7 @@ export class LanMobileBridge {
       if (migrationUrl) return this.redirect(response, migrationUrl)
       if (this.authorized(request, remoteAddress, connectionMode)) {
         response.statusCode = 302
-        response.setHeader('location', '/')
+        response.setHeader('location', this.phoneHome(url))
         response.end()
         return
       }
@@ -962,11 +977,11 @@ export class LanMobileBridge {
       if (connectionMode === 'lan') {
         this.issueSessionCookie(request, response, remoteAddress, 'lan')
         response.statusCode = 302
-        response.setHeader('location', '/')
+        response.setHeader('location', this.phoneHome(url))
         response.end()
         return
       }
-      return this.html(response, renderPairingPinPage(this.locale()))
+      return this.html(response, renderPairingPinPage(this.locale(), this.pageProduct(url)))
     }
 
     if (request.method === 'POST' && url.pathname === '/pair/verify') {
@@ -1010,7 +1025,9 @@ export class LanMobileBridge {
         if (request.method === 'GET' && url.pathname === '/') {
           const migrationUrl = this.tunnelMigrationUrl(url, connectionMode)
           if (migrationUrl) return this.redirect(response, migrationUrl)
-          return this.html(response, renderMobileReconnectPage(this.locale(), connectionMode))
+          return this.html(response, renderMobileReconnectPage(this.locale(), connectionMode, {
+            product: this.pageProduct(url)
+          }))
         }
         return this.text(response, 401, 'Pair your phone again.')
       }
@@ -1023,7 +1040,10 @@ export class LanMobileBridge {
       })
     }
     if (request.method === 'GET' && url.pathname === '/') {
-      return this.html(response, renderMobilePage({ locale: this.locale() }))
+      return this.html(response, renderMobilePage({
+        locale: this.locale(),
+        product: this.pageProduct(url)
+      }))
     }
     if (request.method === 'GET' && url.pathname === '/api/session/stream') {
       this.verifyTrustedOrigin(request)
@@ -1072,6 +1092,14 @@ export class LanMobileBridge {
       return this.json(response, result.ok ? 200 : 400, result)
     }
     this.text(response, 404, 'Not found.')
+  }
+
+  private pageProduct(url: URL): string | undefined {
+    return url.searchParams.get('product') === 'bisheng' ? 'bisheng' : undefined
+  }
+
+  private phoneHome(url: URL): string {
+    return this.pageProduct(url) === 'bisheng' ? '/?product=bisheng' : '/'
   }
 
   private locale(): 'en' | 'zh' {
