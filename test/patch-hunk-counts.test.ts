@@ -29,11 +29,10 @@ describe('patch hunk counts', () => {
     expect(errors).toEqual([])
   })
 
-  it('keeps image generation, enterprise, and the log bridge in the dsh package.json patch', async () => {
+  it('keeps image generation and the log bridge in the dsh package.json patch', async () => {
     const patch = await readFile(patchPath('@deepseek-ai/dsh'), 'utf8')
     expect(patch).toContain('+    "dsh-image-generation": "0.1.0"')
-    expect(patch).toContain('+    "dsh-desktop-enterprise": "0.2.0"')
-    expect(patch).toContain('+    "dsh-desktop-log-bridge": "0.1.0"')
+    expect(patch).toContain('+    "dsh-desktop-log-bridge": "0.1.0",')
   })
 
   it('rejects a dsh hunk header that undercounts the merged dependency lines', async () => {

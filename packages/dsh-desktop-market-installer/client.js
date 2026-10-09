@@ -754,6 +754,29 @@ window.__ModuleLoader__.load({
           BuiltInImageControl
         )
       )
+      if (marketAlreadyComposed()) {
+        ctx.slots.inject('settings.plugins.tab', () =>
+          ctx.slots.register(
+            {
+              name: 'settings.plugins.tab',
+              id: 'desktop-market-management',
+              order: 30,
+              label: () => t('managementTab'),
+              inject: () => ({ t })
+            },
+            MarketManagementTab
+          )
+        )
+        return
+      }
+      ctx.slots.inject('settings.section', () =>
+        ctx.slots.register(
+          { name: 'settings.plugins.tab', id: 'desktop-host-plugins', order: 20,
+            label: () => t('builtInImageTitle'), locale: NS,
+            inject: () => ({ t }) },
+          BuiltInImageControl
+        )
+      )
       // Enterprise edition does not register the community market section or
       // its management tab. The built-in image card and enterprise market stay.
     }

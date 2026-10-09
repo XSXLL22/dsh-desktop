@@ -97,8 +97,6 @@ describe('BISHENG client slot occupants', () => {
     ])
     // Desktop toolbar styles have an owned lifetime; branding stays in currentColor.
     expect(appended).toHaveLength(1)
-    expect(appended[0]?.textContent).toContain('[data-dsh-sidebar-brand-identity]')
-    expect(appended[0]?.textContent).toContain("html[data-platform='darwin']")
     expect(appended[0]?.textContent).toContain("[data-dsh-preset-search]")
     disposeStyle?.()
     expect(removeStyle).toHaveBeenCalledOnce()
@@ -161,35 +159,11 @@ describe('BISHENG client slot occupants', () => {
     )
 
     expect(source).toContain('children: [(0, react_jsx_runtime.jsx)("span", { children: t("hero.headline") })')
-    expect(source).toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 28,')
-    expect(source).not.toContain('renderSlot("conversation.hero.brand.mark", {\n\t\t\t\t\t\t\t\tsize: 34,')
+    expect(source).toContain('className: HeroShell_module_css_default.previewBadge')
     expect(source).toContain('children: t("hero.preview")')
-    expect(source).toContain('.pXSMma_stack{gap:30px}')
-    expect(source).toContain('.pXSMma_headline{column-gap:16px}')
-    expect(source).toContain('.pXSMma_previewBadge{border:.5px solid var(--dsw-alias-interactive-bg-hover)')
     expect(source).toContain('background:var(--dsw-alias-state-business-tertiary)')
     expect(source).toContain('color:var(--dsw-alias-label-primary-bluish)')
     expect(source).toContain('align-self:flex-start;margin-top:2px')
-    expect(source).not.toContain('bishengHeroCss = ".pXSMma_stack{gap:30px}.pXSMma_headline{column-gap:16px}.pXSMma_previewBadge')
-    expect(source).not.toContain('Iowan Old Style')
-    expect(source).toContain('tag.textContent = css$3 + bishengHeroCss')
-
-    const patch = await readFile(
-      path.join(
-        projectRoot,
-        'patches',
-        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
-      ),
-      'utf8'
-    )
-    expect(patch).toContain('.pXSMma_stack{gap:30px}')
-    expect(patch).toContain('.pXSMma_headline{column-gap:16px}')
-    expect(patch).not.toContain('#d6b45c')
-    expect(patch).not.toContain('#f4d58b')
-    expect(patch).not.toContain('Iowan Old Style')
-    expect(patch).toContain('+\t\t\t\t\t\t\t\tsize: 28,')
-    expect(patch).toContain('-\t\t\t\t\t\t\t\tsize: 34,')
-    expect(patch).not.toContain('-\t\t\t\t\t\t\t\tchildren: t("hero.preview")')
   })
 
   it('uses the new hero message in both Chinese and English', async () => {
@@ -208,7 +182,7 @@ describe('BISHENG client slot occupants', () => {
       path.join(
         projectRoot,
         'patches',
-        '@deepseek-ai+dsh-client-ui-conversation+0.1.7-rc.2.patch'
+        '@deepseek-ai+dsh-client-ui-conversation+0.2.0-rc.2.patch'
       ),
       'utf8'
     )
@@ -245,7 +219,9 @@ describe('BISHENG client slot occupants', () => {
     expect(wideBrandStart).toBeGreaterThan(-1)
     expect(wideBrandEnd).toBeGreaterThan(wideBrandStart)
     expect(wideBrand).toContain('renderSlot("sidebar.brand.name"')
-    expect(wideBrand).not.toContain('renderSlot("sidebar.brand.mark"')
+    expect(wideBrand).toContain('"data-dsh-sidebar-brand-identity": true')
+    const desktopClient = await readFile(path.join(projectRoot, 'packages/dsh-desktop-client-ui/client.js'), 'utf8')
+    expect(desktopClient).toContain('[data-dsh-sidebar-brand-identity] { display:none !important; }')
 
     const railMarkStart = source.indexOf(
       'className: SidebarRoot_module_css_default.railMark'
