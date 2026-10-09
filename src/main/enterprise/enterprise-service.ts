@@ -421,8 +421,17 @@ export class EnterpriseService {
     await pending.callback.close().catch(() => undefined)
     if (result.error || !result.identityTicket) {
       this.phase = this.session?.access_token ? 'connected' : 'idle'
-      this.error = 'Enterprise login was cancelled.'
-      this.errorCode = undefined
+      if (
+        result.error === 'access_denied' ||
+        result.error === 'authorization_expired' ||
+        result.error === 'authorization_failed'
+      ) {
+        this.error = result.error
+        this.errorCode = result.error
+      } else {
+        this.error = 'Enterprise login was cancelled.'
+        this.errorCode = undefined
+      }
       this.publish()
       this.note('login_cancelled')
       return
@@ -503,7 +512,7 @@ export class EnterpriseService {
       if (this.epoch !== epoch) return this.snapshot()
       this.rememberRequest(error)
       if (isInvalidRefreshError(error)) {
-        await this.clearLocalSession('idle')
+        await this.endSessionKeepingError('idle')
         this.note('refresh_invalid', noteFromError(error))
         return this.snapshot()
       }
@@ -600,7 +609,7 @@ export class EnterpriseService {
     this.publish()
   }
 
-  private async tickModels(): Promise<void> {
+  private async tickModels(accessRetried = false): Promise<void> {
     if (!this.session?.base || !this.session.access_token) return
     const epoch = this.epoch
     try {
@@ -634,8 +643,18 @@ export class EnterpriseService {
       this.scheduleModels(this.modelsDelay())
     } catch (error) {
       if (this.epoch !== epoch) return
+      if (!accessRetried && error instanceof EnterprisePlatformError && error.code === 'invalid_access_token') {
+        try {
+          await this.refresh()
+        } catch {
+          return
+        }
+        if (this.epoch !== epoch || !this.session?.access_token) return
+        await this.tickModels(true)
+        return
+      }
       if (isInvalidRefreshError(error)) {
-        await this.enqueueMutation(async () => this.clearLocalSession('idle'))
+        await this.enqueueMutation(async () => this.endSessionKeepingError('idle', error))
         return
       }
       this.modelsAvailable = false
@@ -905,6 +924,19 @@ export class EnterpriseService {
       signal.removeEventListener('abort', onAbort)
       reader.releaseLock()
     }
+  }
+
+  private async endSessionKeepingError(phase: EnterprisePhase, error?: unknown): Promise<void> {
+    if (error !== undefined) this.rememberRequest(error)
+    const message = this.error
+    const code = this.errorCode
+    const requestId = this.requestId
+    await this.clearLocalSession(phase)
+    if (this.phase === 'error') return
+    this.error = message
+    this.errorCode = code
+    this.requestId = requestId
+    this.publish()
   }
 
   private async clearLocalSession(phase: EnterprisePhase): Promise<void> {

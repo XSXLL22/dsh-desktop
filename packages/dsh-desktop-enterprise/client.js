@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
       logout: '退出登录',
       models: '可用模型',
       modelAvailable: '可用',
-      noModels: '当前账号没有可用模型。',
+      noModels: '暂无可用模型，请联系管理员授权。',
       usageUnavailable: '用量暂不可用',
       limitZero: '额度为 0，模型调用已停用',
       secureUnavailable: '系统安全存储不可用，企业登录已停用。',
@@ -42,9 +42,32 @@ window.__ModuleLoader__.load({
       confirm: '确认并登录',
       insecureConfirm: '确认为可信来源',
       cancel: '取消',
-      requestId: '请求 ID',
-      seatNotAssigned: '你尚未获得 DSH 使用席位，请联系管理员分配后重新登录。',
-      seatRevoked: '席位已撤销'
+      invalid_grant: '本次登录授权已失效，请重新发起登录。',
+      pkce_verification_failed: '登录验证失败，请重新发起登录。',
+      authorization_expired: '登录授权已过期，请重新登录。',
+      authorization_conflict: '本次登录状态发生冲突，请重新发起登录。',
+      invalid_access_token: '登录凭证已失效，请重新登录。',
+      invalid_refresh_token: '登录已失效，请重新登录。',
+      refresh_token_reused: '登录状态已失效，请重新登录。',
+      session_expired: '登录会话已过期，请重新登录。',
+      session_revoked: '本次登录会话已失效，请重新登录。',
+      seat_not_assigned: '你尚未获得客户端使用席位，请联系管理员分配后重新登录。',
+      seat_revoked: '你的客户端使用授权已失效，请联系管理员确认席位，重新授权后再登录。',
+      seat_limit_reached: '可用席位已满，请联系管理员处理。',
+      license_invalid: '平台客户端授权无效，请联系管理员。',
+      license_expired: '平台客户端授权已过期，请联系管理员。',
+      dsh_disabled: '管理员已关闭客户端功能，请联系管理员。',
+      user_disabled: '当前账号不可用，请联系管理员。',
+      tenant_unavailable: '账号所属组织暂不可用，请联系管理员。',
+      authorization_unavailable: '平台授权服务暂不可用，请稍后重试。',
+      too_many_requests: '操作过于频繁，请稍后重试。',
+      access_denied: '你已取消本次登录授权。',
+      authorization_failed: '本次登录授权失败，请重新发起登录。',
+      network_error: '无法连接毕昇平台，请检查地址和网络。',
+      invalid_response: '平台响应异常，请检查服务地址或联系管理员。',
+      contract_incompatible: '客户端与平台版本不兼容，请联系管理员更新。',
+      model_not_allowed: '当前模型未获授权或已不可用，请刷新模型列表或联系管理员。',
+      vault_decrypt_failed: '企业登录凭证无法解密。'
     }
 
     const en = {
@@ -64,7 +87,7 @@ window.__ModuleLoader__.load({
       logout: 'Sign out',
       models: 'Available models',
       modelAvailable: 'Available',
-      noModels: 'No models are assigned to this account.',
+      noModels: 'No models are available. Ask your administrator to authorize one.',
       usageUnavailable: 'Usage unavailable',
       limitZero: 'Limit is 0; model calls are disabled',
       secureUnavailable: 'Operating-system secure storage is unavailable. Enterprise sign-in is disabled.',
@@ -75,9 +98,32 @@ window.__ModuleLoader__.load({
       confirm: 'Confirm and sign in',
       insecureConfirm: 'Confirm as a trusted source',
       cancel: 'Cancel',
-      requestId: 'Request ID',
-      seatNotAssigned: 'You have not been assigned a DSH seat. Ask your administrator to assign one, then sign in again.',
-      seatRevoked: 'Seat revoked'
+      invalid_grant: 'This sign-in authorization is no longer valid. Start sign-in again.',
+      pkce_verification_failed: 'Sign-in verification failed. Start sign-in again.',
+      authorization_expired: 'This sign-in authorization has expired. Sign in again.',
+      authorization_conflict: 'This sign-in conflicted with another attempt. Start sign-in again.',
+      invalid_access_token: 'Your sign-in credential is no longer valid. Sign in again.',
+      invalid_refresh_token: 'Your sign-in is no longer valid. Sign in again.',
+      refresh_token_reused: 'Your sign-in state is no longer valid. Sign in again.',
+      session_expired: 'Your sign-in session has expired. Sign in again.',
+      session_revoked: 'This sign-in session is no longer valid. Sign in again.',
+      seat_not_assigned: 'You do not have a client seat yet. Ask your administrator to assign one, then sign in again.',
+      seat_revoked: 'Your client access is no longer valid. Ask your administrator to confirm the seat, then sign in again after it is authorized.',
+      seat_limit_reached: 'No client seats are available. Contact your administrator.',
+      license_invalid: 'The platform client license is invalid. Contact your administrator.',
+      license_expired: 'The platform client license has expired. Contact your administrator.',
+      dsh_disabled: 'An administrator has turned off the client. Contact your administrator.',
+      user_disabled: 'This account is unavailable. Contact your administrator.',
+      tenant_unavailable: 'Your organization is temporarily unavailable. Contact your administrator.',
+      authorization_unavailable: 'The authorization service is temporarily unavailable. Try again later.',
+      too_many_requests: 'Too many attempts. Try again later.',
+      access_denied: 'You cancelled this sign-in.',
+      authorization_failed: 'This sign-in authorization failed. Start sign-in again.',
+      network_error: 'Could not reach the BiSheng platform. Check the service address and your network.',
+      invalid_response: 'The platform returned an unexpected response. Check the service address or contact your administrator.',
+      contract_incompatible: 'This client is incompatible with the platform. Ask your administrator to update it.',
+      model_not_allowed: 'This model is not authorized or is unavailable. Refresh the model list or contact your administrator.',
+      vault_decrypt_failed: 'Enterprise credential vault could not be decrypted.'
     }
 
     function installStyles() {
@@ -567,7 +613,9 @@ window.__ModuleLoader__.load({
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || `Request failed (${response.status})`)
+        const failure = new Error(payload.error || `Request failed (${response.status})`)
+        if (typeof payload.errorCode === 'string' && payload.errorCode) failure.errorCode = payload.errorCode
+        throw failure
       }
       if (!path.startsWith('/api/enterprise.market.')) window.dispatchEvent(new CustomEvent(ACCOUNT_CHANGED_EVENT))
       return payload
@@ -616,16 +664,60 @@ window.__ModuleLoader__.load({
       window.setTimeout(dispatch, 0)
     }
 
+    const LEGACY_ACCOUNT_PHRASES = {
+      'seat not assigned': 'seat_not_assigned',
+      'seat revoked': 'seat_revoked',
+      'dsh seat revoked': 'seat_revoked',
+      'session revoked': 'session_revoked',
+      'dsh session revoked': 'session_revoked',
+      'session expired': 'session_expired',
+      'dsh session expired': 'session_expired',
+      'invalid access token': 'invalid_access_token',
+      'invalid dsh access token': 'invalid_access_token',
+      'invalid refresh token': 'invalid_refresh_token',
+      'invalid refresh token; sign in again': 'invalid_refresh_token',
+      'refresh token reused': 'refresh_token_reused',
+      'refresh token reuse detected; sign in again': 'refresh_token_reused',
+      'authorization unavailable': 'authorization_unavailable',
+      'dsh authorization is temporarily unavailable': 'authorization_unavailable',
+      'could not reach the bisheng platform': 'network_error',
+      'bisheng dsh contract version is incompatible with this desktop build': 'contract_incompatible',
+      'enterprise credential vault could not be decrypted': 'vault_decrypt_failed'
+    }
+
+    function accountErrorCopy(code, t) {
+      if (typeof code !== 'string' || !code) return ''
+      const value = t(code)
+      return typeof value === 'string' && value !== code ? value : ''
+    }
+
     function formatEnterpriseSettingsError(failure, errorCode, t) {
       const text = typeof failure === 'string' ? failure.trim() : ''
-      const code = typeof errorCode === 'string' ? errorCode : ''
-      if (code === 'seat_not_assigned' || /^seat not assigned\.?$/i.test(text)) {
-        return t('seatNotAssigned')
+      const code = typeof errorCode === 'string' ? errorCode.trim() : ''
+      if (code && code !== 'request_failed') {
+        const known = accountErrorCopy(code, t)
+        if (known) return known
       }
-      if (code === 'seat_revoked' || /^seat revoked\.?$/i.test(text)) {
-        return t('seatRevoked')
+      if (!code || code === 'request_failed') {
+        const phrase = text.trim().replace(/\.$/u, '').trim().toLowerCase()
+        const legacy = accountErrorCopy(LEGACY_ACCOUNT_PHRASES[phrase], t)
+        if (legacy) return legacy
       }
+      if (/<[a-z!/][^>]*>/iu.test(text)) return accountErrorCopy('invalid_response', t)
       return text
+        .replace(/<[^>]*>/gu, ' ')
+        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 300)
+    }
+
+    function failureParts(cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const code = typeof cause === 'object' && cause !== null && typeof cause.errorCode === 'string'
+        ? cause.errorCode
+        : ''
+      return { message, code }
     }
 
     function modelUsagePercentage(usage, language, t) {
@@ -730,28 +822,50 @@ window.__ModuleLoader__.load({
       const [manualFallbackReady, setManualFallbackReady] = useState(false)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState('')
+      const [errorCode, setErrorCode] = useState('')
       const [confirmation, setConfirmation] = useState(null)
+      const stateRef = useRef(null)
+      const clearFailure = () => {
+        setError('')
+        setErrorCode('')
+      }
+      const showFailure = (cause) => {
+        const failure = failureParts(cause)
+        setError(failure.message)
+        setErrorCode(failure.code)
+      }
+      const applyAccountState = useCallback((next) => {
+        stateRef.current = next
+        setState(next)
+        if (next?.connected === true) setConfirmation(null)
+      }, [])
 
       const refreshState = useCallback(async () => {
         const next = await api('/api/enterprise.state')
-        setState(next)
+        applyAccountState(next)
         if (next.base) {
           setBase(next.base)
           rememberBase(next.base)
         }
         return next
-      }, [])
+      }, [applyAccountState])
 
       const inspectDeepLink = useCallback(async (url) => {
         setBusy(true)
-        setError('')
+        clearFailure()
         try {
-          setConfirmation({
+          const inspected = {
             ...(await api('/api/enterprise.deep-link.inspect', { url })),
             fromDeepLink: true
-          })
+          }
+          const current = stateRef.current
+          if (
+            current?.base === inspected.base
+            && (current.phase === 'authorizing' || current.connected === true)
+          ) return
+          setConfirmation(inspected)
         } catch (cause) {
-          setError(cause instanceof Error ? cause.message : String(cause))
+          showFailure(cause)
         } finally {
           setBusy(false)
         }
@@ -759,7 +873,7 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         refreshState().catch((cause) => {
-          setError(cause instanceof Error ? cause.message : String(cause))
+          showFailure(cause)
         })
         const bridge = window.dshDesktopEnterprise
         if (!bridge?.onLoginLink) return undefined
@@ -793,11 +907,11 @@ window.__ModuleLoader__.load({
 
       async function run(operation) {
         setBusy(true)
-        setError('')
+        clearFailure()
         try {
           await operation()
         } catch (cause) {
-          setError(cause instanceof Error ? cause.message : String(cause))
+          showFailure(cause)
         } finally {
           setBusy(false)
         }
@@ -822,7 +936,11 @@ window.__ModuleLoader__.load({
             className: 'dshEnterpriseLogout',
             type: 'button',
             disabled: busy,
-            onClick: () => run(async () => setState(await api('/api/enterprise.logout', {})))
+            onClick: () => run(async () => {
+              const next = await api('/api/enterprise.logout', {})
+              setConfirmation(null)
+              applyAccountState(next)
+            })
           }, t('logout')))
         : null
 
@@ -836,7 +954,7 @@ window.__ModuleLoader__.load({
               title: t('refresh'),
               'aria-label': t('refresh'),
               disabled: busy,
-              onClick: () => run(async () => setState(await api('/api/enterprise.refresh', {})))
+              onClick: () => run(async () => applyAccountState(await api('/api/enterprise.refresh', {})))
             }, h('span', { 'aria-hidden': 'true' }, '↻'))),
           models.length
             ? h('ul', { className: `dshEnterpriseModels${state.modelsAvailable ? '' : ' paused'}` },
@@ -893,19 +1011,17 @@ window.__ModuleLoader__.load({
               type: 'button',
               disabled: busy || !ticket.trim(),
               onClick: () => run(async () => {
-                setState(await api('/api/enterprise.login.manual', { identityTicket: ticket.trim() }))
+                applyAccountState(await api('/api/enterprise.login.manual', { identityTicket: ticket.trim() }))
                 setTicket('')
               })
             }, t('submitTicket'))))
         : null
 
       const failure = error
-        ? formatEnterpriseSettingsError(error, undefined, t)
+        ? formatEnterpriseSettingsError(error, errorCode, t)
         : formatEnterpriseSettingsError(state?.error, state?.errorCode, t)
       const errorPanel = failure
-        ? h('p', { className: 'dshEnterpriseError', role: 'alert' },
-          failure,
-          state?.requestId ? h('span', null, ` · ${t('requestId')}: ${state.requestId}`) : null)
+        ? h('p', { className: 'dshEnterpriseError', role: 'alert' }, failure)
         : null
 
       const confirmationPanel = confirmation && !connected
