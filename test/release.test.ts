@@ -377,6 +377,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('Require Rosetta for Intel packaging')
     expect(workflow).toContain('arch -x86_64 /usr/bin/true')
     expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
+    expect(workflow).toContain('npm_config_arch: x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
     expect(workflow).toContain('Smoke test packaged Windows Harness')
