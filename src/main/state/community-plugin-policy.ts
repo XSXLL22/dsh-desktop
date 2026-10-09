@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { readQuarantinedPluginNames } from 'dsh-desktop-market-installer/community-quarantine'
-import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
+import { communityPluginInstallAllowed, isProtectedProfileBundle } from 'dsh-desktop-market-installer/enterprise-policy'
 import { listGenerations, readDesired } from 'dsh-desktop-market-installer/generations/registry'
 
 const MARKET_PACKAGE = 'dshmarket'
@@ -12,24 +12,7 @@ const MARKET_STATE = join('.dsh-market', 'state.json')
  * `dshmarket` is intentionally absent: the enterprise edition removes it from
  * the active profile even though the package stays on disk.
  */
-const PROTECTED_BUNDLES = new Set([
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-  'dsh-desktop-log-bridge',
-  'dsh-desktop-client-ui',
-  'dsh-desktop-enterprise',
-  'dsh-desktop-market-installer',
-  'dsh-image-generation',
-  'dsh-ppt',
-  'dsh-ppt-composer',
-  'dsh-desktop-hmr-fallback',
-  'dsh-desktop-preset-transfer'
-])
-
-/** Desktop and Harness bundles. Community quarantine must not treat these as community plugins. */
-export function isProtectedProfileBundle(name: string): boolean {
-  return PROTECTED_BUNDLES.has(name)
-}
+export { isProtectedProfileBundle } from 'dsh-desktop-market-installer/enterprise-policy'
 
 /**
  * Re-enable only a protected bundle that this Safe Mode page listed and that
@@ -130,9 +113,9 @@ export async function enforceCommunityPluginPolicy(dshHome: string, note: Note):
     .filter((generation) => desiredIds.has(generation.id))
     .filter((generation) => !generation.sourceSpec?.startsWith('bisheng:'))
     .map((generation) => generation.pluginName)
-    .filter((name) => !PROTECTED_BUNDLES.has(name))
+    .filter((name) => !isProtectedProfileBundle(name))
 
-  const legacyBundles = bundleNames.filter((name) => name !== MARKET_PACKAGE && !PROTECTED_BUNDLES.has(name))
+  const legacyBundles = bundleNames.filter((name) => name !== MARKET_PACKAGE && !isProtectedProfileBundle(name))
   const communityNames = [
     ...(dependencyNames.includes(MARKET_PACKAGE) || bundleNames.includes(MARKET_PACKAGE) ? [MARKET_PACKAGE] : []),
     ...legacyBundles,

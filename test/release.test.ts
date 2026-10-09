@@ -31,13 +31,13 @@ it('builds Windows only for release tags or an explicit manual platform selectio
 })
 
 const releaseAssets = [
-  'bisheng-work-mac-arm64.dmg',
-  'bisheng-work-mac-x64.dmg',
-  'bisheng-work-windows-x64-setup.exe'
+  'bisheng-mac-arm64.dmg',
+  'bisheng-mac-x64.dmg',
+  'bisheng-windows-x64-setup.exe'
 ]
 
 /** The exact Harness build every `@deepseek-ai/dsh-*` production dep is pinned to. */
-const HARNESS_VERSION = '0.1.7-rc.2'
+const HARNESS_VERSION = '0.2.0-rc.2'
 
 describe('GitHub release contract', () => {
   it('keeps the package and lockfile versions aligned', async () => {
@@ -196,7 +196,7 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(packageJson.build.artifactName).toBe('bisheng-work-${os}-${arch}.${ext}')
+    expect(packageJson.build.artifactName).toBe('bisheng-${os}-${arch}.${ext}')
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/app-icon.png',
       to: 'icon.png'
@@ -238,7 +238,7 @@ describe('GitHub release contract', () => {
       to: 'web-import.html'
     })
     expect(packageJson.build.nsis.artifactName).toBe(
-      'bisheng-work-windows-${arch}-setup.${ext}'
+      'bisheng-windows-${arch}-setup.${ext}'
     )
     expect(packageJson.build.nsis.include).toBe('build/installer.nsh')
     expect(packageJson.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
@@ -263,6 +263,7 @@ describe('GitHub release contract', () => {
     ) as {
       dependencies: Record<string, string>
       build: {
+        appId: string
         productName: string
         protocols: Array<{ name: string; schemes: string[] }>
         publish: Array<{ provider: string; url?: string; owner?: string; repo?: string }>
@@ -275,9 +276,10 @@ describe('GitHub release contract', () => {
     )
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
+    expect(packageJson.build.appId).toBe('io.bisheng')
     expect(packageJson.build.productName).toBe('BISHENG')
     expect(packageJson.build.protocols).toEqual([
-      { name: 'BISHENG Enterprise Login', schemes: ['bisheng-work'] }
+      { name: 'BISHENG Enterprise Login', schemes: ['bisheng'] }
     ])
     expect(packageJson.build.publish).toEqual([
       {
@@ -292,9 +294,9 @@ describe('GitHub release contract', () => {
       'latest-mac-x64.yml',
       'latest-mac.yml',
       'latest.yml',
-      'bisheng-work-mac-arm64.zip.blockmap',
-      'bisheng-work-mac-x64.zip.blockmap',
-      'bisheng-work-windows-x64-setup.exe.blockmap'
+      'bisheng-mac-arm64.zip.blockmap',
+      'bisheng-mac-x64.zip.blockmap',
+      'bisheng-windows-x64-setup.exe.blockmap'
     ]) {
       expect(workflow).toContain(asset)
     }
@@ -349,15 +351,15 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('verify-target.mjs win32 x64')
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
-    expect(developmentConfig.appId).toBe('io.bisheng.work.dev')
+    expect(developmentConfig.appId).toBe('io.bisheng.dev')
     expect(developmentConfig.productName).toBe('BISHENG Dev')
     expect(developmentConfig.protocols).toEqual([
-      { name: 'BISHENG Dev Enterprise Login', schemes: ['bisheng-work-dev'] }
+      { name: 'BISHENG Dev Enterprise Login', schemes: ['bisheng-dev'] }
     ])
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
-    expect(developmentConfig.artifactName).toBe('bisheng-work-dev-${os}-${arch}.${ext}')
-    expect(developmentConfig.nsis.artifactName).toBe('bisheng-work-dev-windows-${arch}-setup.${ext}')
+    expect(developmentConfig.artifactName).toBe('bisheng-dev-${os}-${arch}.${ext}')
+    expect(developmentConfig.nsis.artifactName).toBe('bisheng-dev-windows-${arch}-setup.${ext}')
   })
 
   it('builds and publishes every supported platform', async () => {
@@ -382,7 +384,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain("$isolatedApp = Join-Path $env:RUNNER_TEMP")
     expect(workflow).toContain('$executable = Join-Path $isolatedApp $sourceExecutable.Name')
     expect(workflow).toContain('-WorkingDirectory $isolatedApp')
-    expect(workflow).toContain('Packaged koffi native binding failed.')
+    expect(workflow).toContain('Packaged koffi native binding failed (exit code')
     expect(workflow).toContain("'dist-dev\\win-unpacked\\BISHENG Dev.exe'")
     expect(workflow).toContain('if (-not [string]::IsNullOrEmpty($log))')
     expect(workflow).toContain("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?token=[^\\s]+)")
@@ -398,7 +400,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('mode:')
     expect(workflow).toContain('--prerelease')
     expect(workflow).toContain('name: windows-x64-dev')
-    expect(workflow).toContain('dist-dev/bisheng-work-dev-windows-x64-setup.exe')
+    expect(workflow).toContain('dist-dev/bisheng-dev-windows-x64-setup.exe')
     for (const asset of releaseAssets) expect(workflow).toContain(asset)
     expect(
       workflow.match(
