@@ -1,7 +1,13 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildSafeModeViewModel, shouldStartInSafeMode } from '../src/main/safe-mode'
+import {
+  buildSafeModeViewModel,
+  safeModeBlockingGroupCount,
+  safeModeExitConfirmation,
+  shouldStartInSafeMode
+} from '../src/main/safe-mode'
+import type { ProfileCompatibilityIssue } from '../src/main/state/profile-compatibility'
 import {
   ensureSafeModeProfile,
   SAFE_MODE_BUNDLES,
@@ -41,6 +47,24 @@ describe('Safe Mode', () => {
       locale: 'en', plugins: ['dsh-image-generation'], disabledPlugins: ['dsh-image-generation']
     })
     expect(disabled.pluginItems[0]).toMatchObject({ disabled: true, enableButtonLabel: 'Re-enable' })
+  })
+
+  it('treats installed Profile plugins uniformly as Safe Mode targets', () => {
+    const model = buildSafeModeViewModel({
+      locale: 'zh', plugins: ['dsh-image-generation'],
+      suspectedPlugins: ['dsh-image-generation'], healthPending: true
+    })
+    expect(model.pluginItems[0]).toMatchObject({
+      name: 'dsh-image-generation', suspected: true,
+      statusLabel: '（本次启动日志推断，正在检查更新…）',
+      actionLabel: '停用插件（不删除）'
+    })
+    const disabled = buildSafeModeViewModel({
+      locale: 'en', plugins: ['dsh-image-generation'], disabledPlugins: ['dsh-image-generation']
+    })
+    expect(disabled.pluginItems[0]).toMatchObject({
+      disabled: true, enableButtonLabel: 'Re-enable'
+    })
   })
 
   it('shows static references as informational findings without blocking or selecting a repair', () => {
@@ -135,6 +159,27 @@ describe('Safe Mode', () => {
     expect(model.issueGroups).toEqual([])
     expect(model.restartLabel).toBe('退出安全模式并重启')
     expect(model.restartConfirm).toContain('仍有 1 组阻断问题')
+  })
+
+  it('asks the same exit question wherever Safe Mode can be left', () => {
+    // The sidebar exit and the manager's restart button share this text; the
+    // sidebar used to reopen an already-open manager and do nothing visible.
+    const issue = (target: string, severity: 'blocking' | 'warning', groupId?: string): ProfileCompatibilityIssue => ({
+      id: `${target}-${severity}`,
+      kind: 'core-version-mismatch',
+      severity,
+      packageName: target,
+      source: target,
+      detail: target,
+      resolution: 'disable-plugin',
+      target,
+      ...(groupId === undefined ? {} : { groupId })
+    })
+    const issues = [issue('a', 'blocking', 'plugin:a'), issue('a2', 'blocking', 'plugin:a'), issue('b', 'blocking'), issue('c', 'warning')]
+    expect(safeModeBlockingGroupCount(issues)).toBe(2)
+    expect(safeModeExitConfirmation(2, 'en')).toBe('2 blocking groups remain. Third-party plugins will be enabled again and startup may fail. Exit Safe Mode anyway?')
+    expect(safeModeExitConfirmation(1, 'zh')).toContain('仍有 1 组阻断问题')
+    expect(safeModeExitConfirmation(0, 'en')).toBeUndefined()
   })
 
   it('keeps non-plugin compatibility repairs in the separate repair area', () => {
