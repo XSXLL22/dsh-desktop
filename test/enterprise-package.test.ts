@@ -14,6 +14,14 @@ import {
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const execFileAsync = promisify(execFile)
 
+/** CI runners export a proxy, and Node prints this experimental warning on stderr before the script runs. */
+function stripExperimentalProxyWarning(stderr: string): string {
+  return stderr.replaceAll(
+    /\(node:\d+\) \[UNDICI-EHPA\] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time\.\r?\n\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\r?\n/g,
+    ''
+  )
+}
+
 describe('DSH Desktop enterprise package', () => {
   it('separates provider labels while preserving model paths', async () => {
     const client = await readFile(path.join(projectRoot, 'packages/dsh-desktop-enterprise/client.js'), 'utf8')
@@ -64,9 +72,8 @@ describe('DSH Desktop enterprise package', () => {
       'client.js'
     )
 
-    await expect(execFileAsync(process.execPath, ['--check', clientPath])).resolves.toMatchObject({
-      stderr: ''
-    })
+    const checked = await execFileAsync(process.execPath, ['--check', clientPath])
+    expect(stripExperimentalProxyWarning(checked.stderr)).toBe('')
   })
 
   it('keeps the last BiSheng platform URL after enterprise sign-out', async () => {
