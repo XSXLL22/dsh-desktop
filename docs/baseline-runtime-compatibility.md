@@ -10,7 +10,7 @@
 
 ## generation 宿主依赖校验
 
-Harness 0.1.7 可以通过运行时 resolver 将宿主依赖解析到当前安装，而旧 `profiles/node_modules` 链接仍指向另一安装。Desktop 的社区 generation 安装和企业离线包安装都传入当前 DSH 入口。企业入口由已加载的企业插件解析 `@deepseek-ai/dsh/lib/bin.js`；解析失败时保留原始错误并终止安装，不退回无 anchor 的闭包目录检查。校验只对约定的宿主单例核对该入口提供的精确解析结果，不将整个安装目录作为普通第三方依赖的允许范围，也不为缺失的 `react-dom` 补写 Profile 链接。
+Harness 0.1.7 可以通过运行时 resolver 将宿主依赖解析到当前安装，而旧 `profiles/node_modules` 链接仍指向另一安装。Desktop 的两条 generation 安装入口现在传入当前 DSH 入口。校验只对约定的宿主单例核对该入口提供的精确解析结果，不将整个安装目录作为普通第三方依赖的允许范围。
 
 回归覆盖：旧共享链接与当前宿主不同、当前宿主可用、普通第三方依赖逃逸仍被拒绝。实际 Dev 的 `dsh-antigravity@0.0.7` 已安装并显示模型。Windows 安装包尚未验收。
 
@@ -24,22 +24,28 @@ Harness 0.1.7 可以通过运行时 resolver 将宿主依赖解析到当前安�
 
 验证：内置 Fetch 的 gzip JSON、对象/数组响应头、重复 Set-Cookie、分块 SSE、HTTP/1.1 数组保持原样、trailers；在 Electron Node 24.17.0 中通过 Harness 代理向 Google OAuth token 端点发送无凭据诊断请求，修复前得到 gzip 字节且无响应头，修复后能解析预期的 HTTP 400 JSON。该检查不代表真实账号认证或模型推理验收。
 
-### Windows header clearance after rc.2
+### Windows caption after rc.2
 
-`ConversationHeader` now owns the `<header>` outside `conversation.session.header`.
-The old preload selector (`[data-slot="conversation.session.header"] > header`)
-therefore no longer reserves space for native caption controls. The conversation
-patch adds only `data-dsh-conversation-header` to the resident header; preload
-uses that marker to reserve the native caption height and keeps all header slots
-in normal flow below it. This covers sessionless and active views without cloning
-contributions or relying on generated class names. This is window chrome, so the
-layout stays in preload rather than a business plugin. Remove the marker patch
-when upstream exposes an equivalent stable header/Windows clearance contract.
+Harness 0.1.7 owns the Windows caption row once preload marks
+`<html data-windows-titlebar>` and sets `--dsh-windows-titlebar-height` (40
+DIP, matching the upstream Desktop): AppFrame reserves, paints and drags the
+row, the sidebar collapses to zero width and its toggle sits in the caption.
+Desktop no longer patches the conversation header or pads the expanded sidebar
+for the caption; the former `data-dsh-conversation-header` marker and the
+sidebar's non-macOS padding were removed from their patches.
 
-Regression: `test/windows-titlebar-header.test.mjs` executes the installed rc.2
-header in both session states and verifies slot ownership/count. Local Chromium
-geometry checks cover narrow/wide, light/dark and blank/active layouts; they do
-not replace final Windows installer checks (DPI, zoom, maximize and clicks).
+The caption menubar ("应用" / "编辑") sits in the upstream seat beside the
+sidebar toggle (`--dsh-windows-menu-start`) and opens native popup menus from
+the main process. The application menu carries every Desktop command the former
+dropdown offered (phone pairing, Harness restart, Safe Mode, log, session
+export, view and zoom, updates, about, exit); edit commands are delivered as key
+events so editor-owned history receives them. Desktop's own local pages, which
+have no AppFrame, get the menubar at the caption's left edge and a drag strip.
+
+Regression: `test/windows-titlebar.test.ts` (menu contents, commands, key
+events, request validation) and `test/windows-menu-bar.test.ts` (seat,
+labels, popup request). Visual checks on Windows (DPI, zoom, maximize,
+collapsed sidebar, caption buttons) are still required.
 
 ## 插件 Harness 版本声明采用告警策略
 
