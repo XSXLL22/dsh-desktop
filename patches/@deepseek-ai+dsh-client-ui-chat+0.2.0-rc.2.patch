@@ -1,5 +1,5 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
-index f997683..e5482e0 100644
+index f997683..ba35b32 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
 @@ -115,6 +115,22 @@ window.__ModuleLoader__.load({
@@ -42,15 +42,50 @@ index f997683..e5482e0 100644
  			"fileContent": "Sixlwa_fileContent",
  			"fileIcon": "Sixlwa_fileIcon",
  			"fileMeta": "Sixlwa_fileMeta",
-@@ -1220,6 +1237,7 @@ window.__ModuleLoader__.load({
+@@ -1216,10 +1233,33 @@ window.__ModuleLoader__.load({
+ 		function retrySeconds(milliseconds) {
+ 			return Math.max(1, Math.ceil(milliseconds / 1e3));
+ 		}
++		function platformFailureKey(code) {
++			switch (code) {
++				case "upstream_error": return "message.failure.upstreamError";
++				case "upstream_timeout": return "message.failure.upstreamTimeout";
++				case "monthly_token_limit_exceeded": return "message.failure.monthlyTokenLimit";
++				case "quota_unavailable": return "message.failure.quotaUnavailable";
++				case "usage_unavailable": return "message.failure.usageUnavailable";
++				case "context_length_exceeded": return "message.failure.contextLength";
++				case "model_not_allowed": return "message.failure.modelNotAllowed";
++				case "invalid_request": return "message.failure.invalidRequest";
++				case "unsupported_parameter": return "message.failure.unsupportedParameter";
++				case "authorization_unavailable": return "message.failure.authorizationUnavailable";
++				case "NO_ADAPTER": return "message.failure.noAdapter";
++				default: return void 0;
++			}
++		}
++		function bishengContextWindowFailure(message, code) {
++			return code === "CONTEXT_WINDOW_EXCEEDED" && message === "Model context length exceeded";
++		}
+ 		function failureMessage(message, code, t) {
  			if (code === "ACCOUNT_SIGNED_OUT") return t("message.failure.accountSignedOut");
  			if (code === "ACCOUNT_SIGN_IN_REQUIRED") return t("message.failure.accountSignInRequired");
  			if (code === "QUOTA" || code === "ACCOUNT_QUOTA") return t("message.failure.quota");
 +			if (code === "FORBIDDEN") return t("message.failure.forbidden");
++			if (bishengContextWindowFailure(message, code)) return t("message.failure.contextLength");
++			const platformKey = platformFailureKey(code);
++			if (platformKey) return t(platformKey);
  			return code === "AUTH" ? t("message.failure.auth") : message;
  		}
  		function ModelRetryItem({ node, active, t }) {
-@@ -1329,12 +1347,13 @@ window.__ModuleLoader__.load({
+@@ -1301,7 +1341,7 @@ window.__ModuleLoader__.load({
+ 							children: failureMessage(node.message, node.code, t)
+ 						})]
+ 					}),
+-					node.code !== void 0 && (0, react_jsx_runtime.jsx)("code", {
++					platformFailureKey(node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0 && (0, react_jsx_runtime.jsx)("code", {
+ 						className: MessageItem_module_css_default.turnErrorCode,
+ 						children: node.code
+ 					})
+@@ -1329,12 +1369,13 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** Right-aligned bubble shared by user and steering rows. */
@@ -66,7 +101,7 @@ index f997683..e5482e0 100644
  			return (0, react_jsx_runtime.jsxs)("div", {
  				className: MessageItem_module_css_default.userRow,
  				"data-pending-steering": pending || void 0,
-@@ -1349,9 +1368,13 @@ window.__ModuleLoader__.load({
+@@ -1349,9 +1390,13 @@ window.__ModuleLoader__.load({
  								images: [attachment.image],
  								align: "end",
  								compact: compactImages
@@ -82,7 +117,7 @@ index f997683..e5482e0 100644
  								children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FileTypeIcon, {
  									path: attachment.file.name,
  									className: MessageItem_module_css_default.fileIcon
-@@ -1369,11 +1392,11 @@ window.__ModuleLoader__.load({
+@@ -1369,11 +1414,11 @@ window.__ModuleLoader__.load({
  						}),
  						showBubble && (0, react_jsx_runtime.jsxs)("div", {
  							className: MessageItem_module_css_default.bubble,
@@ -96,7 +131,7 @@ index f997683..e5482e0 100644
  						}),
  						referenceLabels.length > 0 && (0, react_jsx_runtime.jsx)("div", {
  							className: MessageItem_module_css_default.referenceSummary,
-@@ -1411,7 +1434,7 @@ window.__ModuleLoader__.load({
+@@ -1411,7 +1456,7 @@ window.__ModuleLoader__.load({
  		* @param props - the session snapshot's pending submission and render seats.
  		* @returns the echoed user bubble.
  		*/
@@ -105,7 +140,7 @@ index f997683..e5482e0 100644
  			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
  				content: (0, react.useMemo)(() => submission.text === "" ? [] : [{
  					type: "text",
-@@ -1430,6 +1453,8 @@ window.__ModuleLoader__.load({
+@@ -1430,6 +1475,8 @@ window.__ModuleLoader__.load({
  					file: attachment.value
  				}), [submission.attachments]),
  				renderMessageImages,
@@ -114,7 +149,7 @@ index f997683..e5482e0 100644
  				pending: submission.placement === "steering",
  				echo: true,
  				t,
-@@ -1443,7 +1468,7 @@ window.__ModuleLoader__.load({
+@@ -1443,7 +1490,7 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** User and admitted-steering keyed Chat renderer. */
@@ -123,7 +158,7 @@ index f997683..e5482e0 100644
  			const data = node.data;
  			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
  				content: data.content,
-@@ -1452,6 +1477,8 @@ window.__ModuleLoader__.load({
+@@ -1452,6 +1499,8 @@ window.__ModuleLoader__.load({
  					openSkill
  				},
  				renderMessageImages,
@@ -132,7 +167,7 @@ index f997683..e5482e0 100644
  				...data.referenceLabels === void 0 ? {} : { referenceLabels: data.referenceLabels },
  				...data.skillNames === void 0 ? {} : { skillNames: data.skillNames },
  				t,
-@@ -1665,7 +1692,7 @@ window.__ModuleLoader__.load({
+@@ -1665,7 +1714,7 @@ window.__ModuleLoader__.load({
  		* Policy reads select this seat's own conclusion, so a mode change re-renders
  		* only seats whose visibility actually changes.
  		*/
@@ -141,7 +176,7 @@ index f997683..e5482e0 100644
  			const node = useChatNode(nodeKey);
  			const routedNode = node;
  			const turn = turnOf$1(routedNode);
-@@ -1729,24 +1756,30 @@ window.__ModuleLoader__.load({
+@@ -1729,24 +1778,30 @@ window.__ModuleLoader__.load({
  				cwd,
  				openFile,
  				openSkill,
@@ -174,7 +209,7 @@ index f997683..e5482e0 100644
  			]);
  			if (routedNode === void 0 || owner === null) return null;
  			const routedOwner = {
-@@ -5072,6 +5105,28 @@ window.__ModuleLoader__.load({
+@@ -5072,6 +5127,28 @@ window.__ModuleLoader__.load({
  		* The last input's Turn also distinguishes an empty opening control from
  		* one whose human input or trigger notice is already present.
  		*/
@@ -203,7 +238,7 @@ index f997683..e5482e0 100644
  		function observedInputs(order, nodes) {
  			const observed = /* @__PURE__ */ new Set();
  			let lastInputTurn;
-@@ -5088,13 +5143,15 @@ window.__ModuleLoader__.load({
+@@ -5088,13 +5165,15 @@ window.__ModuleLoader__.load({
  				lastInputTurn
  			};
  		}
@@ -220,7 +255,7 @@ index f997683..e5482e0 100644
  						...entry.groupPart === void 0 ? {} : { groupPart: entry.groupPart }
  					});
  					case "group": return (0, react.createElement)(ChatGroupSeat, {
-@@ -5108,7 +5165,9 @@ window.__ModuleLoader__.load({
+@@ -5108,7 +5187,9 @@ window.__ModuleLoader__.load({
  			});
  			const pendingRows = pendingInputs.map((item) => "requestId" in item ? (0, react_jsx_runtime.jsx)(PendingSubmissionBubble, {
  				submission: item,
@@ -230,7 +265,7 @@ index f997683..e5482e0 100644
  				t: seatProps.t
  			}, item.requestId) : (0, react_jsx_runtime.jsx)(PendingSteeringBubble, {
  				content: item.content,
-@@ -5127,7 +5186,7 @@ window.__ModuleLoader__.load({
+@@ -5127,7 +5208,7 @@ window.__ModuleLoader__.load({
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -239,7 +274,7 @@ index f997683..e5482e0 100644
  			const order = useChat((s) => s.order);
  			const groupedEntries = useConversation((snapshot) => snapshot.views.grouped("chat")?.entries);
  			const entries = (0, react.useMemo)(() => groupedEntries ?? order.map((key) => ({
-@@ -5174,11 +5233,29 @@ window.__ModuleLoader__.load({
+@@ -5174,11 +5255,29 @@ window.__ModuleLoader__.load({
  					if (id !== fileOpenRequest.current) return;
  					setFileOpenError({
  						path,
@@ -269,7 +304,7 @@ index f997683..e5482e0 100644
  			const closeFileOpenError = (0, react.useCallback)(() => {
  				fileOpenRequest.current += 1;
  				setFileOpenError(null);
-@@ -5211,6 +5288,8 @@ window.__ModuleLoader__.load({
+@@ -5211,6 +5310,8 @@ window.__ModuleLoader__.load({
  				pendingSubmissions,
  				visibleSubmissions
  			]);
@@ -278,7 +313,7 @@ index f997683..e5482e0 100644
  			const renderMessageImages = (0, react.useCallback)((owner) => renderSlot("conversation.message.images", {
  				...owner,
  				loadImage
-@@ -5281,10 +5360,13 @@ window.__ModuleLoader__.load({
+@@ -5281,10 +5382,13 @@ window.__ModuleLoader__.load({
  										openExternalLink,
  										openFile: requestOpenFile,
  										fileImages,
@@ -293,7 +328,7 @@ index f997683..e5482e0 100644
  											nodeStore,
  											useChatGroup,
  											useChatNode,
-@@ -5301,6 +5383,7 @@ window.__ModuleLoader__.load({
+@@ -5301,6 +5405,7 @@ window.__ModuleLoader__.load({
  											renderMessageImages,
  											fileMentions,
  											renderSlot,
@@ -301,7 +336,7 @@ index f997683..e5482e0 100644
  											t
  										})
  									}),
-@@ -5327,7 +5410,7 @@ window.__ModuleLoader__.load({
+@@ -5327,7 +5432,7 @@ window.__ModuleLoader__.load({
  						busy: fileOpenBusy,
  						onClose: closeFileOpenError,
  						onRetry: () => {
@@ -310,27 +345,49 @@ index f997683..e5482e0 100644
  						},
  						t
  					})
-@@ -5522,7 +5605,8 @@ window.__ModuleLoader__.load({
+@@ -5522,7 +5627,19 @@ window.__ModuleLoader__.load({
  			"message.accountStopped": "任务已停止",
  			"message.failure.accountSignedOut": "任务已因退出 DeepSeek 登录而停止。",
  			"message.failure.accountSignInRequired": "请先登录 DeepSeek，并确认请求地址支持账号认证。",
 -			"message.failure.quota": "当前请求的额度已用尽",
 +			"message.failure.quota": "账户额度或余额不足，请充值或检查服务商的用量限制。",
 +			"message.failure.forbidden": "模型服务商拒绝了本次请求，请检查账号权限、地区限制或模型开通情况。",
++			"message.failure.upstreamError": "模型服务调用失败，请稍后手动重试。",
++			"message.failure.upstreamTimeout": "模型响应超时，请稍后手动重试。",
++			"message.failure.monthlyTokenLimit": "当前模型本月额度已用尽，请联系管理员调整额度，或等待下月重置。",
++			"message.failure.quotaUnavailable": "额度服务暂不可用，请稍后重试。",
++			"message.failure.usageUnavailable": "本次调用的用量记录暂无法确认，请勿重复发送；可稍后查看用量或联系管理员。",
++			"message.failure.contextLength": "当前对话内容超过模型上下文限制，请缩短内容或新建会话。",
++			"message.failure.modelNotAllowed": "当前模型未获授权或已不可用，请刷新模型列表或联系管理员。",
++			"message.failure.invalidRequest": "请求参数不正确，请检查后重试。",
++			"message.failure.unsupportedParameter": "当前模型不支持此参数，请调整模型设置。",
++			"message.failure.authorizationUnavailable": "平台授权服务暂不可用，请稍后重试。",
++			"message.failure.noAdapter": "当前模型服务尚未就绪，请确认账号已连接后再试。",
  			"message.turnError": "本轮运行失败",
  			"message.maxTokens": "已达到输出 token 上限",
  			"message.maxTokens.hint": "回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。",
-@@ -5711,7 +5795,8 @@ window.__ModuleLoader__.load({
+@@ -5711,7 +5828,19 @@ window.__ModuleLoader__.load({
  			"message.accountStopped": "Task stopped",
  			"message.failure.accountSignedOut": "Stopped because you signed out of DeepSeek.",
  			"message.failure.accountSignInRequired": "Sign in to DeepSeek and ensure the request destination supports account authentication.",
 -			"message.failure.quota": "Request quota exhausted.",
 +			"message.failure.quota": "Your account has insufficient quota or balance. Add credits or check your provider's usage limits.",
 +			"message.failure.forbidden": "The model provider denied this request. Check your account permissions, region, or model access.",
++			"message.failure.upstreamError": "The model request failed. Try again manually later.",
++			"message.failure.upstreamTimeout": "The model response timed out. Try again manually later.",
++			"message.failure.monthlyTokenLimit": "This model's monthly allowance is used up. Ask an administrator to adjust it, or wait for the monthly reset.",
++			"message.failure.quotaUnavailable": "The allowance service is temporarily unavailable. Try again later.",
++			"message.failure.usageUnavailable": "Usage for this request could not be confirmed. Do not send it again; check usage later or contact an administrator.",
++			"message.failure.contextLength": "This conversation exceeds the model context limit. Shorten it or start a new chat.",
++			"message.failure.modelNotAllowed": "This model is not authorized or is unavailable. Refresh the model list or contact your administrator.",
++			"message.failure.invalidRequest": "The request parameters are invalid. Check them and try again.",
++			"message.failure.unsupportedParameter": "This model does not support this parameter. Adjust the model settings.",
++			"message.failure.authorizationUnavailable": "The authorization service is temporarily unavailable. Try again later.",
++			"message.failure.noAdapter": "This model service is not ready. Confirm the account is connected, then try again.",
  			"message.turnError": "This turn failed",
  			"message.maxTokens": "Output token limit reached",
  			"message.maxTokens.hint": "The reply was cut off; earlier output is preserved in the conversation. Send \"continue\" to let the model resume.",
-@@ -12265,7 +12350,8 @@ window.__ModuleLoader__.load({
+@@ -12265,7 +12394,8 @@ window.__ModuleLoader__.load({
  			"configForms",
  			"remote",
  			"remote.session",
@@ -340,7 +397,7 @@ index f997683..e5482e0 100644
  		];
  		/**
  		* Mount all Chat-owned contributions.
-@@ -12355,6 +12441,14 @@ window.__ModuleLoader__.load({
+@@ -12355,6 +12485,14 @@ window.__ModuleLoader__.load({
  				}, LinkOpeningRow));
  			});
  			const transcriptView = new TranscriptViewPolicy(chatSettings, "dshDesktop" in globalThis ? "standard" : DEFAULT_TRANSCRIPT_VIEW_MODE);
@@ -355,7 +412,7 @@ index f997683..e5482e0 100644
  			const presentation = derivePresentationPolicy(transcriptView.mode);
  			const performancePolicy = new PerformanceUsagePolicy(chatSettings);
  			ctx.effect(() => () => {
-@@ -12403,6 +12497,10 @@ window.__ModuleLoader__.load({
+@@ -12403,6 +12541,10 @@ window.__ModuleLoader__.load({
  						"conversation.message.images": {
  							kind: "single",
  							scope: "session"
@@ -366,7 +423,7 @@ index f997683..e5482e0 100644
  						}
  					},
  					store: chatStore,
-@@ -12422,10 +12520,22 @@ window.__ModuleLoader__.load({
+@@ -12422,10 +12564,22 @@ window.__ModuleLoader__.load({
  							fileMentions: (owner) => ctx.get("chatFileMentions")?.forClosing(owner, sessionId),
  							openFile: async (path, options) => {
  								const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;

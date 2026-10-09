@@ -2,7 +2,6 @@ import {
   LlmAdapter,
   LlmError,
   ProviderRequestId,
-  QUOTA_EXCEEDED_CODE,
   ToolCallId,
   attributionHeaders,
   contentHasImage
@@ -165,57 +164,116 @@ function readUiLanguage() {
     : 'en'
 }
 
-function formatEnterpriseChatFailure(status, payload, language) {
-  const zh = isChineseLocale(language)
-  const objectError = payload && typeof payload === 'object' && !Array.isArray(payload)
-    && payload.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
+const CHAT_PLATFORM_CODES = new Set([
+  'upstream_error',
+  'upstream_timeout',
+  'monthly_token_limit_exceeded',
+  'quota_unavailable',
+  'usage_unavailable',
+  'model_not_allowed',
+  'invalid_request',
+  'unsupported_parameter',
+  'authorization_unavailable'
+])
+
+const LEGACY_CHAT_PHRASES = Object.freeze({
+  'monthly token limit exceeded': 'monthly_token_limit_exceeded',
+  'monthly token limit reached': 'monthly_token_limit_exceeded',
+  'authorization unavailable': 'authorization_unavailable',
+  'dsh authorization is temporarily unavailable': 'authorization_unavailable',
+  'quota unavailable': 'quota_unavailable',
+  'dsh quota state is temporarily unavailable': 'quota_unavailable',
+  'usage unavailable': 'usage_unavailable',
+  'actual request usage could not be confirmed': 'usage_unavailable'
+})
+
+const CHAT_MESSAGE_LIMIT = 300
+
+function payloadError(payload) {
+  return payload && typeof payload === 'object' && !Array.isArray(payload) &&
+    payload.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
     ? payload.error
     : null
-  const objectMessage = typeof objectError?.message === 'string' && objectError.message.length > 0
-    ? objectError.message
-    : ''
-  const stringError = payload && typeof payload === 'object' && !Array.isArray(payload)
-    && typeof payload.error === 'string'
+}
+
+function rawChatMessage(payload) {
+  const objectMessage = payloadError(payload)?.message
+  if (typeof objectMessage === 'string' && objectMessage.length > 0) return objectMessage
+  return payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.error === 'string'
     ? payload.error
     : ''
-  const raw = objectMessage || stringError
+}
+
+function normalizeChatPhrase(value) {
+  return value.trim().replace(/\.$/u, '').trim().toLowerCase()
+}
+
+function messageLooksLikeHtml(value) {
+  return /<[a-z!/][^>]*>/iu.test(value)
+}
+
+function sanitizeChatMessage(value) {
+  return value
+    .replace(/<[^>]*>/gu, ' ')
+    .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, CHAT_MESSAGE_LIMIT)
+}
+
+function formatEnterpriseChatFailure(status, payload, language) {
+  const zh = isChineseLocale(language)
+  const raw = rawChatMessage(payload)
   const local = LOCAL_CHAT_FAILURES[raw]
   if (local) return zh ? local.zh : local.en
-  if (raw) return raw
-  return zh ? `毕昇模型请求失败（${status}）。` : `BiSheng model request failed (${status}).`
+  const fallback = zh ? `毕昇模型请求失败（${status}）。` : `BiSheng model request failed (${status}).`
+  if (!raw || messageLooksLikeHtml(raw)) {
+    const stripped = raw ? sanitizeChatMessage(raw) : ''
+    return stripped || fallback
+  }
+  return sanitizeChatMessage(raw) || fallback
+}
+
+function platformChatCode(payload) {
+  const code = payloadError(payload)?.code
+  if (typeof code === 'string' && code.trim() && code.trim() !== 'request_failed') return code.trim()
+  return LEGACY_CHAT_PHRASES[normalizeChatPhrase(rawChatMessage(payload))] || 'request_failed'
+}
+
+function classifyChatFailure(code, status) {
+  // Compaction retries only this harness code. The chat UI localizes the BiSheng sentence on its own.
+  if (code === 'context_length_exceeded') return 'CONTEXT_WINDOW_EXCEEDED'
+  if (CHAT_PLATFORM_CODES.has(code)) return code
+  if (code === 'invalid_access_token') return 'AUTH'
+  if (code !== 'request_failed') return code
+  if (status >= 500) return 'SERVER'
+  if (status === 429) return 'RATE_LIMIT'
+  return 'PROVIDER_ERROR'
+}
+
+function requestIdFrom(headerId, payload) {
+  if (typeof headerId === 'string' && headerId.length > 0) return headerId
+  const bodyId = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload.request_id
+    : undefined
+  return typeof bodyId === 'string' && bodyId.length > 0 ? bodyId : undefined
 }
 
 function requestFailure(status, requestId, payload) {
-  const error = payload && typeof payload === 'object' && !Array.isArray(payload) &&
-    payload.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
-    ? payload.error
-    : {}
-  const code = typeof error.code === 'string' ? error.code : 'request_failed'
-  const mapped = code === 'monthly_token_limit_exceeded'
-    ? QUOTA_EXCEEDED_CODE
-    : code === 'context_length_exceeded'
-      ? 'CONTEXT_WINDOW_EXCEEDED'
-      : code === 'invalid_access_token'
-        ? 'AUTH'
-        : status >= 500
-          ? 'SERVER'
-          : status === 429
-            ? 'RATE_LIMIT'
-            : 'PROVIDER_ERROR'
+  const resolvedId = requestIdFrom(requestId, payload)
   return new LlmError(
     formatEnterpriseChatFailure(status, payload, readUiLanguage()),
-    mapped,
+    classifyChatFailure(platformChatCode(payload), status),
     {
       status,
-      ...(requestId ? { requestId: ProviderRequestId(requestId) } : {})
+      ...(resolvedId ? { requestId: ProviderRequestId(resolvedId) } : {})
     }
   )
 }
 
 async function responseFailure(response) {
-  const requestId = response.headers.get('x-request-id') ?? undefined
   const payload = await response.json().catch(() => ({}))
-  return requestFailure(response.status, requestId, payload)
+  return requestFailure(response.status, response.headers.get('x-request-id') ?? undefined, payload)
 }
 
 function validUsage(value) {

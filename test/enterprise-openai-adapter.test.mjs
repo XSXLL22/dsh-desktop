@@ -245,6 +245,91 @@ describe('BiSheng OpenAI adapter', () => {
     })) chunks.push(chunk)
     expect(requests).toBe(1)
     expect(chunks).toContainEqual({ type: 'text-delta', index: 0, text: 'partial' })
-    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error', failure: { status: 200, requestId: 'req-1' } } })
+    expect(chunks.at(-1)).toMatchObject({
+      type: 'finish',
+      reason: { kind: 'error', failure: { code: 'monthly_token_limit_exceeded', status: 200, requestId: 'req-1' } }
+    })
+  })
+
+  async function finishFrom(response) {
+    let requests = 0
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng', models: () => [model],
+      request: async () => {
+        requests += 1
+        return response
+      }
+    })
+    const chunks = []
+    try {
+      for await (const chunk of adapter.stream({
+        provider: 'bisheng-enterprise', model: model.id,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+      })) chunks.push(chunk)
+      return { requests, failure: chunks.at(-1)?.reason?.failure }
+    } catch (error) {
+      return { requests, error }
+    }
+  }
+
+  it('keeps the BiSheng context sentence while reporting the harness overflow code', async () => {
+    const exact = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Model context length exceeded","code":"context_length_exceeded"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    const detailed = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"This model\'s maximum context length is 128000 tokens.","code":"context_length_exceeded"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    expect(exact.failure).toMatchObject({
+      code: 'CONTEXT_WINDOW_EXCEEDED',
+      message: 'Model context length exceeded'
+    })
+    expect(detailed.failure).toMatchObject({
+      code: 'CONTEXT_WINDOW_EXCEEDED',
+      message: 'This model\'s maximum context length is 128000 tokens.'
+    })
+  })
+
+  it('keeps an in-stream upstream failure code and does not retry', async () => {
+    const stream = 'event: error\ndata: {"error":{"message":"Upstream model request failed","type":"upstream_error","code":"upstream_error"},"request_id":"req-up"}\n\n'
+    const result = await finishFrom(new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' }
+    }))
+    expect(result.requests).toBe(1)
+    expect(result.failure).toMatchObject({ code: 'upstream_error', requestId: 'req-up' })
+  })
+
+  it('maps a codeless monthly-limit sentence without treating an upstream sentence as quota', async () => {
+    const monthly = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Monthly token limit reached"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    const upstream = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Upstream model request failed"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    expect(monthly.failure.code).toBe('monthly_token_limit_exceeded')
+    expect(upstream.failure.code).not.toBe('monthly_token_limit_exceeded')
+  })
+
+  it('keeps a JSON request id when the response header is absent', async () => {
+    const result = await finishFrom(new Response(JSON.stringify({
+      error: { message: 'Monthly token limit reached', code: 'monthly_token_limit_exceeded' },
+      request_id: 'body-req'
+    }), { status: 429, headers: { 'content-type': 'application/json' } }))
+    expect(result.error.failure).toMatchObject({
+      code: 'monthly_token_limit_exceeded',
+      requestId: 'body-req'
+    })
+  })
+
+  it('does not surface HTML from an unknown platform error', async () => {
+    const result = await finishFrom(new Response(JSON.stringify({
+      error: { message: '<html><body>gateway</body></html>', code: 'novel_platform_code' }
+    }), { status: 502, headers: { 'content-type': 'application/json' } }))
+    expect(result.error.failure.code).toBe('novel_platform_code')
+    expect(result.error.failure.message).not.toContain('<')
   })
 })
