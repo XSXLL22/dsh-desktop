@@ -6,9 +6,9 @@ import { afterEach, expect, it } from 'vitest'
 
 const script = path.resolve(import.meta.dirname, '../scripts/prune-github-release-assets.mjs')
 const installers = [
-  'bisheng-work-mac-arm64.dmg',
-  'bisheng-work-mac-x64.dmg',
-  'bisheng-work-windows-x64-setup.exe'
+  'bisheng-mac-arm64.dmg',
+  'bisheng-mac-x64.dmg',
+  'bisheng-windows-x64-setup.exe'
 ]
 const temporaryDirectories = []
 
@@ -54,7 +54,7 @@ if (args[1] === 'view' && args.includes('--json')) {
 }
 
 it('keeps only the three installers in a verified draft release', async () => {
-  const extra = ['latest.yml', 'latest-mac.yml', 'bisheng-work-mac-arm64.zip', 'win-unpacked.tar.gz']
+  const extra = ['latest.yml', 'latest-mac.yml', 'bisheng-mac-arm64.zip', 'win-unpacked.tar.gz']
   const release = await fakeGitHubRelease({ names: [...installers, ...extra] })
 
   const result = release.run()
@@ -80,6 +80,6 @@ it('refuses to prune when an installer is missing', async () => {
   const result = release.run()
 
   expect(result.status).not.toBe(0)
-  expect(result.stderr).toContain('missing installer bisheng-work-windows-x64-setup.exe')
+  expect(result.stderr).toContain('missing installer bisheng-windows-x64-setup.exe')
   expect((await release.state()).deleted).toEqual([])
 })

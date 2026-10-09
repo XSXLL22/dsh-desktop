@@ -42,7 +42,7 @@ git merge upstream/main
 
 ## 当前状态与发布前工作
 
-当前产品名称为 BISHENG，开发版为 BISHENG Dev。为兼容已有安装，应用 ID、userData 目录、登录协议、仓库地址及发布资产文件名继续保留 `bisheng-work` 标识。名称修改的源码检查不代表新安装包已发布或完成安装验收。
+当前产品名称为 BISHENG，开发版为 BISHENG Dev。应用 ID、userData 目录、登录协议和发布资产文件名使用 `bisheng`（开发通道为 `bisheng-dev`）。更新地址、ModelScope 仓库和 GitHub 仓库地址仍使用 `bisheng-work`。名称修改的源码检查不代表新安装包已发布或完成安装验收。网页唤起桌面使用 `bisheng://login`，网页端需要同步修改。
 
 初始化时曾关闭 Actions；当前构建及发布配置以 `package.json` 和 `.github/workflows/release.yml` 为准。发布前核对以下隔离边界和组织级 secrets 的访问范围：
 

@@ -316,7 +316,7 @@
     "koffi": "3.1.5"
   },
   "build": {
-    "appId": "io.bisheng.work",
+    "appId": "io.bisheng",
     "productName": "BISHENG",
     "asar": true,
     "asarUnpack": [
@@ -462,7 +462,7 @@
       }
     ],
     "detectUpdateChannel": false,
-    "artifactName": "bisheng-work-${os}-${arch}.${ext}",
+    "artifactName": "bisheng-${os}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
@@ -496,7 +496,7 @@
       ]
     },
     "nsis": {
-      "artifactName": "bisheng-work-windows-${arch}-setup.${ext}",
+      "artifactName": "bisheng-windows-${arch}-setup.${ext}",
       "include": "build/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -508,7 +508,7 @@
       {
         "name": "BISHENG Enterprise Login",
         "schemes": [
-          "bisheng-work"
+          "bisheng"
         ]
       }
     ]

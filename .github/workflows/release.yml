@@ -229,7 +229,7 @@ jobs:
         env:
           CSC_KEYCHAIN: ${{ steps.signing_keychain.outputs.keychain }}
         run: |
-          dmg_path="dist/bisheng-work-mac-arm64.dmg"
+          dmg_path="dist/bisheng-mac-arm64.dmg"
           identity="$(security find-identity -v -p codesigning "$CSC_KEYCHAIN" | awk '/Developer ID Application/ { print $2; exit }')"
           test -n "$identity" || { echo "::error::Developer ID Application identity not found"; exit 1; }
           codesign --keychain "$CSC_KEYCHAIN" --sign "$identity" --timestamp --force "$dmg_path"
@@ -270,9 +270,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
-          codesign --verify --verbose=2 dist/bisheng-work-mac-arm64.dmg
-          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-arm64.dmg
-          xcrun stapler validate dist/bisheng-work-mac-arm64.dmg
+          codesign --verify --verbose=2 dist/bisheng-mac-arm64.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-mac-arm64.dmg
+          xcrun stapler validate dist/bisheng-mac-arm64.dmg
       - name: Stage signed Apple Silicon assets in draft release
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
@@ -280,9 +280,9 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            dist/bisheng-work-mac-arm64.dmg \
-            dist/bisheng-work-mac-arm64.zip \
-            dist/bisheng-work-mac-arm64.zip.blockmap \
+            dist/bisheng-mac-arm64.dmg \
+            dist/bisheng-mac-arm64.zip \
+            dist/bisheng-mac-arm64.zip.blockmap \
             dist/latest-mac-arm64.yml \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
@@ -291,9 +291,9 @@ jobs:
           name: macos-apple-silicon
           retention-days: 7
           path: |
-            dist/bisheng-work-mac-arm64.dmg
-            dist/bisheng-work-mac-arm64.zip
-            dist/bisheng-work-mac-arm64.zip.blockmap
+            dist/bisheng-mac-arm64.dmg
+            dist/bisheng-mac-arm64.zip
+            dist/bisheng-mac-arm64.zip.blockmap
             dist/latest-mac-arm64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -302,9 +302,9 @@ jobs:
           name: macos-apple-silicon-dev
           retention-days: 3
           path: |
-            dist-dev/bisheng-work-dev-mac-arm64.dmg
-            dist-dev/bisheng-work-dev-mac-arm64.zip
-            dist-dev/bisheng-work-dev-mac-arm64.zip.blockmap
+            dist-dev/bisheng-dev-mac-arm64.dmg
+            dist-dev/bisheng-dev-mac-arm64.zip
+            dist-dev/bisheng-dev-mac-arm64.zip.blockmap
           if-no-files-found: error
 
   macos-intel:
@@ -402,7 +402,7 @@ jobs:
         env:
           CSC_KEYCHAIN: ${{ steps.signing_keychain.outputs.keychain }}
         run: |
-          dmg_path="dist/bisheng-work-mac-x64.dmg"
+          dmg_path="dist/bisheng-mac-x64.dmg"
           identity="$(security find-identity -v -p codesigning "$CSC_KEYCHAIN" | awk '/Developer ID Application/ { print $2; exit }')"
           test -n "$identity" || { echo "::error::Developer ID Application identity not found"; exit 1; }
           codesign --keychain "$CSC_KEYCHAIN" --sign "$identity" --timestamp --force "$dmg_path"
@@ -443,9 +443,9 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
           xcrun stapler validate "$app_path"
-          codesign --verify --verbose=2 dist/bisheng-work-mac-x64.dmg
-          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-work-mac-x64.dmg
-          xcrun stapler validate dist/bisheng-work-mac-x64.dmg
+          codesign --verify --verbose=2 dist/bisheng-mac-x64.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=4 dist/bisheng-mac-x64.dmg
+          xcrun stapler validate dist/bisheng-mac-x64.dmg
       - name: Stage signed Intel assets in draft release
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
@@ -453,9 +453,9 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            dist/bisheng-work-mac-x64.dmg \
-            dist/bisheng-work-mac-x64.zip \
-            dist/bisheng-work-mac-x64.zip.blockmap \
+            dist/bisheng-mac-x64.dmg \
+            dist/bisheng-mac-x64.zip \
+            dist/bisheng-mac-x64.zip.blockmap \
             dist/latest-mac-x64.yml \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
@@ -464,9 +464,9 @@ jobs:
           name: macos-intel
           retention-days: 7
           path: |
-            dist/bisheng-work-mac-x64.dmg
-            dist/bisheng-work-mac-x64.zip
-            dist/bisheng-work-mac-x64.zip.blockmap
+            dist/bisheng-mac-x64.dmg
+            dist/bisheng-mac-x64.zip
+            dist/bisheng-mac-x64.zip.blockmap
             dist/latest-mac-x64.yml
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -475,9 +475,9 @@ jobs:
           name: macos-intel-dev
           retention-days: 3
           path: |
-            dist-dev/bisheng-work-dev-mac-x64.dmg
-            dist-dev/bisheng-work-dev-mac-x64.zip
-            dist-dev/bisheng-work-dev-mac-x64.zip.blockmap
+            dist-dev/bisheng-dev-mac-x64.dmg
+            dist-dev/bisheng-dev-mac-x64.zip
+            dist-dev/bisheng-dev-mac-x64.zip.blockmap
           if-no-files-found: error
 
   windows-x64:
@@ -531,7 +531,7 @@ jobs:
         shell: pwsh
         env:
           SMOKE_EXE: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'dist\win-unpacked\BISHENG.exe' || 'dist-dev\win-unpacked\BISHENG Dev.exe' }}
-          SMOKE_USERDATA: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'bisheng-work' || 'bisheng-work-dev' }}
+          SMOKE_USERDATA: ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || inputs.mode == 'prerelease'))) && 'bisheng' || 'bisheng-dev' }}
         run: |
           $userData = Join-Path $env:APPDATA $env:SMOKE_USERDATA
           $logPath = Join-Path $userData 'logs\harness.log'
@@ -674,9 +674,9 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$env:RELEASE_TAG" `
-            dist/bisheng-work-windows-x64-setup.exe `
+            dist/bisheng-windows-x64-setup.exe `
             dist/win-unpacked.tar.gz `
-            dist/bisheng-work-windows-x64-setup.exe.blockmap `
+            dist/bisheng-windows-x64-setup.exe.blockmap `
             dist/latest.yml `
             --clobber --repo "$env:GITHUB_REPOSITORY"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -685,9 +685,9 @@ jobs:
         with:
           name: windows-x64-unsigned
           path: |
-            dist/bisheng-work-windows-x64-setup.exe
+            dist/bisheng-windows-x64-setup.exe
             dist/win-unpacked.tar.gz
-            dist/bisheng-work-windows-x64-setup.exe.blockmap
+            dist/bisheng-windows-x64-setup.exe.blockmap
             dist/latest.yml
           if-no-files-found: error
           retention-days: 1
@@ -697,8 +697,8 @@ jobs:
           name: windows-x64-dev
           retention-days: 3
           path: |
-            dist-dev/bisheng-work-dev-windows-x64-setup.exe
-            dist-dev/bisheng-work-dev-windows-x64-setup.exe.blockmap
+            dist-dev/bisheng-dev-windows-x64-setup.exe
+            dist-dev/bisheng-dev-windows-x64-setup.exe.blockmap
             dist-dev/latest.yml
           if-no-files-found: error
 
@@ -748,15 +748,15 @@ jobs:
         run: |
           set -euo pipefail
           gh release download "$RELEASE_TAG" \
-            --pattern 'bisheng-work-windows-x64-setup.exe' \
-            --pattern 'bisheng-work-windows-x64-setup.exe.blockmap' \
+            --pattern 'bisheng-windows-x64-setup.exe' \
+            --pattern 'bisheng-windows-x64-setup.exe.blockmap' \
             --pattern 'win-unpacked.tar.gz' \
             --pattern 'latest.yml' \
             --dir "$WINDOWS_SIGNING_WORK_DIR/release" \
             --repo "$GITHUB_REPOSITORY"
           node scripts/verify-release-staging.mjs "$RELEASE_TAG" "$WINDOWS_SIGNING_WORK_DIR/release" \
-            bisheng-work-windows-x64-setup.exe \
-            bisheng-work-windows-x64-setup.exe.blockmap \
+            bisheng-windows-x64-setup.exe \
+            bisheng-windows-x64-setup.exe.blockmap \
             win-unpacked.tar.gz latest.yml
       - uses: actions/download-artifact@v4
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'prerelease' && inputs.target != 'all'
@@ -846,8 +846,8 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.mode == 'signed' && inputs.signed_version || inputs.prerelease_tag) }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-work-windows-x64-setup.exe" \
-            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-work-windows-x64-setup.exe.blockmap" \
+            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-windows-x64-setup.exe" \
+            "$WINDOWS_SIGNING_WORK_DIR/release/bisheng-windows-x64-setup.exe.blockmap" \
             "$WINDOWS_SIGNING_WORK_DIR/release/latest.yml" \
             --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
@@ -856,8 +856,8 @@ jobs:
           name: windows-x64
           retention-days: 7
           path: |
-            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe
-            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-work-windows-x64-setup.exe.blockmap
+            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-windows-x64-setup.exe
+            ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/bisheng-windows-x64-setup.exe.blockmap
             ${{ runner.temp }}/dsh-windows-${{ github.run_id }}/release/latest.yml
           if-no-files-found: error
       - name: Remove local signing files
@@ -899,17 +899,17 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           gh release download "$GITHUB_REF_NAME" \
-            --pattern 'bisheng-work-*' \
+            --pattern 'bisheng-*' \
             --pattern 'latest*.yml' \
             --dir release-assets \
             --repo "$GITHUB_REPOSITORY"
           node scripts/verify-release-staging.mjs "$GITHUB_REF_NAME" release-assets \
-            bisheng-work-mac-arm64.dmg bisheng-work-mac-arm64.zip \
-            bisheng-work-mac-arm64.zip.blockmap latest-mac-arm64.yml \
-            bisheng-work-mac-x64.dmg bisheng-work-mac-x64.zip \
-            bisheng-work-mac-x64.zip.blockmap latest-mac-x64.yml \
-            bisheng-work-windows-x64-setup.exe \
-            bisheng-work-windows-x64-setup.exe.blockmap latest.yml
+            bisheng-mac-arm64.dmg bisheng-mac-arm64.zip \
+            bisheng-mac-arm64.zip.blockmap latest-mac-arm64.yml \
+            bisheng-mac-x64.dmg bisheng-mac-x64.zip \
+            bisheng-mac-x64.zip.blockmap latest-mac-x64.yml \
+            bisheng-windows-x64-setup.exe \
+            bisheng-windows-x64-setup.exe.blockmap latest.yml
       - name: Merge macOS update metadata
         run: |
           set -euo pipefail
@@ -1116,17 +1116,17 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           gh release download "$RELEASE_TAG" \
-            --pattern 'bisheng-work-*' \
+            --pattern 'bisheng-*' \
             --pattern 'latest*.yml' \
             --dir release-assets \
             --repo "$GITHUB_REPOSITORY"
           node scripts/verify-release-staging.mjs "$RELEASE_TAG" release-assets \
-            bisheng-work-mac-arm64.dmg bisheng-work-mac-arm64.zip \
-            bisheng-work-mac-arm64.zip.blockmap latest-mac-arm64.yml \
-            bisheng-work-mac-x64.dmg bisheng-work-mac-x64.zip \
-            bisheng-work-mac-x64.zip.blockmap latest-mac-x64.yml \
-            bisheng-work-windows-x64-setup.exe \
-            bisheng-work-windows-x64-setup.exe.blockmap latest.yml
+            bisheng-mac-arm64.dmg bisheng-mac-arm64.zip \
+            bisheng-mac-arm64.zip.blockmap latest-mac-arm64.yml \
+            bisheng-mac-x64.dmg bisheng-mac-x64.zip \
+            bisheng-mac-x64.zip.blockmap latest-mac-x64.yml \
+            bisheng-windows-x64-setup.exe \
+            bisheng-windows-x64-setup.exe.blockmap latest.yml
       - name: Merge macOS update metadata
         run: |
           set -euo pipefail
@@ -1203,7 +1203,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
           base="https://modelscope.cn/models/alexyaojin/bisheng-work/resolve/master/releases/prerelease/$RELEASE_TAG"
           echo "## Pre-release downloads" >> "$GITHUB_STEP_SUMMARY"
-          echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe) · [macOS Apple Silicon DMG]($base/bisheng-work-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-work-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Windows x64 installer]($base/bisheng-windows-x64-setup.exe) · [macOS Apple Silicon DMG]($base/bisheng-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
       - name: Build Feishu prerelease note prompt
         env:
           RELEASE_TAG: ${{ inputs.prerelease_tag }}
@@ -1309,20 +1309,20 @@ jobs:
           assets=()
           if [ "$TARGET" = "all" ] || [ "$TARGET" = "macos" ]; then
             assets+=(
-              bisheng-work-mac-arm64.dmg
-              bisheng-work-mac-arm64.zip
-              bisheng-work-mac-arm64.zip.blockmap
+              bisheng-mac-arm64.dmg
+              bisheng-mac-arm64.zip
+              bisheng-mac-arm64.zip.blockmap
               latest-mac-arm64.yml
-              bisheng-work-mac-x64.dmg
-              bisheng-work-mac-x64.zip
-              bisheng-work-mac-x64.zip.blockmap
+              bisheng-mac-x64.dmg
+              bisheng-mac-x64.zip
+              bisheng-mac-x64.zip.blockmap
               latest-mac-x64.yml
             )
           fi
           if [ "$TARGET" = "all" ] || [ "$TARGET" = "windows" ]; then
             assets+=(
-              bisheng-work-windows-x64-setup.exe
-              bisheng-work-windows-x64-setup.exe.blockmap
+              bisheng-windows-x64-setup.exe
+              bisheng-windows-x64-setup.exe.blockmap
               latest.yml
             )
           fi
@@ -1427,12 +1427,12 @@ jobs:
           echo "## Signed test downloads" >> "$GITHUB_STEP_SUMMARY"
           case "$TARGET" in
             all)
-              echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe) · [macOS Apple Silicon DMG]($base/bisheng-work-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-work-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
+              echo "[Windows x64 installer]($base/bisheng-windows-x64-setup.exe) · [macOS Apple Silicon DMG]($base/bisheng-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
               ;;
             macos)
-              echo "[macOS Apple Silicon DMG]($base/bisheng-work-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-work-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
+              echo "[macOS Apple Silicon DMG]($base/bisheng-mac-arm64.dmg) · [macOS Intel DMG]($base/bisheng-mac-x64.dmg)" >> "$GITHUB_STEP_SUMMARY"
               ;;
             windows)
-              echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe)" >> "$GITHUB_STEP_SUMMARY"
+              echo "[Windows x64 installer]($base/bisheng-windows-x64-setup.exe)" >> "$GITHUB_STEP_SUMMARY"
               ;;
           esac
