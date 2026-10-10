@@ -5,6 +5,15 @@ import { describe, expect, it } from 'vitest'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
+it('prepares the Office and PPT runtimes before focused Windows regressions', async () => {
+  const packageJson = JSON.parse(
+    await readFile(path.join(projectRoot, 'package.json'), 'utf8')
+  ) as { scripts: Record<string, string> }
+
+  expect(packageJson.scripts['pretest:windows']).toBe('npm run office:prepare && npm run ppt:build')
+  expect(packageJson.scripts['pretest:windows']).toBe(packageJson.scripts.pretest)
+})
+
 it('defaults Windows to focused regressions and makes recovery UI an explicit dispatch check', async () => {
   const yaml = createRequire(import.meta.url)('js-yaml') as {
     load: (source: string) => {
