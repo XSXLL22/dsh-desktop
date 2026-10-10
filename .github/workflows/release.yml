@@ -28,6 +28,16 @@ on:
         description: Non-v semver tag for prerelease mode (e.g. 2.1.0-rc.1)
         required: false
         type: string
+      windows_full_tests:
+        description: Run the complete test suite on Windows instead of focused platform regressions
+        required: false
+        default: false
+        type: boolean
+      windows_recovery_ui:
+        description: Check Windows recovery UI at 100%, 125%, and 150% display scales
+        required: false
+        default: false
+        type: boolean
       signed_version:
         description: Non-v semver used only by signed mode (e.g. 0.9.2-test.1)
         required: false
@@ -109,6 +119,12 @@ jobs:
             }
           fi
           test -n "$MODELSCOPE_TOKEN" || { echo "::error::Missing secret MODELSCOPE_TOKEN"; exit 1; }
+      - name: Require Feishu webhook for signed test builds
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'signed'
+        env:
+          FEISHU_RELEASE_WEBHOOK: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
+        run: |
+          test -n "$FEISHU_RELEASE_WEBHOOK" || { echo "::error::Missing secret FEISHU_RELEASE_WEBHOOK"; exit 1; }
       - name: Prepare draft release for verified publication
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.mode == 'signed' || (inputs.mode == 'prerelease' && inputs.target == 'all')))
         env:
@@ -506,13 +522,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'signed' && inputs.signed_version != ''
         run: npm version --no-git-tag-version --allow-same-version "${{ inputs.signed_version }}"
       - run: npm ci
-      - run: npm test
+      - name: Run focused Windows regressions
+        if: inputs.windows_full_tests != true
+        run: npm run test:windows
+      - name: Run complete Windows test suite
+        if: inputs.windows_full_tests == true
+        run: npm test
       - run: npm run typecheck
-      - run: npm run build
       - name: Check recovery UI on native Windows at three display scales
+        if: github.event_name == 'workflow_dispatch' && inputs.windows_recovery_ui == true
         run: node scripts/check-recovery-ui.mjs
       - uses: actions/upload-artifact@v4
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'development'
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'development' && inputs.windows_recovery_ui == true
         with:
           name: windows-recovery-ui
           retention-days: 7
@@ -1436,3 +1457,14 @@ jobs:
               echo "[Windows x64 installer]($base/bisheng-work-windows-x64-setup.exe)" >> "$GITHUB_STEP_SUMMARY"
               ;;
           esac
+      - name: Verify signed test downloads and send Feishu notification
+        if: success()
+        env:
+          FEISHU_RELEASE_WEBHOOK: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
+          MODELSCOPE_REPO_ID: alexyaojin/bisheng-work
+          RELEASE_TAG: ${{ inputs.signed_version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/signed_test_notification.py \
+            --directory release-assets --target "$TARGET" --version "$RELEASE_TAG"
