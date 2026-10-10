@@ -5,6 +5,36 @@ import { describe, expect, it } from 'vitest'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
+it('defaults Windows to focused regressions and makes recovery UI an explicit dispatch check', async () => {
+  const yaml = createRequire(import.meta.url)('js-yaml') as {
+    load: (source: string) => {
+      on: { workflow_dispatch: { inputs: Record<string, { default: boolean }> } }
+      jobs: Record<string, { steps: Array<{ name?: string; if?: string; run?: string }> }>
+    }
+  }
+  const workflow = yaml.load(await readFile(path.join(projectRoot, '.github/workflows/release.yml'), 'utf8'))
+  const steps = workflow.jobs['windows-x64']?.steps ?? []
+  const focused = steps.find(step => step.name === 'Run focused Windows regressions')
+  const complete = steps.find(step => step.name === 'Run complete Windows test suite')
+  const recovery = steps.find(step => step.name === 'Check recovery UI on native Windows at three display scales')
+  expect(focused?.run).toBe('npm run test:windows')
+  expect(complete?.run).toBe('npm test')
+  expect(steps.some(step => step.run === 'npm run build')).toBe(false)
+  expect(workflow.on.workflow_dispatch.inputs.windows_full_tests?.default).toBe(false)
+  expect(workflow.on.workflow_dispatch.inputs.windows_recovery_ui?.default).toBe(false)
+  const evaluate = (expression: string | undefined, event: string, inputs: Record<string, boolean>) =>
+    new Function('github', 'inputs', `return (${expression})`)({ event_name: event }, inputs) as boolean
+  for (const event of ['push', 'workflow_dispatch']) {
+    expect(evaluate(focused?.if, event, {})).toBe(true)
+    expect(evaluate(complete?.if, event, {})).toBe(false)
+    expect(evaluate(recovery?.if, event, {})).toBe(false)
+  }
+  expect(evaluate(focused?.if, 'workflow_dispatch', { windows_full_tests: true })).toBe(false)
+  expect(evaluate(complete?.if, 'workflow_dispatch', { windows_full_tests: true })).toBe(true)
+  expect(evaluate(recovery?.if, 'workflow_dispatch', { windows_recovery_ui: true })).toBe(true)
+  expect(evaluate(recovery?.if, 'push', { windows_recovery_ui: true })).toBe(false)
+})
+
 it('builds Windows only for release tags or an explicit manual platform selection', async () => {
   const yaml = createRequire(import.meta.url)('js-yaml') as {
     load: (source: string) => {

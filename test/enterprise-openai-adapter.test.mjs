@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import {
   ALLOWED_ATTRIBUTION_HEADERS,
   EnterpriseLlmAdapter,
@@ -34,6 +34,81 @@ async function usageFrom(payload) {
 }
 
 describe('BiSheng OpenAI adapter', () => {
+  it.each([
+    { text: 'result', isError: false, expected: 'result' },
+    { text: 'lookup failed', isError: true, expected: 'lookup failed' },
+    { text: '', isError: false, expected: '(no output)' }
+  ])('serializes Harness tool-role messages with their call ID: $expected', ({ text, isError, expected }) => {
+    const request = serializeEnterpriseRequest({
+      model: model.id,
+      messages: [
+        { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'lookup', arguments: '{}' }] },
+        createToolResultMessage({
+          callId: ToolCallId('call-1'),
+          content: text ? [{ type: 'text', text }] : [],
+          isError
+        })
+      ]
+    }, model)
+    expect(request.messages).toEqual([
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'call-1', content: expected }
+    ])
+  })
+
+  it('preserves parallel tool results through a complete adapter round trip', async () => {
+    const requests = []
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng',
+      models: () => [model],
+      request: async (body) => {
+        requests.push(body)
+        const first = requests.length === 1
+        if (!first) {
+          expect(body.messages.slice(2)).toEqual([
+            { role: 'tool', tool_call_id: 'call-1', content: 'first result' },
+            { role: 'tool', tool_call_id: 'call-2', content: 'second result' }
+          ])
+        }
+        const delta = first ? { tool_calls: [
+          { index: 0, id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"q":"first"}' } },
+          { index: 1, id: 'call-2', type: 'function', function: { name: 'lookup', arguments: '{"q":"second"}' } }
+        ] } : { content: 'completed' }
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: first ? 'tool_calls' : 'stop' }] })}\n\n`,
+          'data: [DONE]\n\n'
+        ].join(''), { headers: { 'content-type': 'text/event-stream' } })
+      }
+    })
+    const options = {
+      provider: 'bisheng-enterprise', model: model.id,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'look up both' }] }],
+      tools: [{ name: 'lookup', description: 'Lookup', parameters: { type: 'object' } }]
+    }
+    const firstChunks = []
+    for await (const chunk of adapter.stream(options)) firstChunks.push(chunk)
+    const calls = firstChunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block)
+    expect(calls).toHaveLength(2)
+    expect(firstChunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'tool-calls' } })
+    const chunks = []
+    for await (const chunk of adapter.stream({
+      ...options,
+      messages: [
+        ...options.messages,
+        { role: 'assistant', content: calls },
+        ...calls.map((call, index) => createToolResultMessage({
+          callId: call.id,
+          content: [{ type: 'text', text: index === 0 ? 'first result' : 'second result' }],
+          isError: false
+        }))
+      ]
+    })) chunks.push(chunk)
+    expect(requests).toHaveLength(2)
+    expect(chunks).toContainEqual({ type: 'text-delta', index: 0, text: 'completed' })
+    expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'stop' } })
+  })
+
   it('copies only the known attribution header keys', () => {
     const headers = attributionHeaders()
     expect(Object.keys(headers).map((key) => key.toLowerCase()).sort()).toEqual([...ALLOWED_ATTRIBUTION_HEADERS])

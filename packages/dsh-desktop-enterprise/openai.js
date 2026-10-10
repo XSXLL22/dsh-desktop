@@ -65,6 +65,15 @@ export function serializeEnterpriseRequest(options, model, images = new Map()) {
       messages.push(assistantMessage(message, model.capabilities.reasoning_content))
       continue
     }
+    // Harness carries tool results as messages; the call ID belongs to the message.
+    if (message.role === 'tool') {
+      messages.push({
+        role: 'tool',
+        tool_call_id: message.toolCallId,
+        content: textContent(message.content) || '(no output)'
+      })
+      continue
+    }
     const regularText = textContent(message.content)
     const toolResults = message.content.filter((block) => block.type === 'tool-result')
     const parts = message.content.filter(block => block.type === 'text' || block.type === 'image')

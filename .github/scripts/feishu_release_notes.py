@@ -487,6 +487,9 @@ def send_feishu_notification(
     release_notes: str,
     prerelease: bool = False,
     test_build: bool = False,
+    *,
+    signed_test: bool = False,
+    download_links: str | None = None,
 ) -> None:
     card_title = (
         f"🧪 BISHENG {release_tag} 测试打包完成"
@@ -496,6 +499,9 @@ def send_feishu_notification(
         else f"✅ BISHENG {release_tag} 发布成功"
     )
     card_template = "orange" if prerelease or test_build else "green"
+    if signed_test:
+        card_title = f"BISHENG {release_tag} 测试打包完成"
+        card_template = "orange"
     payload = {
         "msg_type": "interactive",
         "card": {
@@ -516,7 +522,7 @@ def send_feishu_notification(
                     "tag": "div",
                     "text": {
                         "tag": "lark_md",
-                        "content": modelscope_download_links(release_tag, prerelease),
+                        "content": download_links if download_links is not None else modelscope_download_links(release_tag, prerelease),
                     },
                 },
             ],
