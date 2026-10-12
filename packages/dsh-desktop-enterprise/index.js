@@ -1,3 +1,4 @@
+import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
 import {
   isInsecurePrivateHttpOrigin,
@@ -267,7 +268,7 @@ function startEnterpriseLlm(ctx, llm) {
     models: () => modelsAvailable ? models : [],
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
-      maxPixels: 4_194_304,
+      ...requestImageDimensions(ref.width, ref.height, 4_194_304),
       maxBytes: 5 * 1024 * 1024
     }, signal)
   })
