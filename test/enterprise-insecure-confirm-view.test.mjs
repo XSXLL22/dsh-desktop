@@ -39,12 +39,29 @@ function connectedAccount() {
   }
 }
 
-async function mountEnterprise(initial) {
+async function mountEnterprise(initial, hooks = {}) {
   const dom = new JSDOM('<html lang="zh-CN"><div id="root"></div></html>', { url: 'http://localhost/' })
   vi.stubGlobal('window', dom.window)
   vi.stubGlobal('document', dom.window.document)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   dom.window.open = () => null
+  const capturedTimers = []
+  if (hooks.captureTimers) {
+    const nativeSetTimeout = dom.window.setTimeout.bind(dom.window)
+    const nativeClearTimeout = dom.window.clearTimeout.bind(dom.window)
+    dom.window.setTimeout = (fn, ms = 0, ...args) => {
+      if (ms < 1_000) return nativeSetTimeout(fn, ms, ...args)
+      const record = { fn, ms, cleared: false, id: 0 }
+      record.id = nativeSetTimeout(() => undefined, 0)
+      capturedTimers.push(record)
+      return record.id
+    }
+    dom.window.clearTimeout = (id) => {
+      const record = capturedTimers.find((item) => item.id === id)
+      if (record) record.cleared = true
+      nativeClearTimeout(id)
+    }
+  }
   let account = initial
   const requests = []
   const loginListeners = new Set()
@@ -126,7 +143,13 @@ async function mountEnterprise(initial) {
       for (const listener of loginListeners) listener(url)
     })
   }
-  return { text, click, requests, deliverLoginLink }
+  const flushTimer = async (ms) => {
+    const record = capturedTimers.find((item) => item.ms === ms && !item.cleared)
+    expect(record, `timer ${ms}`).toBeTruthy()
+    record.cleared = true
+    await act(async () => record.fn())
+  }
+  return { text, click, requests, deliverLoginLink, flushTimer, document: dom.window.document }
 }
 
 it('drops the trusted-source prompt after sign-in and shows it again only on the next browser login', async () => {
@@ -172,4 +195,29 @@ it('ignores a same-origin login link while browser sign-in is already in progres
   expect(requests.some(item => item.path === '/api/enterprise.deep-link.inspect')).toBe(true)
   expect(text()).not.toContain('确认为可信来源')
   expect(text()).not.toContain('确认毕昇平台')
+})
+
+it('shows a pending spinner without blocking the one-time code', async () => {
+  const { document: page, flushTimer, requests } = await mountEnterprise({
+    ...idleAccount(),
+    phase: 'authorizing',
+    loginExpiresAt: new Date(Date.now() + 60_000).toISOString()
+  }, { captureTimers: true })
+  await flushTimer(8_000)
+  const code = page.querySelector('input[autocomplete="one-time-code"]')
+  expect(code.disabled).toBe(false)
+  expect(page.querySelector('button[aria-label="刷新状态"]')).toBeNull()
+  const pending = page.querySelector('.dshEnterprisePending')
+  expect(pending?.getAttribute('role')).toBe('status')
+  expect(pending?.querySelector('.dshEnterprisePendingSpinner')).toBeTruthy()
+  expect(page.getElementById('root').textContent).toContain('重新登录')
+  expect(page.getElementById('root').textContent).toContain('等待浏览器授权…')
+
+  await act(async () => {
+    const propsKey = Object.keys(code).find((key) => key.startsWith('__reactProps'))
+    code[propsKey].onChange({ target: { value: 'ticket-1' } })
+  })
+  const submit = [...page.querySelectorAll('button')].find((item) => item.textContent === '完成登录')
+  expect(submit.disabled).toBe(false)
+  expect(requests.some((item) => item.path === '/api/enterprise.state')).toBe(true)
 })
