@@ -150,6 +150,7 @@ export class EnterpriseService {
   private requestId: string | undefined
   private pendingLogin: PendingLogin | undefined
   private modelsTimer: NodeJS.Timeout | undefined
+  private loginExpiryTimer: NodeJS.Timeout | undefined
   private modelsAttempt = 0
   private lastPublicSignature = ''
   private chatInFlight = 0
@@ -161,6 +162,11 @@ export class EnterpriseService {
     if (!options.vault.available) {
       this.error = options.vault.unavailableReason ?? 'Operating-system secure storage is unavailable.'
     }
+  }
+
+  async readState(): Promise<EnterprisePublicState> {
+    await this.expirePendingLoginIfDue()
+    return this.snapshot()
   }
 
   snapshot(): EnterprisePublicState {
@@ -272,6 +278,9 @@ export class EnterpriseService {
         timeoutMs: ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS,
         onAccepted: (result) => {
           void this.completeLogin(loginEpoch, result)
+        },
+        onExpired: () => {
+          void this.expirePendingLoginIfDue()
         }
       })
       try {
@@ -294,15 +303,19 @@ export class EnterpriseService {
           base
         )
         expectedAuthId = authorization.auth_id
+        const lifetimeMs = Math.min(authorization.expires_in * 1000, ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS)
+        const expiresAt = this.now() + lifetimeMs
+        callback.alignTimeout(lifetimeMs)
         this.pendingLogin = {
           epoch: loginEpoch,
           base,
           codeVerifier: pkce.codeVerifier,
           state: pkce.state,
           authId: authorization.auth_id,
-          expiresAt: this.now() + ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS,
+          expiresAt,
           callback
         }
+        this.scheduleLoginExpiry(loginEpoch)
         this.phase = 'authorizing'
         this.session = this.session ? { ...this.session, base } : { base }
         this.clearError()
@@ -314,6 +327,7 @@ export class EnterpriseService {
           base
         }
       } catch (error) {
+        this.clearLoginExpiryTimer()
         await callback.close()
         if (this.epoch === loginEpoch) this.pendingLogin = undefined
         this.rememberRequest(error)
@@ -417,6 +431,7 @@ export class EnterpriseService {
   private async completeLoginLocked(expectedEpoch: number, result: LoginCallbackAccepted): Promise<void> {
     const pending = this.pendingLogin
     if (!pending || pending.epoch !== expectedEpoch || this.epoch !== expectedEpoch) return
+    this.clearLoginExpiryTimer()
     this.pendingLogin = undefined
     await pending.callback.close().catch(() => undefined)
     if (result.error || !result.identityTicket) {
@@ -978,9 +993,41 @@ export class EnterpriseService {
   }
 
   private async cancelPendingLogin(): Promise<void> {
+    this.clearLoginExpiryTimer()
     const pending = this.pendingLogin
     this.pendingLogin = undefined
     if (pending) await pending.callback.close()
+  }
+
+  private scheduleLoginExpiry(epoch: number): void {
+    this.clearLoginExpiryTimer()
+    const pending = this.pendingLogin
+    if (!pending || pending.epoch !== epoch) return
+    const delay = Math.max(0, pending.expiresAt - this.now())
+    this.loginExpiryTimer = setTimeout(() => {
+      void this.expirePendingLoginIfDue()
+    }, delay)
+    this.loginExpiryTimer.unref?.()
+  }
+
+  private clearLoginExpiryTimer(): void {
+    if (this.loginExpiryTimer) clearTimeout(this.loginExpiryTimer)
+    this.loginExpiryTimer = undefined
+  }
+
+  private async expirePendingLoginIfDue(): Promise<void> {
+    const pending = this.pendingLogin
+    if (!pending || this.phase !== 'authorizing' || pending.expiresAt > this.now()) return
+    const epoch = pending.epoch
+    await this.enqueueMutation(async () => {
+      const current = this.pendingLogin
+      if (!current || current.epoch !== epoch || this.phase !== 'authorizing' || current.expiresAt > this.now()) return
+      await this.completeLoginLocked(epoch, {
+        authId: current.authId ?? '',
+        state: current.state,
+        error: 'authorization_expired'
+      })
+    })
   }
 
   private scheduleModels(delayMs: number): void {

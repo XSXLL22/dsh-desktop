@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
       accountLabel: '当前账号',
       platform: '企业服务地址',
       login: '在浏览器中登录',
+      loginAgain: '重新登录',
       loggingIn: '等待浏览器授权…',
       learnMore: '了解企业版',
       vision: '视觉',
@@ -76,6 +77,7 @@ window.__ModuleLoader__.load({
       accountLabel: 'Current account',
       platform: 'Enterprise service URL',
       login: 'Sign in in browser',
+      loginAgain: 'Sign in again',
       loggingIn: 'Waiting for browser authorization…',
       learnMore: 'Learn about Enterprise',
       vision: 'Vision',
@@ -308,6 +310,25 @@ window.__ModuleLoader__.load({
         .dshEnterpriseIconButton:hover {
           color: var(--dsw-alias-label-primary);
           background: var(--dsw-alias-interactive-bg-hover);
+        }
+        .dshEnterprisePending {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 14px;
+        }
+        .dshEnterprisePendingSpinner {
+          display: inline-block;
+          font: 18px/1 system-ui;
+          animation: dshEnterprisePendingSpin .8s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dshEnterprisePendingSpinner {
+            animation: none;
+          }
+        }
+        @keyframes dshEnterprisePendingSpin {
+          to { transform: rotate(360deg); }
         }
         .dshEnterpriseModels {
           display: grid;
@@ -978,22 +999,28 @@ window.__ModuleLoader__.load({
             })),
           state?.secureStorageAvailable === false
             ? h('p', { className: 'dshEnterpriseError' }, t('secureUnavailable'))
-            : h('div', { className: 'dshEnterpriseActions' },
-              h('button', {
-                className: 'dshEnterpriseButton login',
-                disabled: busy || !base.trim(),
-                onClick: () => run(async () => {
-                  rememberBase(base)
-                  const inspected = await api('/api/enterprise.base.inspect', { base })
-                  if (inspected.insecurePrivateHttp) {
-                    setConfirmation({ base: inspected.base, insecurePrivateHttp: true })
-                    return
-                  }
-                  const result = await api('/api/enterprise.login.start', { base: inspected.base })
-                  openAuthorization(result)
-                  await refreshState()
-                })
-              }, state?.phase === 'authorizing' ? t('loggingIn') : t('login'))))
+            : h(React.Fragment, null,
+              state?.phase === 'authorizing'
+                ? h('div', { className: 'dshEnterprisePending', role: 'status', 'aria-live': 'polite' },
+                  h('span', null, t('loggingIn')),
+                  h('span', { className: 'dshEnterprisePendingSpinner', 'aria-hidden': 'true' }, '↻'))
+                : null,
+              h('div', { className: 'dshEnterpriseActions' },
+                h('button', {
+                  className: 'dshEnterpriseButton login',
+                  disabled: busy || !base.trim(),
+                  onClick: () => run(async () => {
+                    rememberBase(base)
+                    const inspected = await api('/api/enterprise.base.inspect', { base })
+                    if (inspected.insecurePrivateHttp) {
+                      setConfirmation({ base: inspected.base, insecurePrivateHttp: true })
+                      return
+                    }
+                    const result = await api('/api/enterprise.login.start', { base: inspected.base })
+                    openAuthorization(result)
+                    await refreshState()
+                  })
+                }, state?.phase === 'authorizing' ? t('loginAgain') : t('login')))))
 
       const manualFallback = !connected && manualFallbackReady
         ? h('div', { className: 'dshEnterpriseManual' },

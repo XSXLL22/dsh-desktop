@@ -88,7 +88,7 @@ export async function startEnterpriseCredentialBroker(
     }
     try {
       if (path === '/v1/state') {
-        sendJson(response, 200, service.snapshot())
+        sendJson(response, 200, await service.readState())
         return
       }
       if (path === '/v1/chat') {
