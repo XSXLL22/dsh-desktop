@@ -1,5 +1,5 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
-index f997683..ba35b32 100644
+index f997683..9d05c6e 100644
 --- a/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js
 @@ -115,6 +115,22 @@ window.__ModuleLoader__.load({
@@ -42,7 +42,7 @@ index f997683..ba35b32 100644
  			"fileContent": "Sixlwa_fileContent",
  			"fileIcon": "Sixlwa_fileIcon",
  			"fileMeta": "Sixlwa_fileMeta",
-@@ -1216,10 +1233,33 @@ window.__ModuleLoader__.load({
+@@ -1216,10 +1233,66 @@ window.__ModuleLoader__.load({
  		function retrySeconds(milliseconds) {
  			return Math.max(1, Math.ceil(milliseconds / 1e3));
  		}
@@ -58,9 +58,42 @@ index f997683..ba35b32 100644
 +				case "invalid_request": return "message.failure.invalidRequest";
 +				case "unsupported_parameter": return "message.failure.unsupportedParameter";
 +				case "authorization_unavailable": return "message.failure.authorizationUnavailable";
++				case "internal_error": return "message.failure.internalError";
++				case "invalid_access_token": return "message.failure.invalidAccessToken";
++				case "session_expired": return "message.failure.sessionExpired";
++				case "session_revoked": return "message.failure.sessionRevoked";
++				case "seat_revoked": return "message.failure.seatRevoked";
++				case "dsh_disabled": return "message.failure.dshDisabled";
++				case "user_disabled": return "message.failure.userDisabled";
++				case "tenant_unavailable": return "message.failure.tenantUnavailable";
++				case "STREAM_CLOSED": return "message.failure.streamClosed";
++				case "EMPTY_RESPONSE": return "message.failure.emptyResponse";
++				case "UNKNOWN_MODEL": return "message.failure.unknownModel";
++				case "INVALID_RESPONSE": return "message.failure.invalidResponse";
++				case "enterprise_models_unavailable": return "message.failure.enterpriseModelsUnavailable";
++				case "enterprise_session_changed": return "message.failure.enterpriseSessionChanged";
++				case "enterprise_chat_busy": return "message.failure.enterpriseChatBusy";
 +				case "NO_ADAPTER": return "message.failure.noAdapter";
 +				default: return void 0;
 +			}
++		}
++		function unsupportedFailureKey(message, code) {
++			if (code === "UNSUPPORTED_CONTENT") {
++				switch (message) {
++					case "Image input is unavailable for this model or message role.": return "message.failure.unsupportedImageInput";
++					case "Image attachment is unavailable.": return "message.failure.unsupportedImageAttachment";
++					case "Use at most ten images per request.": return "message.failure.unsupportedImageCount";
++					case "Image request exceeds the size limit.": return "message.failure.unsupportedImageSize";
++					default: return void 0;
++				}
++			}
++			if (code === "UNSUPPORTED_OPTION" && typeof message === "string" && message.includes("does not support tools")) {
++				return "message.failure.unsupportedTools";
++			}
++			return void 0;
++		}
++		function localizedFailureKey(message, code) {
++			return unsupportedFailureKey(message, code) ?? platformFailureKey(code);
 +		}
 +		function bishengContextWindowFailure(message, code) {
 +			return code === "CONTEXT_WINDOW_EXCEEDED" && message === "Model context length exceeded";
@@ -71,21 +104,21 @@ index f997683..ba35b32 100644
  			if (code === "QUOTA" || code === "ACCOUNT_QUOTA") return t("message.failure.quota");
 +			if (code === "FORBIDDEN") return t("message.failure.forbidden");
 +			if (bishengContextWindowFailure(message, code)) return t("message.failure.contextLength");
-+			const platformKey = platformFailureKey(code);
++			const platformKey = localizedFailureKey(message, code);
 +			if (platformKey) return t(platformKey);
  			return code === "AUTH" ? t("message.failure.auth") : message;
  		}
  		function ModelRetryItem({ node, active, t }) {
-@@ -1301,7 +1341,7 @@ window.__ModuleLoader__.load({
+@@ -1301,7 +1374,7 @@ window.__ModuleLoader__.load({
  							children: failureMessage(node.message, node.code, t)
  						})]
  					}),
 -					node.code !== void 0 && (0, react_jsx_runtime.jsx)("code", {
-+					platformFailureKey(node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0 && (0, react_jsx_runtime.jsx)("code", {
++					localizedFailureKey(node.message, node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0 && (0, react_jsx_runtime.jsx)("code", {
  						className: MessageItem_module_css_default.turnErrorCode,
  						children: node.code
  					})
-@@ -1329,12 +1369,13 @@ window.__ModuleLoader__.load({
+@@ -1329,12 +1402,13 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** Right-aligned bubble shared by user and steering rows. */
@@ -101,7 +134,7 @@ index f997683..ba35b32 100644
  			return (0, react_jsx_runtime.jsxs)("div", {
  				className: MessageItem_module_css_default.userRow,
  				"data-pending-steering": pending || void 0,
-@@ -1349,9 +1390,13 @@ window.__ModuleLoader__.load({
+@@ -1349,9 +1423,13 @@ window.__ModuleLoader__.load({
  								images: [attachment.image],
  								align: "end",
  								compact: compactImages
@@ -117,7 +150,7 @@ index f997683..ba35b32 100644
  								children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.FileTypeIcon, {
  									path: attachment.file.name,
  									className: MessageItem_module_css_default.fileIcon
-@@ -1369,11 +1414,11 @@ window.__ModuleLoader__.load({
+@@ -1369,11 +1447,11 @@ window.__ModuleLoader__.load({
  						}),
  						showBubble && (0, react_jsx_runtime.jsxs)("div", {
  							className: MessageItem_module_css_default.bubble,
@@ -131,7 +164,7 @@ index f997683..ba35b32 100644
  						}),
  						referenceLabels.length > 0 && (0, react_jsx_runtime.jsx)("div", {
  							className: MessageItem_module_css_default.referenceSummary,
-@@ -1411,7 +1456,7 @@ window.__ModuleLoader__.load({
+@@ -1411,7 +1489,7 @@ window.__ModuleLoader__.load({
  		* @param props - the session snapshot's pending submission and render seats.
  		* @returns the echoed user bubble.
  		*/
@@ -140,7 +173,7 @@ index f997683..ba35b32 100644
  			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
  				content: (0, react.useMemo)(() => submission.text === "" ? [] : [{
  					type: "text",
-@@ -1430,6 +1475,8 @@ window.__ModuleLoader__.load({
+@@ -1430,6 +1508,8 @@ window.__ModuleLoader__.load({
  					file: attachment.value
  				}), [submission.attachments]),
  				renderMessageImages,
@@ -149,7 +182,7 @@ index f997683..ba35b32 100644
  				pending: submission.placement === "steering",
  				echo: true,
  				t,
-@@ -1443,7 +1490,7 @@ window.__ModuleLoader__.load({
+@@ -1443,7 +1523,7 @@ window.__ModuleLoader__.load({
  			});
  		}
  		/** User and admitted-steering keyed Chat renderer. */
@@ -158,7 +191,7 @@ index f997683..ba35b32 100644
  			const data = node.data;
  			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
  				content: data.content,
-@@ -1452,6 +1499,8 @@ window.__ModuleLoader__.load({
+@@ -1452,6 +1532,8 @@ window.__ModuleLoader__.load({
  					openSkill
  				},
  				renderMessageImages,
@@ -167,7 +200,7 @@ index f997683..ba35b32 100644
  				...data.referenceLabels === void 0 ? {} : { referenceLabels: data.referenceLabels },
  				...data.skillNames === void 0 ? {} : { skillNames: data.skillNames },
  				t,
-@@ -1665,7 +1714,7 @@ window.__ModuleLoader__.load({
+@@ -1665,7 +1747,7 @@ window.__ModuleLoader__.load({
  		* Policy reads select this seat's own conclusion, so a mode change re-renders
  		* only seats whose visibility actually changes.
  		*/
@@ -176,7 +209,7 @@ index f997683..ba35b32 100644
  			const node = useChatNode(nodeKey);
  			const routedNode = node;
  			const turn = turnOf$1(routedNode);
-@@ -1729,24 +1778,30 @@ window.__ModuleLoader__.load({
+@@ -1729,24 +1811,30 @@ window.__ModuleLoader__.load({
  				cwd,
  				openFile,
  				openSkill,
@@ -209,7 +242,7 @@ index f997683..ba35b32 100644
  			]);
  			if (routedNode === void 0 || owner === null) return null;
  			const routedOwner = {
-@@ -5072,6 +5127,28 @@ window.__ModuleLoader__.load({
+@@ -5072,6 +5160,28 @@ window.__ModuleLoader__.load({
  		* The last input's Turn also distinguishes an empty opening control from
  		* one whose human input or trigger notice is already present.
  		*/
@@ -238,7 +271,7 @@ index f997683..ba35b32 100644
  		function observedInputs(order, nodes) {
  			const observed = /* @__PURE__ */ new Set();
  			let lastInputTurn;
-@@ -5088,13 +5165,15 @@ window.__ModuleLoader__.load({
+@@ -5088,13 +5198,15 @@ window.__ModuleLoader__.load({
  				lastInputTurn
  			};
  		}
@@ -255,7 +288,7 @@ index f997683..ba35b32 100644
  						...entry.groupPart === void 0 ? {} : { groupPart: entry.groupPart }
  					});
  					case "group": return (0, react.createElement)(ChatGroupSeat, {
-@@ -5108,7 +5187,9 @@ window.__ModuleLoader__.load({
+@@ -5108,7 +5220,9 @@ window.__ModuleLoader__.load({
  			});
  			const pendingRows = pendingInputs.map((item) => "requestId" in item ? (0, react_jsx_runtime.jsx)(PendingSubmissionBubble, {
  				submission: item,
@@ -265,7 +298,7 @@ index f997683..ba35b32 100644
  				t: seatProps.t
  			}, item.requestId) : (0, react_jsx_runtime.jsx)(PendingSteeringBubble, {
  				content: item.content,
-@@ -5127,7 +5208,7 @@ window.__ModuleLoader__.load({
+@@ -5127,7 +5241,7 @@ window.__ModuleLoader__.load({
  		* The chat view slot entry: pure component over the composed props; each
  		* ordered business Node crosses the keyed renderer seat.
  		*/
@@ -274,7 +307,7 @@ index f997683..ba35b32 100644
  			const order = useChat((s) => s.order);
  			const groupedEntries = useConversation((snapshot) => snapshot.views.grouped("chat")?.entries);
  			const entries = (0, react.useMemo)(() => groupedEntries ?? order.map((key) => ({
-@@ -5174,11 +5255,29 @@ window.__ModuleLoader__.load({
+@@ -5174,11 +5288,29 @@ window.__ModuleLoader__.load({
  					if (id !== fileOpenRequest.current) return;
  					setFileOpenError({
  						path,
@@ -304,7 +337,7 @@ index f997683..ba35b32 100644
  			const closeFileOpenError = (0, react.useCallback)(() => {
  				fileOpenRequest.current += 1;
  				setFileOpenError(null);
-@@ -5211,6 +5310,8 @@ window.__ModuleLoader__.load({
+@@ -5211,6 +5343,8 @@ window.__ModuleLoader__.load({
  				pendingSubmissions,
  				visibleSubmissions
  			]);
@@ -313,7 +346,7 @@ index f997683..ba35b32 100644
  			const renderMessageImages = (0, react.useCallback)((owner) => renderSlot("conversation.message.images", {
  				...owner,
  				loadImage
-@@ -5281,10 +5382,13 @@ window.__ModuleLoader__.load({
+@@ -5281,10 +5415,13 @@ window.__ModuleLoader__.load({
  										openExternalLink,
  										openFile: requestOpenFile,
  										fileImages,
@@ -328,7 +361,7 @@ index f997683..ba35b32 100644
  											nodeStore,
  											useChatGroup,
  											useChatNode,
-@@ -5301,6 +5405,7 @@ window.__ModuleLoader__.load({
+@@ -5301,6 +5438,7 @@ window.__ModuleLoader__.load({
  											renderMessageImages,
  											fileMentions,
  											renderSlot,
@@ -336,7 +369,7 @@ index f997683..ba35b32 100644
  											t
  										})
  									}),
-@@ -5327,7 +5432,7 @@ window.__ModuleLoader__.load({
+@@ -5327,7 +5465,7 @@ window.__ModuleLoader__.load({
  						busy: fileOpenBusy,
  						onClose: closeFileOpenError,
  						onRetry: () => {
@@ -345,7 +378,7 @@ index f997683..ba35b32 100644
  						},
  						t
  					})
-@@ -5522,7 +5627,19 @@ window.__ModuleLoader__.load({
+@@ -5522,7 +5660,39 @@ window.__ModuleLoader__.load({
  			"message.accountStopped": "任务已停止",
  			"message.failure.accountSignedOut": "任务已因退出 DeepSeek 登录而停止。",
  			"message.failure.accountSignInRequired": "请先登录 DeepSeek，并确认请求地址支持账号认证。",
@@ -362,11 +395,31 @@ index f997683..ba35b32 100644
 +			"message.failure.invalidRequest": "请求参数不正确，请检查后重试。",
 +			"message.failure.unsupportedParameter": "当前模型不支持此参数，请调整模型设置。",
 +			"message.failure.authorizationUnavailable": "平台授权服务暂不可用，请稍后重试。",
++			"message.failure.internalError": "平台服务异常，请稍后重试或联系管理员。",
++			"message.failure.invalidAccessToken": "登录凭证已失效，请重新登录。",
++			"message.failure.sessionExpired": "登录会话已过期，请重新登录。",
++			"message.failure.sessionRevoked": "本次登录会话已失效，请重新登录。",
++			"message.failure.seatRevoked": "你的客户端使用授权已失效，请联系管理员确认席位，重新授权后再登录。",
++			"message.failure.dshDisabled": "管理员已关闭客户端功能，请联系管理员。",
++			"message.failure.userDisabled": "当前账号不可用，请联系管理员。",
++			"message.failure.tenantUnavailable": "账号所属组织暂不可用，请联系管理员。",
++			"message.failure.streamClosed": "连接中断，回答可能不完整，请手动重试。",
++			"message.failure.emptyResponse": "模型未返回内容，请手动重试或联系管理员。",
++			"message.failure.unknownModel": "当前模型不在已授权列表中，请刷新模型列表后重选。",
++			"message.failure.invalidResponse": "平台响应异常，请检查服务地址或联系管理员。",
++			"message.failure.enterpriseModelsUnavailable": "企业模型暂不可用。",
++			"message.failure.enterpriseSessionChanged": "登录状态已变更，请刷新后重试。",
++			"message.failure.enterpriseChatBusy": "当前进行中的企业对话过多，请稍后重试。",
++			"message.failure.unsupportedImageInput": "当前模型或消息不支持图片输入，请改为文字或更换支持视觉的模型。",
++			"message.failure.unsupportedImageAttachment": "图片附件无法读取，请重新添加后再试。",
++			"message.failure.unsupportedImageCount": "单次请求最多 10 张图片，请减少后重试。",
++			"message.failure.unsupportedImageSize": "图片超出大小限制，请缩小后再试。",
++			"message.failure.unsupportedTools": "当前模型不支持工具调用，请关闭工具或更换模型。",
 +			"message.failure.noAdapter": "当前模型服务尚未就绪，请确认账号已连接后再试。",
  			"message.turnError": "本轮运行失败",
  			"message.maxTokens": "已达到输出 token 上限",
  			"message.maxTokens.hint": "回答被截断，已有输出保留在对话中。发送“继续”可让模型接着输出。",
-@@ -5711,7 +5828,19 @@ window.__ModuleLoader__.load({
+@@ -5711,7 +5881,39 @@ window.__ModuleLoader__.load({
  			"message.accountStopped": "Task stopped",
  			"message.failure.accountSignedOut": "Stopped because you signed out of DeepSeek.",
  			"message.failure.accountSignInRequired": "Sign in to DeepSeek and ensure the request destination supports account authentication.",
@@ -383,11 +436,31 @@ index f997683..ba35b32 100644
 +			"message.failure.invalidRequest": "The request parameters are invalid. Check them and try again.",
 +			"message.failure.unsupportedParameter": "This model does not support this parameter. Adjust the model settings.",
 +			"message.failure.authorizationUnavailable": "The authorization service is temporarily unavailable. Try again later.",
++			"message.failure.internalError": "The platform service failed. Try again later or contact an administrator.",
++			"message.failure.invalidAccessToken": "Your sign-in credential is no longer valid. Sign in again.",
++			"message.failure.sessionExpired": "Your sign-in session has expired. Sign in again.",
++			"message.failure.sessionRevoked": "This sign-in session is no longer valid. Sign in again.",
++			"message.failure.seatRevoked": "Your client access is no longer valid. Ask your administrator to confirm the seat, then sign in again after it is authorized.",
++			"message.failure.dshDisabled": "An administrator has turned off the client. Contact your administrator.",
++			"message.failure.userDisabled": "This account is unavailable. Contact your administrator.",
++			"message.failure.tenantUnavailable": "Your organization is temporarily unavailable. Contact your administrator.",
++			"message.failure.streamClosed": "The connection closed early and the answer may be incomplete. Try again manually.",
++			"message.failure.emptyResponse": "The model returned no content. Try again manually or contact an administrator.",
++			"message.failure.unknownModel": "This model is not in the authorized list. Refresh the model list and choose again.",
++			"message.failure.invalidResponse": "The platform returned an unexpected response. Check the service address or contact your administrator.",
++			"message.failure.enterpriseModelsUnavailable": "Enterprise models are unavailable.",
++			"message.failure.enterpriseSessionChanged": "The sign-in state changed. Refresh and try again.",
++			"message.failure.enterpriseChatBusy": "Too many enterprise chats are in progress. Try again later.",
++			"message.failure.unsupportedImageInput": "This model or message does not support image input. Use text or switch to a vision model.",
++			"message.failure.unsupportedImageAttachment": "The image attachment could not be read. Add it again and retry.",
++			"message.failure.unsupportedImageCount": "Use at most ten images per request.",
++			"message.failure.unsupportedImageSize": "The image exceeds the size limit. Reduce it and try again.",
++			"message.failure.unsupportedTools": "This model does not support tools. Turn tools off or switch models.",
 +			"message.failure.noAdapter": "This model service is not ready. Confirm the account is connected, then try again.",
  			"message.turnError": "This turn failed",
  			"message.maxTokens": "Output token limit reached",
  			"message.maxTokens.hint": "The reply was cut off; earlier output is preserved in the conversation. Send \"continue\" to let the model resume.",
-@@ -12265,7 +12394,8 @@ window.__ModuleLoader__.load({
+@@ -12265,7 +12467,8 @@ window.__ModuleLoader__.load({
  			"configForms",
  			"remote",
  			"remote.session",
@@ -397,7 +470,7 @@ index f997683..ba35b32 100644
  		];
  		/**
  		* Mount all Chat-owned contributions.
-@@ -12355,6 +12485,14 @@ window.__ModuleLoader__.load({
+@@ -12355,6 +12558,14 @@ window.__ModuleLoader__.load({
  				}, LinkOpeningRow));
  			});
  			const transcriptView = new TranscriptViewPolicy(chatSettings, "dshDesktop" in globalThis ? "standard" : DEFAULT_TRANSCRIPT_VIEW_MODE);
@@ -412,7 +485,7 @@ index f997683..ba35b32 100644
  			const presentation = derivePresentationPolicy(transcriptView.mode);
  			const performancePolicy = new PerformanceUsagePolicy(chatSettings);
  			ctx.effect(() => () => {
-@@ -12403,6 +12541,10 @@ window.__ModuleLoader__.load({
+@@ -12403,6 +12614,10 @@ window.__ModuleLoader__.load({
  						"conversation.message.images": {
  							kind: "single",
  							scope: "session"
@@ -423,7 +496,7 @@ index f997683..ba35b32 100644
  						}
  					},
  					store: chatStore,
-@@ -12422,10 +12564,22 @@ window.__ModuleLoader__.load({
+@@ -12422,10 +12637,22 @@ window.__ModuleLoader__.load({
  							fileMentions: (owner) => ctx.get("chatFileMentions")?.forClosing(owner, sessionId),
  							openFile: async (path, options) => {
  								const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd;

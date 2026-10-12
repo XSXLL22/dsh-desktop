@@ -227,6 +227,8 @@ describe('DSH Desktop enterprise package', () => {
     const zhT = (key: string) => zhCopy[key] ?? key
     expect(formatSettingsError('seat revoked.', 'seat_revoked', zhT)).toBe(ACCOUNT_ERROR_COPY.seat_revoked?.zh)
     expect(formatSettingsError('unknown upstream', 'seat_revoked', zhT)).toBe(ACCOUNT_ERROR_COPY.seat_revoked?.zh)
+    expect(formatSettingsError('internal error', undefined, zhT)).toBe(ACCOUNT_ERROR_COPY.internal_error?.zh)
+    expect(formatSettingsError('raw platform text', 'internal_error', zhT)).toBe(ACCOUNT_ERROR_COPY.internal_error?.zh)
     expect(formatSettingsError('账户额度不足，请联系服务商咨询用量限制。', undefined, zhT))
       .toBe('账户额度不足，请联系服务商咨询用量限制。')
     expect(formatSettingsError('<html><body>secret</body></html>', 'unknown_error', zhT))
