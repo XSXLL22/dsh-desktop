@@ -15,10 +15,13 @@ import { electronExecutable } from '../scripts/electron-node-loader.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const exec = promisify(execFile)
-// The Intel CI job runs x64 Electron under Rosetta. The plugin tree was still
-// initializing at 30s there, so this launch needs the same headroom Windows uses.
+// x64 Python and Electron run under Rosetta on the shared ARM64 CI host.
+// Allow their cold starts extra time without relaxing other platforms' limits.
 const slowIntelCi = process.env.CI === 'true' && process.platform === 'darwin' && process.arch === 'x64'
 const harnessReadyTimeoutMs = slowIntelCi ? 180_000 : 30_000
+const officeTestTimeoutMs = slowIntelCi ? 240_000 : 60_000
+// Recovery starts Harness twice: failed activation, then Safe Mode.
+const recoveryTestTimeoutMs = slowIntelCi ? 420_000 : 60_000
 const scratch = []
 const temporary = async () => {
   const path = await mkdtemp(join(tmpdir(), 'dsh-office-test-'))
@@ -90,9 +93,9 @@ with zipfile.ZipFile(p / 'sample.docx') as source, zipfile.ZipFile(p / 'broken.d
     // Python's reader also normalizes separators on Windows; the strict
     // preview engine is the portable negative control for this fixture.
     await expect(exec(electronExecutable(root), [join(root, 'build/office-cli.mjs'), 'convert', '--input', join(output, 'broken.docx'), '--output', join(output, 'broken.pdf')], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 30_000
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: harnessReadyTimeoutMs
     })).rejects.toMatchObject({ code: 1 })
-  })
+  }, officeTestTimeoutMs)
 })
 
 it('mounts Office skills and queries the immutable runtime in a real Harness subprocess from a neutral cwd', async () => {
@@ -182,7 +185,7 @@ export async function apply(ctx) {
   } finally {
     await runtime.stop()
   }
-}, slowIntelCi ? 240_000 : 60_000)
+}, officeTestTimeoutMs)
 
 it('reports a missing Office payload during activation and keeps Safe Mode usable', async () => {
   const home = await temporary()
@@ -198,7 +201,7 @@ it('reports a missing Office payload during activation and keeps Safe Mode usabl
     dshSafePatchPath: join(root, 'build/dsh-desktop-safe.patch.yml'),
     dshHome: home,
     logPath: join(home, 'harness.log'),
-    startupTimeoutMs: 30_000,
+    startupTimeoutMs: harnessReadyTimeoutMs,
     launchProcess: (executable, args, options) => spawn(executable, args, { ...options, env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' } }),
     onChanged() {}
   })
@@ -214,4 +217,4 @@ it('reports a missing Office payload during activation and keeps Safe Mode usabl
   } finally {
     await runtime.stop()
   }
-}, 60_000)
+}, recoveryTestTimeoutMs)
