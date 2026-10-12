@@ -182,7 +182,19 @@ const CHAT_PLATFORM_CODES = new Set([
   'model_not_allowed',
   'invalid_request',
   'unsupported_parameter',
-  'authorization_unavailable'
+  'authorization_unavailable',
+  'internal_error',
+  'invalid_access_token',
+  'session_expired',
+  'session_revoked',
+  'seat_revoked',
+  'dsh_disabled',
+  'user_disabled',
+  'tenant_unavailable',
+  'enterprise_models_unavailable',
+  'enterprise_session_changed',
+  'enterprise_chat_busy',
+  'UNKNOWN_MODEL'
 ])
 
 const LEGACY_CHAT_PHRASES = Object.freeze({
@@ -193,7 +205,26 @@ const LEGACY_CHAT_PHRASES = Object.freeze({
   'quota unavailable': 'quota_unavailable',
   'dsh quota state is temporarily unavailable': 'quota_unavailable',
   'usage unavailable': 'usage_unavailable',
-  'actual request usage could not be confirmed': 'usage_unavailable'
+  'actual request usage could not be confirmed': 'usage_unavailable',
+  'seat revoked': 'seat_revoked',
+  'dsh seat revoked': 'seat_revoked',
+  'session revoked': 'session_revoked',
+  'dsh session revoked': 'session_revoked',
+  'session expired': 'session_expired',
+  'dsh session expired': 'session_expired',
+  'invalid access token': 'invalid_access_token',
+  'invalid dsh access token': 'invalid_access_token',
+  'internal error': 'internal_error',
+  'user disabled': 'user_disabled',
+  'tenant unavailable': 'tenant_unavailable',
+  'dsh disabled': 'dsh_disabled'
+})
+
+const LOCAL_CHAT_PHRASES = Object.freeze({
+  'enterprise models are unavailable': 'enterprise_models_unavailable',
+  'enterprise session changed': 'enterprise_session_changed',
+  'model is not assigned to this account': 'UNKNOWN_MODEL',
+  'too many enterprise chats': 'enterprise_chat_busy'
 })
 
 const CHAT_MESSAGE_LIMIT = 300
@@ -231,6 +262,7 @@ function sanitizeChatMessage(value) {
 }
 
 function formatEnterpriseChatFailure(status, payload, language) {
+  if (platformChatCode(payload) === 'context_length_exceeded') return 'Model context length exceeded'
   const zh = isChineseLocale(language)
   const raw = rawChatMessage(payload)
   const local = LOCAL_CHAT_FAILURES[raw]
@@ -246,14 +278,14 @@ function formatEnterpriseChatFailure(status, payload, language) {
 function platformChatCode(payload) {
   const code = payloadError(payload)?.code
   if (typeof code === 'string' && code.trim() && code.trim() !== 'request_failed') return code.trim()
-  return LEGACY_CHAT_PHRASES[normalizeChatPhrase(rawChatMessage(payload))] || 'request_failed'
+  const phrase = normalizeChatPhrase(rawChatMessage(payload))
+  return LEGACY_CHAT_PHRASES[phrase] || LOCAL_CHAT_PHRASES[phrase] || 'request_failed'
 }
 
 function classifyChatFailure(code, status) {
   // Compaction retries only this harness code. The chat UI localizes the BiSheng sentence on its own.
   if (code === 'context_length_exceeded') return 'CONTEXT_WINDOW_EXCEEDED'
   if (CHAT_PLATFORM_CODES.has(code)) return code
-  if (code === 'invalid_access_token') return 'AUTH'
   if (code !== 'request_failed') return code
   if (status >= 500) return 'SERVER'
   if (status === 429) return 'RATE_LIMIT'

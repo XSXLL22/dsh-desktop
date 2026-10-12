@@ -74,8 +74,41 @@ describe('provider error classification patches', () => {
     expect(patch).toContain('if (platformKey) return t(platformKey);')
     expect(patch).toContain('code === "CONTEXT_WINDOW_EXCEEDED" && message === "Model context length exceeded"')
     expect(patch).toContain('if (bishengContextWindowFailure(message, code)) return t("message.failure.contextLength");')
-    expect(patch).toContain('platformFailureKey(node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0')
+    expect(patch).toContain('localizedFailureKey(node.message, node.code) === void 0 && !bishengContextWindowFailure(node.message, node.code) && node.code !== void 0')
     expect(patch).not.toContain('case "CONTEXT_WINDOW_EXCEEDED"')
+    for (const code of [
+      'internal_error',
+      'user_disabled',
+      'UNKNOWN_MODEL',
+      'STREAM_CLOSED',
+      'enterprise_models_unavailable'
+    ]) expect(patch).toContain(`case "${code}":`)
+    for (const copy of [
+      '平台服务异常，请稍后重试或联系管理员。',
+      'The platform service failed. Try again later or contact an administrator.',
+      '当前账号不可用，请联系管理员。',
+      'This account is unavailable. Contact your administrator.',
+      '当前模型不在已授权列表中，请刷新模型列表后重选。',
+      'This model is not in the authorized list. Refresh the model list and choose again.',
+      '当前模型不支持工具调用，请关闭工具或更换模型。',
+      'This model does not support tools. Turn tools off or switch models.'
+    ]) expect(patch).toContain(copy)
+  })
+
+  it('localizes the same enterprise failures in the trajectory surface', async () => {
+    const patch = await readPatch('@deepseek-ai/dsh-client-ui-trajectory')
+    for (const copy of [
+      '平台服务异常，请稍后重试或联系管理员。',
+      'The platform service failed. Try again later or contact an administrator.',
+      '当前账号不可用，请联系管理员。',
+      'This account is unavailable. Contact your administrator.',
+      '当前模型不在已授权列表中，请刷新模型列表后重选。',
+      'This model is not in the authorized list. Refresh the model list and choose again.'
+    ]) expect(patch).toContain(copy)
+    expect(patch).toContain('function trajectoryFailureKey(message, code)')
+    expect(patch).toContain('case "user_disabled": return "details.failure.userDisabled";')
+    expect(patch).toContain('case "UNKNOWN_MODEL": return "details.failure.unknownModel";')
+    expect(patch).toContain('const platformKey = trajectoryFailureKey(request.error, request.errorCode);')
   })
 
   it('recovers a provider terminal message that omits its content array', async () => {

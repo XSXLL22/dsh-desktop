@@ -362,7 +362,7 @@ describe('BiSheng OpenAI adapter', () => {
     })
     expect(detailed.failure).toMatchObject({
       code: 'CONTEXT_WINDOW_EXCEEDED',
-      message: 'This model\'s maximum context length is 128000 tokens.'
+      message: 'Model context length exceeded'
     })
   })
 
@@ -387,6 +387,40 @@ describe('BiSheng OpenAI adapter', () => {
     ))
     expect(monthly.failure.code).toBe('monthly_token_limit_exceeded')
     expect(upstream.failure.code).not.toBe('monthly_token_limit_exceeded')
+  })
+
+  it('keeps chat platform codes that used to collapse or show as a badge', async () => {
+    const cases = [
+      ['internal_error', 'Platform request failed.'],
+      ['seat_revoked', 'DSH seat revoked'],
+      ['invalid_access_token', 'Invalid DSH access token'],
+      ['user_disabled', 'User account unavailable']
+    ]
+    for (const [code, message] of cases) {
+      const result = await finishFrom(new Response(
+        `event: error\ndata: ${JSON.stringify({ error: { message, code } })}\n\n`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      ))
+      expect(result.requests).toBe(1)
+      expect(result.failure.code).toBe(code)
+      expect(result.failure.code).not.toBe('AUTH')
+    }
+  })
+
+  it('maps codeless local chat sentences without guessing an upstream failure', async () => {
+    const assigned = await finishFrom(new Response(JSON.stringify({
+      error: 'Model is not assigned to this account.'
+    }), { status: 403, headers: { 'content-type': 'application/json' } }))
+    const busy = await finishFrom(new Response(JSON.stringify({
+      error: 'Too many enterprise chats.'
+    }), { status: 429, headers: { 'content-type': 'application/json' } }))
+    const internal = await finishFrom(new Response(JSON.stringify({
+      error: { message: 'Internal error.' }
+    }), { status: 500, headers: { 'content-type': 'application/json' } }))
+    expect(assigned.error.failure.code).toBe('UNKNOWN_MODEL')
+    expect(busy.error.failure.code).toBe('enterprise_chat_busy')
+    expect(internal.error.failure.code).toBe('internal_error')
+    expect(internal.error.failure.code).not.toBe('SERVER')
   })
 
   it('keeps a JSON request id when the response header is absent', async () => {

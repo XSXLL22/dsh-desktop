@@ -75,6 +75,10 @@ export const ACCOUNT_ERROR_COPY = Object.freeze({
     zh: '操作过于频繁，请稍后重试。',
     en: 'Too many attempts. Try again later.'
   },
+  internal_error: {
+    zh: '平台服务异常，请稍后重试或联系管理员。',
+    en: 'The platform service failed. Try again later or contact an administrator.'
+  },
   access_denied: {
     zh: '你已取消本次登录授权。',
     en: 'You cancelled this sign-in.'
@@ -126,6 +130,16 @@ export const LEGACY_ACCOUNT_PHRASES = Object.freeze({
   'refresh token reuse detected; sign in again': 'refresh_token_reused',
   'authorization unavailable': 'authorization_unavailable',
   'dsh authorization is temporarily unavailable': 'authorization_unavailable',
+  'invalid grant': 'invalid_grant',
+  'pkce verification failed': 'pkce_verification_failed',
+  'authorization expired': 'authorization_expired',
+  'authorization conflict': 'authorization_conflict',
+  'user disabled': 'user_disabled',
+  'tenant unavailable': 'tenant_unavailable',
+  'dsh disabled': 'dsh_disabled',
+  'model not allowed': 'model_not_allowed',
+  'too many requests': 'too_many_requests',
+  'internal error': 'internal_error',
   'could not reach the bisheng platform': 'network_error',
   'bisheng dsh contract version is incompatible with this desktop build': 'contract_incompatible',
   'enterprise credential vault could not be decrypted': 'vault_decrypt_failed'
