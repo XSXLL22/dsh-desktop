@@ -42,6 +42,26 @@ describe('enterprise chat payload validation', () => {
     })).toThrow('unsupported fields')
   })
 
+  it.each([11, 30])('accepts %i images across messages within byte limits', (count) => {
+    const image = { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }
+    const messages = Array.from({ length: count }, () => ({ role: 'user', content: [image] }))
+    const parsed = parseEnterpriseChatPayload({ request: { ...validRequest, messages } })
+    expect(parsed.request.messages).toEqual(messages)
+  })
+
+  it('still rejects images exceeding the total byte limit', () => {
+    const url = `data:image/png;base64,${'A'.repeat(Math.ceil(4 * 1024 * 1024 * 4 / 3))}`
+    expect(() => parseEnterpriseChatPayload({
+      request: {
+        ...validRequest,
+        messages: [{
+          role: 'user',
+          content: Array.from({ length: 6 }, () => ({ type: 'image_url', image_url: { url } }))
+        }]
+      }
+    })).toThrow('size limit')
+  })
+
   it('rejects remote image URLs and oversized inline images', () => {
     expect(() => parseEnterpriseChatPayload({
       request: {

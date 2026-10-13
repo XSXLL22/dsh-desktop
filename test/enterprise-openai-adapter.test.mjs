@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { attributionHeaders, createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import {
+  attributionHeaders,
+  createToolResultMessage,
+  requestImageHandleText,
+  textOnlyImageText,
+  ToolCallId
+} from '@deepseek-ai/dsh-llm'
 import {
   ALLOWED_ATTRIBUTION_HEADERS,
   EnterpriseLlmAdapter,
@@ -11,6 +17,41 @@ const model = {
   id: 'bisheng:42',
   display_name: 'BiSheng Chat',
   capabilities: { streaming: true, tools: true, reasoning_content: false }
+}
+
+const visionModel = {
+  ...model,
+  capabilities: { ...model.capabilities, vision: true }
+}
+
+const referenceImage = {
+  attachmentId: 'sha256:abcdef1234567890',
+  mediaType: 'image/png',
+  width: 1920,
+  height: 1080,
+  bytes: 4,
+  name: 'reference.png'
+}
+
+function completedResponse(text = 'ok') {
+  return new Response([
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+    'data: [DONE]\n\n'
+  ].join(''), { headers: { 'content-type': 'text/event-stream' } })
+}
+
+function requestVersion(width, height) {
+  return {
+    data: Buffer.from('png'),
+    mediaType: 'image/jpeg',
+    width,
+    height
+  }
+}
+
+function dataUrl() {
+  return `data:image/jpeg;base64,${Buffer.from('png').toString('base64')}`
 }
 
 async function usageFrom(payload) {
@@ -138,6 +179,262 @@ describe('BiSheng OpenAI adapter', () => {
     })
     expect(JSON.stringify(request)).not.toContain('access_token')
     expect(JSON.stringify(request)).not.toContain('refresh_token')
+  })
+
+  async function collectRequest(selectedModel, messages, readImage) {
+    const requests = []
+    let reads = 0
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng',
+      models: () => [selectedModel],
+      readImage: async (ref, signal) => {
+        reads += 1
+        return readImage(ref, signal)
+      },
+      request: async (body) => {
+        requests.push(body)
+        return completedResponse()
+      }
+    })
+    const chunks = []
+    try {
+      for await (const chunk of adapter.stream({
+        provider: 'bisheng-enterprise',
+        model: selectedModel.id,
+        messages
+      })) chunks.push(chunk)
+      return { requests, reads, chunks }
+    } catch (error) {
+      return { requests, reads, chunks, error }
+    }
+  }
+
+  it('sends vision tool images as a handled user message without dropping the tool call', async () => {
+    const toolMessage = createToolResultMessage({
+      callId: ToolCallId('call-1'),
+      content: [
+        { type: 'text', text: 'template reference' },
+        { type: 'image', attachment: referenceImage }
+      ],
+      isError: false
+    })
+    const messages = [
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'ppt_get_template_reference', arguments: '{}' }] },
+      toolMessage
+    ]
+    const result = await collectRequest(visionModel, messages, async () => requestVersion(640, 360))
+    expect(result.error).toBeUndefined()
+    expect(result.requests).toHaveLength(1)
+    expect(result.reads).toBe(1)
+    expect(toolMessage.content[1].type).toBe('image')
+    expect(result.requests[0].messages).toEqual([
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'ppt_get_template_reference', arguments: '{}' } }]
+      },
+      { role: 'tool', tool_call_id: 'call-1', content: 'template reference' },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Tool call call-1. ${requestImageHandleText(referenceImage, { width: 640, height: 360 })}`
+          },
+          { type: 'image_url', image_url: { url: dataUrl() } }
+        ]
+      }
+    ])
+    expect(result.requests[0].messages[2].content[0].text).toContain('640x360')
+    expect(result.requests[0].messages[2].content[0].text).not.toContain('1920x1080')
+  })
+
+  it('keeps parallel tool results together and flushes their images after the group', async () => {
+    const secondImage = { ...referenceImage, attachmentId: 'sha256:bbbbbbbbbbbbbbbb', name: 'second.png' }
+    const messages = [
+      { role: 'assistant', content: [
+        { type: 'tool-call', id: 'call-1', name: 'lookup', arguments: '{}' },
+        { type: 'tool-call', id: 'call-2', name: 'lookup', arguments: '{}' }
+      ] },
+      createToolResultMessage({
+        callId: ToolCallId('call-1'),
+        content: [{ type: 'text', text: 'first result' }, { type: 'image', attachment: referenceImage }],
+        isError: false
+      }),
+      createToolResultMessage({
+        callId: ToolCallId('call-2'),
+        content: [{ type: 'text', text: 'second result' }, { type: 'image', attachment: secondImage }],
+        isError: false
+      }),
+      { role: 'user', content: [{ type: 'text', text: 'continue' }] }
+    ]
+    const result = await collectRequest(visionModel, messages, async () => requestVersion(640, 360))
+    expect(result.requests[0].messages.map((entry) => entry.role)).toEqual([
+      'assistant', 'tool', 'tool', 'user', 'user'
+    ])
+    expect(result.requests[0].messages.slice(1, 3)).toEqual([
+      { role: 'tool', tool_call_id: 'call-1', content: 'first result' },
+      { role: 'tool', tool_call_id: 'call-2', content: 'second result' }
+    ])
+    expect(result.requests[0].messages[3].content.map((part) => part.type)).toEqual([
+      'text', 'image_url', 'text', 'image_url'
+    ])
+    expect(result.requests[0].messages[3].content[0].text).toContain('Tool call call-1.')
+    expect(result.requests[0].messages[3].content[2].text).toContain('Tool call call-2.')
+    expect(result.requests[0].messages[4]).toEqual({ role: 'user', content: 'continue' })
+  })
+
+  it('places nested tool-result images before the surrounding user content', async () => {
+    const userImage = { ...referenceImage, attachmentId: 'sha256:cccccccccccccccc', name: 'user.png', width: 800, height: 600 }
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'use both' },
+        { type: 'image', attachment: userImage },
+        {
+          type: 'tool-result',
+          toolCallId: 'call-1',
+          content: [
+            { type: 'text', text: 'result' },
+            { type: 'image', attachment: referenceImage }
+          ]
+        }
+      ]
+    }]
+    const result = await collectRequest(visionModel, messages, async (ref) => (
+      ref.attachmentId === userImage.attachmentId ? requestVersion(320, 180) : requestVersion(640, 360)
+    ))
+    expect(result.requests[0].messages).toEqual([
+      { role: 'tool', tool_call_id: 'call-1', content: 'result' },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Tool call call-1. ${requestImageHandleText(referenceImage, { width: 640, height: 360 })}`
+          },
+          { type: 'image_url', image_url: { url: dataUrl() } }
+        ]
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'use both' },
+          { type: 'image_url', image_url: { url: dataUrl() } }
+        ]
+      }
+    ])
+    expect(result.requests[0].messages[2].content[0].text).not.toContain('Tool call')
+  })
+
+  it.each([11, 30])('sends %i tool images when the request stays within byte limits', async (count) => {
+    const content = Array.from({ length: count }, (_, index) => ({
+      type: 'image',
+      attachment: { ...referenceImage, attachmentId: `sha256:${String(index).padStart(16, '0')}`, name: `page-${index}.png` }
+    }))
+    const result = await collectRequest(visionModel, [
+      createToolResultMessage({ callId: ToolCallId('call-1'), content, isError: false })
+    ], async () => requestVersion(640, 360))
+    expect(result.error).toBeUndefined()
+    expect(result.requests).toHaveLength(1)
+    expect(result.reads).toBe(count)
+    const images = result.requests[0].messages.flatMap((message) => (
+      Array.isArray(message.content) ? message.content.filter((part) => part.type === 'image_url') : []
+    ))
+    expect(images).toHaveLength(count)
+  })
+
+  it.each([
+    ['single image', 1, 6 * 1024 * 1024],
+    ['total images', 6, 4 * 1024 * 1024]
+  ])('still rejects oversized %s before sending', async (_label, count, bytes) => {
+    const content = Array.from({ length: count }, (_, index) => ({
+      type: 'image',
+      attachment: { ...referenceImage, attachmentId: `sha256:${String(index).padStart(16, '0')}` }
+    }))
+    const result = await collectRequest(visionModel, [
+      createToolResultMessage({ callId: ToolCallId('call-1'), content, isError: false })
+    ], async () => ({ ...requestVersion(640, 360), data: new Uint8Array(bytes) }))
+    expect(result.requests).toHaveLength(0)
+    expect(result.error.failure).toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+      message: 'Image request exceeds the size limit.'
+    })
+  })
+
+  it('projects tool images to placeholder text for a text-only model', async () => {
+    const toolMessage = createToolResultMessage({
+      callId: ToolCallId('call-1'),
+      content: [
+        { type: 'text', text: 'template reference' },
+        { type: 'image', attachment: referenceImage }
+      ],
+      isError: false
+    })
+    const originalContent = toolMessage.content
+    const result = await collectRequest(model, [
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'lookup', arguments: '{}' }] },
+      toolMessage
+    ], async () => requestVersion(640, 360))
+    expect(result.error).toBeUndefined()
+    expect(result.requests).toHaveLength(1)
+    expect(result.reads).toBe(0)
+    expect(toolMessage.content).toBe(originalContent)
+    expect(toolMessage.content[1].type).toBe('image')
+    expect(result.requests[0].messages[1]).toEqual({
+      role: 'tool',
+      tool_call_id: 'call-1',
+      content: `template reference${textOnlyImageText(referenceImage)}`
+    })
+  })
+
+  it('projects nested tool-result images without changing the original message', async () => {
+    const nested = [
+      { type: 'text', text: 'page' },
+      { type: 'image', attachment: referenceImage }
+    ]
+    const message = {
+      role: 'user',
+      content: [{ type: 'tool-result', toolCallId: 'call-9', content: nested }]
+    }
+    const result = await collectRequest(model, [message], async () => requestVersion(640, 360))
+    expect(result.requests).toHaveLength(1)
+    expect(result.reads).toBe(0)
+    expect(message.content[0].content).toBe(nested)
+    expect(nested[1].type).toBe('image')
+    expect(result.requests[0].messages).toEqual([
+      { role: 'tool', tool_call_id: 'call-9', content: `page${textOnlyImageText(referenceImage)}` }
+    ])
+  })
+
+  it('rejects an image on an assistant message for a vision model before sending', async () => {
+    const result = await collectRequest(visionModel, [{
+      role: 'assistant',
+      content: [{ type: 'image', attachment: referenceImage }]
+    }], async () => requestVersion(640, 360))
+    expect(result.requests).toHaveLength(0)
+    expect(result.reads).toBe(0)
+    expect(result.error.failure).toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+      message: 'Image input is unavailable for this model or message role.'
+    })
+  })
+
+  it('still sends a direct user image on a vision model', async () => {
+    const result = await collectRequest(visionModel, [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'image', attachment: referenceImage }
+      ]
+    }], async () => requestVersion(640, 360))
+    expect(result.requests[0].messages).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'image_url', image_url: { url: dataUrl() } }
+      ]
+    }])
   })
 
   it('assembles split UTF-8 SSE text, authoritative usage, and a terminal finish', async () => {

@@ -20,7 +20,6 @@ export const CHAT_REQUEST_KEYS = Object.freeze([
   'stop',
   'n'
 ])
-export const MAX_CHAT_IMAGES = 10
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 export const MAX_CHAT_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024
 export const CHAT_HEADER_TIMEOUT_MS = 30_000
@@ -95,7 +94,6 @@ export function parseEnterpriseChatPayload(value: unknown): ParsedEnterpriseChat
 
 export function validateChatImages(messages: unknown): void {
   if (!Array.isArray(messages)) return
-  let count = 0
   let totalBytes = 0
   for (const message of messages) {
     if (!isPlainObject(message) || !Array.isArray(message.content)) continue
@@ -104,10 +102,6 @@ export function validateChatImages(messages: unknown): void {
       const image = isPlainObject(part.image_url) ? part.image_url.url : undefined
       if (typeof image !== 'string' || !image.startsWith('data:')) {
         throw Object.assign(new Error('Enterprise chat only accepts inline images.'), { status: 400 })
-      }
-      count += 1
-      if (count > MAX_CHAT_IMAGES) {
-        throw Object.assign(new Error('Use at most ten images per request.'), { status: 400 })
       }
       const size = estimateDataUrlBytes(image)
       if (size > MAX_CHAT_IMAGE_BYTES || (totalBytes += size) > MAX_CHAT_IMAGE_TOTAL_BYTES) {

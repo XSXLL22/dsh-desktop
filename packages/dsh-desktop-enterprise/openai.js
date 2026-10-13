@@ -4,7 +4,10 @@ import {
   ProviderRequestId,
   ToolCallId,
   attributionHeaders,
-  contentHasImage
+  contentHasImage,
+  projectImagesForTextModel,
+  requestImageHandleText,
+  textOnlyImageText
 } from '@deepseek-ai/dsh-llm'
 
 export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent'])
@@ -31,6 +34,80 @@ function assertTextOnly(blocks) {
   }
 }
 
+function messageImageBlocks(message) {
+  const blocks = []
+  for (const block of message.content ?? []) {
+    if (block.type === 'image') blocks.push(block)
+    else if (block.type === 'tool-result') {
+      for (const inner of block.content ?? []) {
+        if (inner.type === 'image') blocks.push(inner)
+      }
+    }
+  }
+  return blocks
+}
+
+function assertRoleAllowsImages(message) {
+  if (message.role === 'user' || message.role === 'tool') return
+  assertTextOnly(message.content)
+  for (const block of message.content ?? []) {
+    if (block.type === 'tool-result') assertTextOnly(block.content)
+  }
+}
+
+// Text-only routes stay usable by replacing images with the upstream placeholder.
+// The shared projection does not recurse into legacy tool-result blocks.
+function projectEnterpriseMessagesForTextModel(messages) {
+  return projectImagesForTextModel(messages).map((message) => {
+    if (!message.content?.some((block) => block.type === 'tool-result' && contentHasImage(block.content ?? []))) {
+      return message
+    }
+    return {
+      ...message,
+      content: message.content.map((block) => {
+        if (block.type !== 'tool-result' || !contentHasImage(block.content ?? [])) return block
+        return {
+          ...block,
+          content: block.content.map((inner) => (
+            inner.type === 'image'
+              ? { type: 'text', text: textOnlyImageText(inner.attachment) }
+              : inner
+          ))
+        }
+      })
+    }
+  })
+}
+
+function imageUrlPart(block, images) {
+  const image = images.get(block.attachment.attachmentId)
+  if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
+  return { type: 'image_url', image_url: { url: image.url } }
+}
+
+async function readRequestImages(messages, readImage, signal) {
+  const images = new Map()
+  let imageBytes = 0
+  for (const message of messages) {
+    assertRoleAllowsImages(message)
+    for (const block of messageImageBlocks(message)) {
+      const image = await readImage?.(block.attachment, signal)
+      if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
+      imageBytes += image.data.byteLength
+      if (image.data.byteLength > 5 * 1024 * 1024 || imageBytes > 20 * 1024 * 1024) {
+        throw new LlmError('Image request exceeds the size limit.', 'UNSUPPORTED_CONTENT')
+      }
+      images.set(block.attachment.attachmentId, {
+        url: `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`,
+        width: image.width,
+        height: image.height,
+        mediaType: image.mediaType
+      })
+    }
+  }
+  return images
+}
+
 function assistantMessage(message, includeReasoning) {
   const content = textContent(message.content)
   const reasoning = message.content
@@ -53,47 +130,69 @@ function assistantMessage(message, includeReasoning) {
 }
 
 export function serializeEnterpriseRequest(options, model, images = new Map()) {
+  const history = model.capabilities.vision
+    ? options.messages
+    : projectEnterpriseMessagesForTextModel(options.messages)
   const messages = []
+  // 109 accepts image_url on user messages, not image arrays on tool.content.
+  // Keep each tool call contiguous, then flush retained images once.
+  const pendingToolImages = []
+  const flushToolImages = () => {
+    if (pendingToolImages.length === 0) return
+    messages.push({ role: 'user', content: pendingToolImages.splice(0) })
+  }
+  const queueToolImages = (toolCallId, blocks) => {
+    if (!model.capabilities.vision) return
+    for (const block of blocks ?? []) {
+      if (block.type !== 'image') continue
+      const image = images.get(block.attachment.attachmentId)
+      if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
+      pendingToolImages.push({
+        type: 'text',
+        text: `Tool call ${toolCallId}. ${requestImageHandleText(block.attachment, image)}`
+      })
+      pendingToolImages.push(imageUrlPart(block, images))
+    }
+  }
+  const pushToolResult = (toolCallId, blocks) => {
+    messages.push({
+      role: 'tool',
+      tool_call_id: toolCallId,
+      content: textContent(blocks) || '(no output)'
+    })
+    queueToolImages(toolCallId, blocks)
+  }
   if (options.system !== undefined) messages.push({ role: 'system', content: options.system })
-  for (const message of options.messages) {
-    if (!model.capabilities.vision || message.role !== 'user') assertTextOnly(message.content)
+  for (const message of history) {
+    if (model.capabilities.vision) assertRoleAllowsImages(message)
     if (message.role === 'system') {
+      flushToolImages()
       messages.push({ role: 'system', content: textContent(message.content) })
       continue
     }
     if (message.role === 'assistant') {
+      flushToolImages()
       messages.push(assistantMessage(message, model.capabilities.reasoning_content))
       continue
     }
     // Harness carries tool results as messages; the call ID belongs to the message.
     if (message.role === 'tool') {
-      messages.push({
-        role: 'tool',
-        tool_call_id: message.toolCallId,
-        content: textContent(message.content) || '(no output)'
-      })
+      pushToolResult(message.toolCallId, message.content)
       continue
     }
-    const regularText = textContent(message.content)
     const toolResults = message.content.filter((block) => block.type === 'tool-result')
+    if (toolResults.length === 0) flushToolImages()
+    for (const result of toolResults) pushToolResult(result.toolCallId, result.content)
+    if (toolResults.length > 0) flushToolImages()
+    const regularText = textContent(message.content)
     const parts = message.content.filter(block => block.type === 'text' || block.type === 'image')
     const hasImages = parts.some(block => block.type === 'image')
-    const content = hasImages ? parts.map(block => {
-      if (block.type === 'text') return block
-      const image = images.get(block.attachment.attachmentId)
-      if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
-      return { type: 'image_url', image_url: { url: image } }
-    }) : regularText
+    const content = hasImages ? parts.map(block => (
+      block.type === 'text' ? block : imageUrlPart(block, images)
+    )) : regularText
     if (hasImages || regularText || toolResults.length === 0) messages.push({ role: 'user', content })
-    for (const result of toolResults) {
-      assertTextOnly(result.content)
-      messages.push({
-        role: 'tool',
-        tool_call_id: result.toolCallId,
-        content: textContent(result.content) || '(no output)'
-      })
-    }
   }
+  flushToolImages()
   const tools = options.tools?.map((tool) => ({
     type: 'function',
     function: {
@@ -402,26 +501,14 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
   async *stream(options) {
     const model = this.options.models().find((candidate) => candidate.id === options.model)
     if (!model) throw new LlmError(`BiSheng provider has no authorized model "${options.model}".`, 'UNKNOWN_MODEL')
-    const images = new Map()
-    let imageCount = 0
-    let imageBytes = 0
-    for (const message of options.messages) {
-      if (!model.capabilities.vision || message.role !== 'user') assertTextOnly(message.content)
-      for (const block of message.content) {
-        if (block.type === 'tool-result') assertTextOnly(block.content)
-        if (block.type !== 'image') continue
-        if (++imageCount > 10) throw new LlmError('Use at most ten images per request.', 'UNSUPPORTED_CONTENT')
-        const image = await this.options.readImage?.(block.attachment, options.signal)
-        if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
-        imageBytes += image.data.byteLength
-        if (image.data.byteLength > 5 * 1024 * 1024 || imageBytes > 20 * 1024 * 1024) {
-          throw new LlmError('Image request exceeds the size limit.', 'UNSUPPORTED_CONTENT')
-        }
-        images.set(block.attachment.attachmentId, `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`)
-      }
-    }
+    const history = model.capabilities.vision
+      ? options.messages
+      : projectEnterpriseMessagesForTextModel(options.messages)
+    const images = model.capabilities.vision
+      ? await readRequestImages(history, this.options.readImage, options.signal)
+      : new Map()
     const response = await this.options.request(
-      serializeEnterpriseRequest(options, model, images),
+      serializeEnterpriseRequest({ ...options, messages: history }, model, images),
       options.signal,
       pickAttributionHeaders(attributionHeaders())
     )
