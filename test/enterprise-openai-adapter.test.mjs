@@ -327,18 +327,39 @@ describe('BiSheng OpenAI adapter', () => {
     expect(result.requests[0].messages[2].content[0].text).not.toContain('Tool call')
   })
 
-  it('counts tool images toward the ten-image request limit before sending', async () => {
-    const content = Array.from({ length: 11 }, (_, index) => ({
+  it.each([11, 30])('sends %i tool images when the request stays within byte limits', async (count) => {
+    const content = Array.from({ length: count }, (_, index) => ({
       type: 'image',
       attachment: { ...referenceImage, attachmentId: `sha256:${String(index).padStart(16, '0')}`, name: `page-${index}.png` }
     }))
     const result = await collectRequest(visionModel, [
       createToolResultMessage({ callId: ToolCallId('call-1'), content, isError: false })
     ], async () => requestVersion(640, 360))
+    expect(result.error).toBeUndefined()
+    expect(result.requests).toHaveLength(1)
+    expect(result.reads).toBe(count)
+    const images = result.requests[0].messages.flatMap((message) => (
+      Array.isArray(message.content) ? message.content.filter((part) => part.type === 'image_url') : []
+    ))
+    expect(images).toHaveLength(count)
+  })
+
+  it.each([
+    ['single image', 1, 6 * 1024 * 1024],
+    ['total images', 6, 4 * 1024 * 1024]
+  ])('still rejects oversized %s before sending', async (_label, count, bytes) => {
+    const content = Array.from({ length: count }, (_, index) => ({
+      type: 'image',
+      attachment: { ...referenceImage, attachmentId: `sha256:${String(index).padStart(16, '0')}` }
+    }))
+    const result = await collectRequest(visionModel, [
+      createToolResultMessage({ callId: ToolCallId('call-1'), content, isError: false })
+    ], async () => ({ ...requestVersion(640, 360), data: new Uint8Array(bytes) }))
     expect(result.requests).toHaveLength(0)
-    expect(result.reads).toBe(10)
-    expect(result.error.failure.code).toBe('UNSUPPORTED_CONTENT')
-    expect(result.error.failure.message).toBe('Use at most ten images per request.')
+    expect(result.error.failure).toMatchObject({
+      code: 'UNSUPPORTED_CONTENT',
+      message: 'Image request exceeds the size limit.'
+    })
   })
 
   it('projects tool images to placeholder text for a text-only model', async () => {

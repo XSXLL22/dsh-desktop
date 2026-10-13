@@ -87,12 +87,10 @@ function imageUrlPart(block, images) {
 
 async function readRequestImages(messages, readImage, signal) {
   const images = new Map()
-  let imageCount = 0
   let imageBytes = 0
   for (const message of messages) {
     assertRoleAllowsImages(message)
     for (const block of messageImageBlocks(message)) {
-      if (++imageCount > 10) throw new LlmError('Use at most ten images per request.', 'UNSUPPORTED_CONTENT')
       const image = await readImage?.(block.attachment, signal)
       if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
       imageBytes += image.data.byteLength
