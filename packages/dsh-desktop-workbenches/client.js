@@ -3,7 +3,6 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react')
     const { Service } = require('@deepseek-ai/cordis')
-    const { Switch } = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
     const PANEL = 'desktop-workbenches'
     const API = '/api/desktop-workbenches/state'
@@ -77,7 +76,8 @@ window.__ModuleLoader__.load({
     }
     const workbenchPreference = {
       listeners: new Set(),
-      // Off until the user turns it on in General settings.
+      // The general-settings switch is hidden. A stored "true" still turns the
+      // feature on; anything else keeps it off.
       enabled: (() => { try { return window.localStorage.getItem(WORKBENCH_PREF) === 'true' } catch { return false } })(),
       subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) },
       getSnapshot() { return this.enabled },
@@ -1087,8 +1087,6 @@ window.__ModuleLoader__.load({
       .dshWb .dshWbPrimary:disabled{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}
       .dshWbMuted{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.65}
       .dshWbActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-      .dshWbSetting{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}
-      .dshWbSettingText{display:flex;flex-direction:column;gap:4px;min-width:0}.dshWbSetting strong{font-size:14px;line-height:20px;font-weight:600}.dshWbSetting small{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
       .dshWbSessionIcon{width:16px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--dsw-alias-label-tertiary)}
       .dshWbMarket{container-type:inline-size;container-name:workbench-market;overflow:auto;height:100%;width:100%;min-width:0;padding:30px 32px 52px;max-width:1440px;margin:0 auto;scrollbar-color:var(--dsw-alias-border-l2) transparent;scrollbar-width:thin}
       .dshWbMarket::selection,.dshWbMarket *::selection{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-label-primary-foreground)}
@@ -1680,7 +1678,7 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
       const [submitCategory, setSubmitCategory] = React.useState('')
       const [categoryIdea, setCategoryIdea] = React.useState('')
       if (!workbenchEnabled) return h('section', { className: 'dshWb dshWbMarket', 'aria-label': '工作台市场' },
-        h('div', { className: 'dshWbDisabledHint' }, h('h1', null, '工作台功能已关闭'), h('p', { className: 'dshWbMuted' }, '可在 设置 → 通用 中重新开启。')))
+        h('div', { className: 'dshWbDisabledHint' }, h('h1', null, '工作台功能已关闭')))
       const developmentPrompt = developmentWorkbenchAgentPrompt()
       const chosenCategory = marketCategories.find((item) => item.id === submitCategory)
       const submissionPrompt = submissionWorkbenchAgentPrompt({ category: chosenCategory, suggestion: categoryIdea })
@@ -1915,13 +1913,6 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL, inject: () => ({ service }) }, Market))
       ctx.slots.inject('sidebar.quickSwitcher', () => ctx.slots.register({ name: 'sidebar.quickSwitcher', inject: () => ({ service }) }, WorkbenchSidebarSwitcher))
       ctx.slots.inject('sidebar.workspaces', () => ctx.slots.inject('sidebar.session.leading', () => ctx.slots.register({ name: 'sidebar.session.leading', inject: () => ({ service }) }, SessionWorkbenchIcon)))
-      function WorkbenchEnableSetting() {
-        React.useLayoutEffect(ensureStyles)
-        const enabled = React.useSyncExternalStore(workbenchPreference.subscribe.bind(workbenchPreference), workbenchPreference.getSnapshot.bind(workbenchPreference))
-        return h('div', { className: 'dshWbSetting' }, h('div', { className: 'dshWbSettingText' }, h('strong', null, '启用工作台功能'), h('small', null, '开启后可使用工作台市场和已安装的工作台；关闭后所有工作台不加载，不影响已保存的会话和数据。')),
-          h(Switch, { checked: enabled, onChange: (next) => service.setEnabled(next), label: '启用工作台功能' }))
-      }
-      ctx.slots.inject('settings.general.item', () => ctx.slots.register({ name: 'settings.general.item', id: 'desktop-workbench-enable', order: 34 }, WorkbenchEnableSetting))
       ctx.slots.inject('desktop.workbench.frame', () => ctx.slots.register({ name: 'desktop.workbench.frame', inject: () => ({ service }) }, Frame))
       ctx.effect(() => typeof ctx.uiWorkspace.registerSessionFilter === 'function'
         ? ctx.uiWorkspace.registerSessionFilter((sessionId) => service.sessionVisible(sessionId), service.subscribe.bind(service))
