@@ -170,11 +170,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Persistent runners retain npm downloads locally; restoring the remote
+      # cache duplicates disk usage and can stall release setup for 20 minutes.
       - uses: actions/setup-node@v4
+        timeout-minutes: 5
         with:
           node-version: 22
           architecture: arm64
-          cache: npm
       - name: Set app version from release tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: npm version --no-git-tag-version --allow-same-version "${{ github.ref_name }}"
@@ -347,11 +349,13 @@ jobs:
           fetch-depth: 0
       - name: Require Rosetta for Intel packaging
         run: arch -x86_64 /usr/bin/true
+      # Persistent runners retain npm downloads locally; restoring the remote
+      # cache duplicates disk usage and can stall release setup for 20 minutes.
       - uses: actions/setup-node@v4
+        timeout-minutes: 5
         with:
           node-version: 22
           architecture: x64
-          cache: npm
       - name: Verify Intel Node runtime
         run: test "$(node -p 'process.arch')" = x64
       - name: Set app version from release tag
@@ -743,10 +747,12 @@ jobs:
       JSIGN_SHA256: '602a51c3545a6dc4fb99bd2ea7152b26d1345916d0c93ddfbd5936cb735af91c'
     steps:
       - uses: actions/checkout@v4
+      # Persistent runners retain npm downloads locally; restoring the remote
+      # cache duplicates disk usage and can stall release setup for 20 minutes.
       - uses: actions/setup-node@v4
+        timeout-minutes: 5
         with:
           node-version: 22
-          cache: npm
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
