@@ -24,6 +24,8 @@ describe('workspace Open in file manager integration', () => {
     })
     plugin.apply({
       effect: vi.fn(),
+      locale: { register: () => () => undefined, bind: () => (key: string) => key },
+      remote: { session: { openWorkspacePath: () => Promise.resolve({ ok: true }) } },
       slots: {
         inject: (_name: string, callback: () => unknown) => callback(),
         register: (config: (typeof registrations)[number]['config'], component: (props: Record<string, unknown>) => unknown) => {

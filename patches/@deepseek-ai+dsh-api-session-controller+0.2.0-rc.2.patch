@@ -117,7 +117,7 @@ index 1ae21e3..b65b36b 100644
  			* synchronous-addressability guarantee as {@link ClientSessions.create}:
  			* on resolution the child is catalogued and may be explicitly retained).
 diff --git a/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js b/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js
-index 3b8507e..da70b37 100644
+index 3b8507e..f798567 100644
 --- a/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js
 @@ -5,7 +5,7 @@ import { AssistantStreamAccumulator, ReasoningEffortId, assistantStreamChunks, c
@@ -604,7 +604,25 @@ index 3b8507e..da70b37 100644
  //#endregion
  //#region lib/types/archived-session-gate.js
  /**
-@@ -2566,6 +2918,7 @@ let SessionController = (() => {
+@@ -2552,6 +2904,17 @@ var __disposeResources = (function(SuppressedError) {
+ 	var e = new Error(message);
+ 	return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+ });
++/**
++* User-visible text for a native opener failure. Existing RemoteError values are
++* rethrown unchanged by the caller. An empty cause keeps the historical message.
++* @param error - the non-Remote failure thrown by filesystem lookup or `open`.
++* @returns the dialog message, including the underlying cause when one exists.
++*/
++function pathOpenFailureMessage(error) {
++	const detail = error instanceof Error ? error.message : String(error);
++	if (detail === "" || detail.startsWith("path open failed")) return detail === "" ? "path open failed" : detail;
++	return `path open failed: ${detail}`;
++}
+ /** Host service backing the generated `ctx.remote.session` namespace. */
+ let SessionController = (() => {
+ 	let _classSuper = TypertRemoteService;
+@@ -2566,6 +2929,7 @@ let SessionController = (() => {
  	let _openWorkspacePath_decorators;
  	let _workspacePathApplications_decorators;
  	let _rename_decorators;
@@ -612,7 +630,7 @@ index 3b8507e..da70b37 100644
  	let _fork_decorators;
  	let _prompt_decorators;
  	let _attachment_decorators;
-@@ -2588,6 +2941,7 @@ let SessionController = (() => {
+@@ -2588,6 +2952,7 @@ let SessionController = (() => {
  			_openWorkspacePath_decorators = [Remote("openWorkspacePath")];
  			_workspacePathApplications_decorators = [Remote("workspacePathApplications")];
  			_rename_decorators = [Remote("rename")];
@@ -620,7 +638,7 @@ index 3b8507e..da70b37 100644
  			_fork_decorators = [Remote("fork")];
  			_prompt_decorators = [Remote("prompt")];
  			_attachment_decorators = [Remote("attachment")];
-@@ -2707,6 +3061,17 @@ let SessionController = (() => {
+@@ -2707,6 +3072,17 @@ let SessionController = (() => {
  				},
  				metadata: _metadata
  			}, null, _instanceExtraInitializers);
@@ -638,7 +656,7 @@ index 3b8507e..da70b37 100644
  			__esDecorate(this, null, _fork_decorators, {
  				kind: "method",
  				name: "fork",
-@@ -2868,10 +3233,12 @@ let SessionController = (() => {
+@@ -2868,10 +3244,12 @@ let SessionController = (() => {
  			this.canOpenPath = internals.canOpenPath ?? (() => config.nativeOpen ?? (internals.openPath !== void 0 || canOpenNativePath()));
  			ctx.plugin(SessionFileReferences);
  			ctx.plugin(SessionMediaReferences);
@@ -652,7 +670,35 @@ index 3b8507e..da70b37 100644
  			});
  			ctx.on("session/disposed", (session) => {
  				ctx.emit("api-session/removed", session.id);
-@@ -3077,6 +3444,10 @@ let SessionController = (() => {
+@@ -3038,7 +3416,7 @@ let SessionController = (() => {
+ 			} catch (error) {
+ 				if (signal.aborted) throw new RemoteError("gateway/cancelled", "path open was aborted", {});
+ 				if (error instanceof RemoteError) throw error;
+-				throw new RemoteError("gateway/internal", "path open failed", {}, { cause: error });
++				throw new RemoteError("gateway/internal", pathOpenFailureMessage(error), {}, { cause: error });
+ 			}
+ 		}
+ 		/**
+@@ -3065,8 +3443,17 @@ let SessionController = (() => {
+ 			const hostPath = resolve(path);
+ 			const { fs } = this.ctx;
+ 			const mapped = fs.processPathFromHostPath(hostPath);
+-			if (mapped === void 0 || fs.processPath(await fs.resolve(mapped, { signal })) !== hostPath) throw new RemoteError("gateway/bad-request", "Path has no verified Host path", {});
++			const resolved = mapped === void 0 ? void 0 : await fs.resolve(mapped, { signal });
++			if (mapped === void 0 || resolved === void 0 || fs.processPath(resolved) !== hostPath) throw new RemoteError("gateway/bad-request", "Path has no verified Host path", {});
+ 			signal.throwIfAborted();
++			// Missing targets previously reached `open` and collapsed into "path open failed".
++			// A stable reason lets the client try a de-duplicated folder candidate, and
++			// keeps permission or I/O failures from looking like a missing path.
++			const info = await fs.stat(resolved, signal);
++			if (info === void 0) throw new RemoteError("gateway/bad-request", `Path does not exist: ${hostPath}`, {
++				reason: "PATH_NOT_FOUND",
++				path: hostPath
++			});
+ 			return hostPath;
+ 		}
+ 		/**
+@@ -3077,6 +3464,10 @@ let SessionController = (() => {
  		rename(request) {
  			return this.commands.rename(request);
  		}
