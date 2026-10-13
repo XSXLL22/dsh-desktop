@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { patchPath } from './patch-path'
+import { patchPath, projectRoot } from './patch-path'
 
 interface LocalPath {
   path: string
@@ -35,10 +36,72 @@ async function loadLocalPathReference(): Promise<
   )() as (value: string) => LocalPath | undefined
 }
 
+interface FolderOpenFailure {
+  details?: { reason?: string; path?: string }
+  message?: string
+}
+
+interface FolderOpenResult {
+  ok: boolean
+  error?: FolderOpenFailure
+}
+
+/**
+ * The applied client bundle is what Harness loads. The patch assertions below
+ * still require these helpers to be recorded there, so a node_modules-only edit
+ * cannot pass.
+ */
+async function loadFolderOpen(): Promise<{
+  workspaceOpenCandidates: (cwd: string | undefined, value: string) => string[]
+  openFolderInFileManager: (
+    openWorkspacePath: (request: { path: string }) => Promise<FolderOpenResult>,
+    cwd: string | undefined,
+    value: string
+  ) => Promise<void>
+}> {
+  const client = await readFile(
+    path.join(projectRoot, 'node_modules', '@deepseek-ai', 'dsh-client-ui-chat', 'lib', 'client.js'),
+    'utf8'
+  )
+  const names = [
+    'isWindowsStylePath',
+    'isAbsoluteWorkspacePath',
+    'hostPathForOpen',
+    'workspaceOpenCandidates',
+    'missingFolderMessage',
+    'openFolderInFileManager'
+  ]
+  const source = names.map((name) => {
+    const body = extractFunction(client, name)
+    expect(body, name).toBeDefined()
+    return body
+  }).join('\n')
+  return new Function(`${source}\nreturn { workspaceOpenCandidates, openFolderInFileManager }`)() as {
+    workspaceOpenCandidates: (cwd: string | undefined, value: string) => string[]
+    openFolderInFileManager: (
+      openWorkspacePath: (request: { path: string }) => Promise<FolderOpenResult>,
+      cwd: string | undefined,
+      value: string
+    ) => Promise<void>
+  }
+}
+
+async function loadPathOpenFailureMessage(): Promise<(error: unknown) => string> {
+  const host = await readFile(
+    path.join(projectRoot, 'node_modules', '@deepseek-ai', 'dsh-api-session-controller', 'lib', 'index.js'),
+    'utf8'
+  )
+  const source = extractFunction(host, 'pathOpenFailureMessage')
+  expect(source).toBeDefined()
+  return new Function(`${source}\nreturn pathOpenFailureMessage`)() as (error: unknown) => string
+}
+
 /** Pull one `function name(...) { ... }` out of the patch's added source. */
 function extractFunction(source: string, name: string): string | undefined {
-  const start = source.indexOf(`function ${name}(`)
+  const marker = `function ${name}(`
+  let start = source.indexOf(marker)
   if (start < 0) return undefined
+  if (source.slice(Math.max(0, start - 6), start) === 'async ') start -= 6
   const open = source.indexOf('{', start)
   let depth = 0
   for (let index = open; index < source.length; index += 1) {
@@ -80,8 +143,9 @@ describe('assistant local path links', () => {
     expect(primitives).toContain('mention.kind === "folder" ? "folder"')
     expect(primitives).toContain('kind?: "file" | "folder"')
     expect(chat).toContain('options?.revealInFileManager === true')
-    expect(chat).toContain('openWorkspacePath({ path: hostPathForOpen(cwd, path) })')
-    expect(chat).toContain('if (!opened.ok) throw opened.error')
+    expect(chat).toContain('openFolderInFileManager((request) => ctx.remote.session.openWorkspacePath(request), cwd, path)')
+    expect(chat).toContain('reason === "PATH_NOT_FOUND" && index === 0 && candidates.length > 1')
+    expect(chat).toContain('throw opened.error')
     expect(chat).toContain('requestOpenFile(fileOpenError.path, fileOpenError.options)')
     expect(chat).toContain('readonly revealInFileManager?: boolean')
   })
@@ -179,6 +243,92 @@ describe('assistant local path links', () => {
       path: '@scope/pkg@1.2.3/dist/index.js',
       kind: 'file'
     })
+  })
+
+  it('keeps the literal folder path ahead of a workspace-name overlap', async () => {
+    const { workspaceOpenCandidates } = await loadFolderOpen()
+    const cwd = '/work/deepseek-harness/default-workspace'
+
+    expect(workspaceOpenCandidates(cwd, 'default-workspace/城市晨间通勤观察/')).toEqual([
+      `${cwd}/default-workspace/城市晨间通勤观察/`,
+      `${cwd}/城市晨间通勤观察`
+    ])
+    expect(workspaceOpenCandidates(cwd, '城市晨间通勤观察/')).toEqual([
+      `${cwd}/城市晨间通勤观察/`
+    ])
+    expect(workspaceOpenCandidates(cwd, '/etc/hosts')).toEqual(['/etc/hosts'])
+    expect(workspaceOpenCandidates(undefined, 'docs/')).toEqual(['docs/'])
+    expect(workspaceOpenCandidates(cwd, 'deepseek-harness/default-workspace/foo/')).toEqual([
+      `${cwd}/deepseek-harness/default-workspace/foo/`,
+      `${cwd}/foo`
+    ])
+    expect(workspaceOpenCandidates('/work/Reports', 'reports/q1/')).toEqual([
+      '/work/Reports/reports/q1/'
+    ])
+    expect(workspaceOpenCandidates('C:\\Users\\me\\Default-Workspace', 'default-workspace/城市晨间通勤观察/')).toEqual([
+      'C:/Users/me/Default-Workspace/default-workspace/城市晨间通勤观察/',
+      'C:/Users/me/Default-Workspace/城市晨间通勤观察'
+    ])
+  })
+
+  it('retries a missing folder only when the literal path is absent', async () => {
+    const { openFolderInFileManager } = await loadFolderOpen()
+    const cwd = '/work/deepseek-harness/default-workspace'
+    const mention = 'default-workspace/城市晨间通勤观察/'
+    const literal = `${cwd}/default-workspace/城市晨间通勤观察/`
+    const deduped = `${cwd}/城市晨间通勤观察`
+
+    const calls: string[] = []
+    await openFolderInFileManager(async (request) => {
+      calls.push(request.path)
+      if (request.path === literal) {
+        return { ok: false, error: { details: { reason: 'PATH_NOT_FOUND', path: request.path } } }
+      }
+      return { ok: true }
+    }, cwd, mention)
+    expect(calls).toEqual([literal, deduped])
+
+    const present: string[] = []
+    await openFolderInFileManager(async (request) => {
+      present.push(request.path)
+      return { ok: true }
+    }, cwd, mention)
+    expect(present).toEqual([literal])
+
+    const denied: string[] = []
+    const permission = { message: 'path open failed: EACCES', details: { reason: 'EACCES' } }
+    await expect(openFolderInFileManager(async (request) => {
+      denied.push(request.path)
+      return { ok: false, error: permission }
+    }, cwd, mention)).rejects.toBe(permission)
+    expect(denied).toEqual([literal])
+
+    const openerFailure = { message: 'path open failed: Command failed: open', details: {} }
+    const opened: string[] = []
+    await expect(openFolderInFileManager(async (request) => {
+      opened.push(request.path)
+      return { ok: false, error: openerFailure }
+    }, cwd, mention)).rejects.toBe(openerFailure)
+    expect(opened).toEqual([literal])
+
+    await expect(openFolderInFileManager(async (request) => {
+      return { ok: false, error: { details: { reason: 'PATH_NOT_FOUND', path: request.path } } }
+    }, cwd, mention)).rejects.toThrow(`Path does not exist: ${deduped}`)
+  })
+
+  it('keeps the native opener cause in the path-open failure', async () => {
+    const pathOpenFailureMessage = await loadPathOpenFailureMessage()
+    const sessionPatch = await readFile(patchPath('@deepseek-ai/dsh-api-session-controller'), 'utf8')
+
+    expect(pathOpenFailureMessage(new Error('The file /tmp/a does not exist'))).toBe(
+      'path open failed: The file /tmp/a does not exist'
+    )
+    expect(pathOpenFailureMessage(new Error('path open failed'))).toBe('path open failed')
+    expect(pathOpenFailureMessage('boom')).toBe('path open failed: boom')
+    expect(pathOpenFailureMessage(new Error(''))).toBe('path open failed')
+    expect(sessionPatch).toContain('reason: "PATH_NOT_FOUND"')
+    expect(sessionPatch).toContain('pathOpenFailureMessage(error)')
+    expect(sessionPatch).toContain('fs.stat(resolved, signal)')
   })
 
   it('strips line and column suffixes from resolved paths', async () => {

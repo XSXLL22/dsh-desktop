@@ -83,9 +83,17 @@ describe('BISHENG client slot occupants', () => {
         return () => undefined
       }
     }
-    plugin.apply({ slots, effect: (setup: () => (() => void) | undefined) => { disposeStyle = setup() } })
+    plugin.apply({
+      slots,
+      locale: {
+        register: () => () => undefined,
+        bind: () => (key: string) => key
+      },
+      remote: { session: { openWorkspacePath: () => Promise.resolve({ ok: true, value: { opened: true } }) } },
+      effect: (setup: () => (() => void) | undefined) => { disposeStyle = setup() }
+    })
 
-    expect(plugin.inject).toEqual(['slots', 'remote.session', 'sessions', 'uiWorkspace'])
+    expect(plugin.inject).toEqual(['slots', 'locale', 'remote', 'remote.session', 'sessions', 'uiWorkspace'])
     expect(registrations.map(({ config }) => config.name)).toEqual([
       'sidebar.brand.mark',
       'sidebar.brand.name',
