@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEnterpriseFetch, type EnterpriseFetch } from '../src/main/enterprise/platform-fetch'
 import { EnterpriseService, type EnterpriseServiceOptions } from '../src/main/enterprise/enterprise-service'
+import { startLoginCallbackServer } from '../src/main/enterprise/login-callback-server'
 import {
   ENTERPRISE_VAULT_FILENAME,
   type SafeStorageCryptoAdapter,
@@ -28,7 +29,7 @@ function memorySafeStorage(): SafeStorageCryptoAdapter {
 
 async function createService(
   fetchImpl: EnterpriseFetch = createEnterpriseFetch(globalThis.fetch),
-  options: Pick<EnterpriseServiceOptions, 'desktopVersion' | 'activateDesktop'> = {}
+  options: Pick<EnterpriseServiceOptions, 'desktopVersion' | 'activateDesktop' | 'now' | 'startCallback'> = {}
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'enterprise-service-'))
   const vault = new SecureEnterpriseCredentialVault(join(directory, ENTERPRISE_VAULT_FILENAME), memorySafeStorage())
@@ -221,6 +222,67 @@ describe('enterprise service login loop', () => {
     expect(cleared.connected).toBe(false)
     expect(cleared.phase).toBe('idle')
     expect(cleared.models).toEqual([])
+    expect(cleared.errorCode).toBe('invalid_refresh_token')
+    expect(cleared.error).toBe('Refresh token is invalid.')
+  })
+
+  it('clears the session and keeps the reason when the session has expired', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    let rejectRefresh = false
+    const fetchImpl: EnterpriseFetch = async (input, init) => {
+      if (rejectRefresh && String(input).includes('/api/dsh/token') && String(init?.body).includes('refresh_token')) {
+        return new Response(JSON.stringify({
+          error: { message: 'session expired', type: 'authentication_error', code: 'session_expired' }
+        }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      return globalThis.fetch(input, init)
+    }
+    const { service, notes } = await createService(createEnterpriseFetch(fetchImpl))
+    const started = await service.startLogin(origin)
+    await completeBrowserLogin(origin, started.authorizationUrl)
+    await waitFor(() => {
+      const snapshot = service.snapshot()
+      return snapshot.phase === 'connected' && snapshot.modelsAvailable === true
+    })
+    rejectRefresh = true
+    const cleared = await service.refresh()
+    expect(cleared.connected).toBe(false)
+    expect(cleared.phase).toBe('idle')
+    expect(cleared.models).toEqual([])
+    expect(cleared.errorCode).toBe('session_expired')
+    expect(cleared.error).toBe('session expired')
+    expect(notes).toContain('refresh_invalid')
+  })
+
+  it('publishes access_denied when browser sign-in is cancelled', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    const { service } = await createService()
+    const started = await service.startLogin(origin)
+    const authId = new URL(started.authorizationUrl).searchParams.get('auth_id')
+    const browserResponse = await fetch(`${origin}/__mock/authorize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ auth_id: authId ?? '', decision: 'deny' })
+    })
+    const html = await browserResponse.text()
+    const callbackLiteral = /location\.replace\((".*?")\)/u.exec(html)?.[1]
+    expect(callbackLiteral).toBeTruthy()
+    const callback = new URL(JSON.parse(callbackLiteral!))
+    expect(callback.searchParams.get('error')).toBe('access_denied')
+    expect(await fetch(callback).then((response) => response.status)).toBe(200)
+    await waitFor(() => service.snapshot().errorCode === 'access_denied')
+    expect(service.snapshot()).toMatchObject({
+      connected: false,
+      phase: 'idle',
+      errorCode: 'access_denied'
+    })
   })
 
   it.each(['seat_revoked', 'seat_not_assigned'])('publishes %s on login failure', async (code) => {
@@ -430,5 +492,81 @@ describe('enterprise market credential boundary', () => {
     await service.logout()
     expect((await call({ path: '/api/v1/dsh/market/catalog', connectionKey })).status).toBe(409)
     expect(requests).toHaveLength(before)
+  })
+
+  it('ends browser authorization when the platform expiry is reached', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    let now = Date.now()
+    let callbackClosed = false
+    const { service } = await createService(createEnterpriseFetch(globalThis.fetch), {
+      now: () => now,
+      startCallback: async (callbackOptions) => {
+        const callback = await startLoginCallbackServer(callbackOptions)
+        const close = callback.close.bind(callback)
+        return {
+          ...callback,
+          alignTimeout: callback.alignTimeout.bind(callback),
+          async close() {
+            callbackClosed = true
+            await close()
+          }
+        }
+      }
+    })
+
+    await service.startLogin(origin)
+    const expiresAt = Date.parse(service.snapshot().loginExpiresAt ?? '')
+    expect(expiresAt - now).toBe(300_000)
+    now = expiresAt - 1
+    expect((await service.readState()).phase).toBe('authorizing')
+    expect(callbackClosed).toBe(false)
+
+    now = expiresAt
+    const expired = await service.readState()
+    expect(expired.phase).toBe('idle')
+    expect(expired.errorCode).toBe('authorization_expired')
+    expect(expired.loginExpiresAt).toBeUndefined()
+    expect(callbackClosed).toBe(true)
+  })
+
+  it('follows a shorter authorization lifetime and ignores the previous login timer', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    let now = Date.now()
+    let alignedTimeout = 0
+    const fetchImpl: EnterpriseFetch = async (input, init) => {
+      const response = await globalThis.fetch(input, init)
+      if (!String(input).endsWith('/api/dsh/authorizations')) return response
+      const body = await response.json() as { expires_in?: number }
+      body.expires_in = 45
+      return Response.json(body)
+    }
+    const { service } = await createService(createEnterpriseFetch(fetchImpl), {
+      now: () => now,
+      startCallback: async (callbackOptions) => {
+        const callback = await startLoginCallbackServer(callbackOptions)
+        return {
+          ...callback,
+          alignTimeout(timeoutMs: number) {
+            alignedTimeout = timeoutMs
+            callback.alignTimeout(timeoutMs)
+          },
+          close: callback.close.bind(callback)
+        }
+      }
+    })
+
+    await service.startLogin(origin)
+    expect(alignedTimeout).toBe(45_000)
+    const firstExpiresAt = Date.parse(service.snapshot().loginExpiresAt ?? '')
+    now = firstExpiresAt
+    await service.startLogin(origin)
+    const restarted = await service.readState()
+    expect(restarted.phase).toBe('authorizing')
+    expect(restarted.errorCode).toBeUndefined()
+    expect(Date.parse(restarted.loginExpiresAt ?? '') - now).toBe(45_000)
   })
 })

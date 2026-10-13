@@ -98,7 +98,7 @@ for (const size of [16, 32, 128, 256, 512]) {
 execFileSync('iconutil', ['-c', 'icns', iconsetDirectory, '-o', icnsDestination])
 
 const icoSizes = [16, 24, 32, 48, 64, 128, 256]
-const icoDirectory = await mkdtemp(path.join(os.tmpdir(), 'bisheng-work-icons-'))
+const icoDirectory = await mkdtemp(path.join(os.tmpdir(), 'bisheng-icons-'))
 try {
   const icoImages = []
   for (const size of icoSizes) {

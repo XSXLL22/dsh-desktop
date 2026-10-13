@@ -1,6 +1,8 @@
+import { createServer, type Server } from 'node:http'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { apply as applyEnterprise } from '../packages/dsh-desktop-enterprise/index.js'
@@ -21,7 +23,10 @@ type RegisteredRoute = {
   fetch: (request: Request) => Promise<Response>
 }
 
-function createPluginContext(llm?: { registerAdapter: (...args: never[]) => unknown }) {
+function createPluginContext(
+  llm?: { registerAdapter: (...args: never[]) => unknown },
+  services?: { get?: (name: string) => unknown }
+) {
   const routes: RegisteredRoute[] = []
   applyEnterprise({
     effect(callback: () => (() => unknown) | undefined) {
@@ -36,9 +41,32 @@ function createPluginContext(llm?: { registerAdapter: (...args: never[]) => unkn
         }
       }
     },
+    ...(services?.get ? { get: services.get } : {}),
     ...(llm ? { llm } : {})
   } as never)
   return routes
+}
+
+function listenJson(payload: unknown): Promise<{ url: string, close: () => Promise<void> }> {
+  return new Promise((resolve, reject) => {
+    const server: Server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(payload))
+    })
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        reject(new Error('Enterprise test broker did not bind a port.'))
+        return
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((done, fail) => {
+          server.close((error) => error ? fail(error) : done())
+        })
+      })
+    })
+  })
 }
 
 async function completeBrowserLogin(origin: string, authorizationUrl: string) {
@@ -116,7 +144,7 @@ describe('enterprise adapter without a Broker', () => {
   it('inspects a deep link locally and rejects login until the Broker exists', async () => {
     const routes = createPluginContext()
     const inspected = await invoke(routes, '/api/enterprise.deep-link.inspect', 'POST', {
-      url: 'bisheng-work://login?server=https%3A%2F%2Fbisheng.example.com'
+      url: 'bisheng://login?server=https%3A%2F%2Fbisheng.example.com'
     })
     expect(inspected.status).toBe(200)
     await expect(inspected.json()).resolves.toEqual({ base: 'https://bisheng.example.com' })
@@ -218,6 +246,62 @@ describe('enterprise adapter with a Broker', () => {
       phase: expect.stringMatching(/refreshing|connected/)
     })
     expect(registered).toContainEqual(['bisheng-enterprise'])
+  })
+})
+
+describe('enterprise image request target', () => {
+  it('passes official pixel dimensions and the enterprise byte budget to readImageRequest', async () => {
+    const calls: unknown[][] = []
+    const broker = await listenJson({
+      connected: false,
+      secureStorageAvailable: false,
+      phase: 'idle',
+      revision: 1,
+      modelsAvailable: true,
+      models: [{ id: 'vision-model' }]
+    })
+    adapterCleanups.push(() => broker.close())
+    process.env.DSH_DESKTOP_ENTERPRISE_BROKER_URL = broker.url
+    process.env.DSH_DESKTOP_ENTERPRISE_BROKER_CAPABILITY = 'test-capability'
+
+    let readImage: ((ref: { width: number, height: number }) => Promise<unknown>) | undefined
+    createPluginContext({
+      registerAdapter(_providers: unknown, adapter: { options: { readImage: typeof readImage } }) {
+        readImage = adapter.options.readImage
+        return Object.assign(() => undefined, { replace: () => undefined })
+      }
+    } as never, {
+      get(name: string) {
+        if (name !== 'attachments') return undefined
+        return {
+          readImageRequest: (...args: unknown[]) => {
+            calls.push(args)
+            return Promise.resolve({ data: new Uint8Array() })
+          }
+        }
+      }
+    })
+
+    await waitFor(() => readImage !== undefined)
+    const read = readImage
+    if (!read) throw new Error('Enterprise image reader was not registered.')
+    const small = { width: 100, height: 50 }
+    const large = { width: 3000, height: 3000 }
+    await read(small)
+    await read(large)
+
+    const maxBytes = 5 * 1024 * 1024
+    const smallTarget = { ...requestImageDimensions(small.width, small.height, 4_194_304), maxBytes }
+    const largeTarget = { ...requestImageDimensions(large.width, large.height, 4_194_304), maxBytes }
+    expect(calls.map((call) => call[1])).toEqual([smallTarget, largeTarget])
+    expect(smallTarget).toEqual({ width: 100, height: 50, maxBytes })
+    expect(largeTarget.width).toBeLessThan(large.width)
+    expect(largeTarget.height).toBeLessThan(large.height)
+    expect(largeTarget.width * largeTarget.height).toBeLessThanOrEqual(4_194_304)
+    expect(Number.isSafeInteger(largeTarget.width) && largeTarget.width > 0).toBe(true)
+    expect(Number.isSafeInteger(largeTarget.height) && largeTarget.height > 0).toBe(true)
+    expect(calls.every((call) => !Object.hasOwn(call[1] as object, 'maxPixels'))).toBe(true)
+    expect(calls.map((call) => call[0])).toEqual([small, large])
   })
 })
 

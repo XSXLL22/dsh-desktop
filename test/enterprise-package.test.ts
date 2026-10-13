@@ -4,9 +4,23 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { inject as enterpriseInject } from '../packages/dsh-desktop-enterprise/index.js'
+import {
+  ACCOUNT_ERROR_COPY,
+  LEGACY_ACCOUNT_PHRASES,
+  NO_MODELS_COPY,
+  resolveAccountError
+} from '../packages/dsh-desktop-enterprise/error-copy.js'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const execFileAsync = promisify(execFile)
+
+/** CI runners export a proxy, and Node prints this experimental warning on stderr before the script runs. */
+function stripExperimentalProxyWarning(stderr: string): string {
+  return stderr.replaceAll(
+    /\(node:\d+\) \[UNDICI-EHPA\] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time\.\r?\n\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\r?\n/g,
+    ''
+  )
+}
 
 describe('DSH Desktop enterprise package', () => {
   it('separates provider labels while preserving model paths', async () => {
@@ -58,9 +72,8 @@ describe('DSH Desktop enterprise package', () => {
       'client.js'
     )
 
-    await expect(execFileAsync(process.execPath, ['--check', clientPath])).resolves.toMatchObject({
-      stderr: ''
-    })
+    const checked = await execFileAsync(process.execPath, ['--check', clientPath])
+    expect(stripExperimentalProxyWarning(checked.stderr)).toBe('')
   })
 
   it('keeps the last BiSheng platform URL after enterprise sign-out', async () => {
@@ -173,6 +186,13 @@ describe('DSH Desktop enterprise package', () => {
     expect(client).toContain('border: 1px solid var(--ds-border, #ccd0d5);')
     expect(client).toContain("className: 'dshEnterpriseIconButton'")
     expect(client).toContain("'aria-label': t('refresh')")
+    expect(client).toContain("loginAgain: '重新登录'")
+    expect(client).toContain("loginAgain: 'Sign in again'")
+    expect(client).toContain('dshEnterprisePendingSpinner')
+    expect(client).toContain('@keyframes dshEnterprisePendingSpin')
+    expect(client).toContain("role: 'status'")
+    expect(client).toContain("state?.phase === 'authorizing' ? t('loginAgain') : t('login')")
+    expect(client).toContain('@media (prefers-reduced-motion: reduce)')
     expect(client).toContain("h('span', { 'aria-hidden': 'true' }, '↻')")
     expect(client).toContain('.dshEnterpriseButton.login {')
     expect(client).toContain("className: 'dshEnterpriseButton login'")
@@ -186,36 +206,55 @@ describe('DSH Desktop enterprise package', () => {
     expect(client).toContain("insecureTitle: 'Make sure the service URL is trusted'")
     expect(client).toContain("insecureConfirm: 'Confirm as a trusted source'")
     expect(client).not.toContain("h('button', { className: 'dshEnterpriseButton primary', disabled: busy || !base.trim()")
-    expect(client).toContain("seatRevoked: '席位已撤销'")
-    expect(client).toContain("seatRevoked: 'Seat revoked'")
-    expect(client).toContain('formatEnterpriseSettingsError(error, undefined, t)')
+    expect(client).toContain('formatEnterpriseSettingsError(error, errorCode, t)')
     expect(client).toContain('formatEnterpriseSettingsError(state?.error, state?.errorCode, t)')
-    const errorBody = client.match(/function formatEnterpriseSettingsError\(failure, errorCode, t\) \{([\s\S]*?)\n    \}/)?.[1]
-    expect(errorBody).toBeDefined()
-    const formatSettingsError = new Function('failure', 'errorCode', 't', errorBody!) as (
+    expect(client).not.toContain('state?.requestId')
+    expect(client).not.toContain("t('requestId')")
+    const formatterSource = client.slice(
+      client.indexOf('const LEGACY_ACCOUNT_PHRASES'),
+      client.indexOf('function failureParts')
+    )
+    expect(formatterSource).toContain('function formatEnterpriseSettingsError')
+    const formatSettingsError = new Function(`${formatterSource}; return formatEnterpriseSettingsError`)() as (
       failure: unknown,
       errorCode: unknown,
       t: (key: string) => string
     ) => string
-    const zhT = (key: string) => key === 'seatRevoked' ? '席位已撤销' : key
-    const enT = (key: string) => key === 'seatRevoked' ? 'Seat revoked' : key
-    expect(formatSettingsError('seat revoked', undefined, zhT)).toBe('席位已撤销')
-    expect(formatSettingsError('seat revoked.', 'seat_revoked', zhT)).toBe('席位已撤销')
-    expect(formatSettingsError('unknown upstream', 'seat_revoked', zhT)).toBe('席位已撤销')
-    expect(formatSettingsError('账户额度不足，请联系服务商咨询用量限制。', undefined, zhT))
-      .toBe('账户额度不足，请联系服务商咨询用量限制。')
-    expect(formatSettingsError('seat revoked', undefined, enT)).toBe('Seat revoked')
     const zhCopy = new Function(`return ${client.match(/const zh = (\{[\s\S]*?\n    \})/)?.[1]}`)() as Record<string, string>
     const enCopy = new Function(`return ${client.match(/const en = (\{[\s\S]*?\n    \})/)?.[1]}`)() as Record<string, string>
-    for (const [copy, expected] of [
-      [zhCopy, '你尚未获得 DSH 使用席位，请联系管理员分配后重新登录。'],
-      [enCopy, 'You have not been assigned a DSH seat. Ask your administrator to assign one, then sign in again.']
-    ] as const) {
+    expect(zhCopy.noModels).toBe(NO_MODELS_COPY.zh)
+    expect(enCopy.noModels).toBe(NO_MODELS_COPY.en)
+    for (const [code, copy] of Object.entries(ACCOUNT_ERROR_COPY)) {
+      expect(zhCopy[code]).toBe(copy.zh)
+      expect(enCopy[code]).toBe(copy.en)
+    }
+    for (const phrase of Object.keys(LEGACY_ACCOUNT_PHRASES)) {
+      expect(formatterSource).toContain(`'${phrase}'`)
+    }
+    const zhT = (key: string) => zhCopy[key] ?? key
+    expect(formatSettingsError('seat revoked.', 'seat_revoked', zhT)).toBe(ACCOUNT_ERROR_COPY.seat_revoked?.zh)
+    expect(formatSettingsError('unknown upstream', 'seat_revoked', zhT)).toBe(ACCOUNT_ERROR_COPY.seat_revoked?.zh)
+    expect(formatSettingsError('internal error', undefined, zhT)).toBe(ACCOUNT_ERROR_COPY.internal_error?.zh)
+    expect(formatSettingsError('raw platform text', 'internal_error', zhT)).toBe(ACCOUNT_ERROR_COPY.internal_error?.zh)
+    expect(formatSettingsError('账户额度不足，请联系服务商咨询用量限制。', undefined, zhT))
+      .toBe('账户额度不足，请联系服务商咨询用量限制。')
+    expect(formatSettingsError('<html><body>secret</body></html>', 'unknown_error', zhT))
+      .toBe(ACCOUNT_ERROR_COPY.invalid_response?.zh)
+    expect(formatSettingsError('seat not assigned', 'unknown_error', zhT)).toBe('seat not assigned')
+    for (const [copy, language] of [[zhCopy, 'zh'], [enCopy, 'en']] as const) {
       const t = (key: string) => copy[key] ?? key
-      expect(formatSettingsError('upstream message', 'seat_not_assigned', t)).toBe(expected)
-      expect(formatSettingsError('seat not assigned', undefined, t)).toBe(expected)
-      expect(formatSettingsError(' Seat not assigned. ', undefined, t)).toBe(expected)
+      expect(formatSettingsError('upstream message', 'seat_not_assigned', t)).toBe(ACCOUNT_ERROR_COPY.seat_not_assigned?.[language])
+      expect(formatSettingsError('seat not assigned', undefined, t)).toBe(ACCOUNT_ERROR_COPY.seat_not_assigned?.[language])
+      expect(formatSettingsError(' Seat not assigned. ', 'request_failed', t)).toBe(ACCOUNT_ERROR_COPY.seat_not_assigned?.[language])
       expect(formatSettingsError('other failure', 'unknown_error', t)).toBe('other failure')
+      for (const [phrase, code] of Object.entries(LEGACY_ACCOUNT_PHRASES)) {
+        expect(formatSettingsError(phrase, undefined, t)).toBe(ACCOUNT_ERROR_COPY[code]?.[language])
+        expect(resolveAccountError(undefined, phrase)).toEqual({ code })
+      }
+      for (const code of Object.keys(ACCOUNT_ERROR_COPY)) {
+        expect(formatSettingsError('raw platform text', code, t)).toBe(ACCOUNT_ERROR_COPY[code]?.[language])
+        expect(resolveAccountError(code, 'raw platform text')).toEqual({ code })
+      }
     }
   })
 

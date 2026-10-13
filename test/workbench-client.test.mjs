@@ -1987,7 +1987,8 @@ describe('workbench market screenshot and metadata display', () => {
     expect(fullSource).not.toContain('workbenchDockPreference')
     expect(fullSource).not.toContain('显示工作台快捷栏')
     expect(fullSource).toContain('if (!enabled || !wide) return null')
-    expect(fullSource).toContain("h(Switch, { checked: enabled, onChange: (next) => service.setEnabled(next), label: '启用工作台功能' })")
+    expect(fullSource).not.toContain('启用工作台功能')
+    expect(fullSource).not.toContain("ctx.slots.inject('settings.general.item'")
     expect(fullSource).toContain('if (!workbenchEnabled) return conversation')
   })
 

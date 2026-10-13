@@ -10,8 +10,8 @@ describe('BISHENG installation identity', () => {
     const installer = await readFile(path.join(projectRoot, 'build', 'installer.nsh'), 'utf8')
 
     expect(installer).not.toContain('$APPDATA\\dsh-desktop')
-    expect(installer).toContain('$APPDATA\\bisheng-work')
-    expect(installer).toContain('Delete "$APPDATA\\bisheng-work\\desktop-service\\session.json"')
+    expect(installer).toContain('$APPDATA\\bisheng')
+    expect(installer).toContain('Delete "$APPDATA\\bisheng\\desktop-service\\session.json"')
   })
 
   it('does not import an existing ~/.dsh home during startup', async () => {
@@ -19,8 +19,8 @@ describe('BISHENG installation identity', () => {
 
     expect(main).not.toContain('maybeImportWebHome')
     expect(main).not.toContain('shouldOfferWebHomeImport')
-    expect(main).toContain("join(app.getPath('appData'), 'bisheng-work')")
-    expect(main).toContain("join(app.getPath('appData'), 'bisheng-work-dev')")
+    expect(main).toContain("join(app.getPath('appData'), 'bisheng')")
+    expect(main).toContain("join(app.getPath('appData'), 'bisheng-dev')")
     expect(main).not.toContain("join(app.getPath('appData'), 'dsh-desktop')")
   })
 
@@ -30,7 +30,7 @@ describe('BISHENG installation identity', () => {
       'utf8'
     )
 
-    expect(workflow).toContain("&& 'bisheng-work' || 'bisheng-work-dev'")
+    expect(workflow).toContain("&& 'bisheng' || 'bisheng-dev'")
     expect(workflow).not.toContain("&& 'dsh-desktop' || 'dsh-desktop-dev'")
   })
 

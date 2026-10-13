@@ -10,6 +10,14 @@ import { unzipSync } from 'fflate'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 
 let packageRoot, apply, cli
+
+/** CI runners export a proxy, and Node prints this experimental warning on stderr before the script runs. */
+function stripExperimentalProxyWarning(stderr) {
+  return stderr.replaceAll(
+    /\(node:\d+\) \[UNDICI-EHPA\] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time\.\r?\n\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\r?\n/g,
+    ''
+  )
+}
 const cleanups = []
 beforeAll(async () => {
   // Test the generated package that the unified build projected into node_modules.
@@ -264,7 +272,7 @@ describe('PPT validation authoring loop', () => {
       expect(help.stdout).toContain('check')
       const check = spawnSync(process.execPath, [entry, 'check', f.project, '--json'], { encoding: 'utf8', timeout: 10_000 })
       expect(check.status).toBe(1)
-      expect(check.stderr).toBe('')
+      expect(stripExperimentalProxyWarning(check.stderr)).toBe('')
       expect(JSON.parse(check.stdout).issues.filter(i => i.code === 'text-overflow')).toHaveLength(4)
       const render = spawnSync(process.execPath, [entry, 'render', f.project, '-o', path.join(f.workspace, 'failed.pptx'), '--json'], { encoding: 'utf8', timeout: 10_000 })
       expect(render.status).toBe(1)

@@ -5,6 +5,45 @@ import { describe, expect, it } from 'vitest'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 
+it('prepares the Office and PPT runtimes before focused Windows regressions', async () => {
+  const packageJson = JSON.parse(
+    await readFile(path.join(projectRoot, 'package.json'), 'utf8')
+  ) as { scripts: Record<string, string> }
+
+  expect(packageJson.scripts['pretest:windows']).toBe('npm run office:prepare && npm run ppt:build')
+  expect(packageJson.scripts['pretest:windows']).toBe(packageJson.scripts.pretest)
+})
+
+it('defaults Windows to focused regressions and makes recovery UI an explicit dispatch check', async () => {
+  const yaml = createRequire(import.meta.url)('js-yaml') as {
+    load: (source: string) => {
+      on: { workflow_dispatch: { inputs: Record<string, { default: boolean }> } }
+      jobs: Record<string, { steps: Array<{ name?: string; if?: string; run?: string }> }>
+    }
+  }
+  const workflow = yaml.load(await readFile(path.join(projectRoot, '.github/workflows/release.yml'), 'utf8'))
+  const steps = workflow.jobs['windows-x64']?.steps ?? []
+  const focused = steps.find(step => step.name === 'Run focused Windows regressions')
+  const complete = steps.find(step => step.name === 'Run complete Windows test suite')
+  const recovery = steps.find(step => step.name === 'Check recovery UI on native Windows at three display scales')
+  expect(focused?.run).toBe('npm run test:windows')
+  expect(complete?.run).toBe('npm test')
+  expect(steps.some(step => step.run === 'npm run build')).toBe(false)
+  expect(workflow.on.workflow_dispatch.inputs.windows_full_tests?.default).toBe(false)
+  expect(workflow.on.workflow_dispatch.inputs.windows_recovery_ui?.default).toBe(false)
+  const evaluate = (expression: string | undefined, event: string, inputs: Record<string, boolean>) =>
+    new Function('github', 'inputs', `return (${expression})`)({ event_name: event }, inputs) as boolean
+  for (const event of ['push', 'workflow_dispatch']) {
+    expect(evaluate(focused?.if, event, {})).toBe(true)
+    expect(evaluate(complete?.if, event, {})).toBe(false)
+    expect(evaluate(recovery?.if, event, {})).toBe(false)
+  }
+  expect(evaluate(focused?.if, 'workflow_dispatch', { windows_full_tests: true })).toBe(false)
+  expect(evaluate(complete?.if, 'workflow_dispatch', { windows_full_tests: true })).toBe(true)
+  expect(evaluate(recovery?.if, 'workflow_dispatch', { windows_recovery_ui: true })).toBe(true)
+  expect(evaluate(recovery?.if, 'push', { windows_recovery_ui: true })).toBe(false)
+})
+
 it('builds Windows only for release tags or an explicit manual platform selection', async () => {
   const yaml = createRequire(import.meta.url)('js-yaml') as {
     load: (source: string) => {
@@ -31,9 +70,9 @@ it('builds Windows only for release tags or an explicit manual platform selectio
 })
 
 const releaseAssets = [
-  'bisheng-work-mac-arm64.dmg',
-  'bisheng-work-mac-x64.dmg',
-  'bisheng-work-windows-x64-setup.exe'
+  'bisheng-mac-arm64.dmg',
+  'bisheng-mac-x64.dmg',
+  'bisheng-windows-x64-setup.exe'
 ]
 
 /** The exact Harness build every `@deepseek-ai/dsh-*` production dep is pinned to. */
@@ -196,7 +235,7 @@ describe('GitHub release contract', () => {
       'utf8'
     )
 
-    expect(packageJson.build.artifactName).toBe('bisheng-work-${os}-${arch}.${ext}')
+    expect(packageJson.build.artifactName).toBe('bisheng-${os}-${arch}.${ext}')
     expect(packageJson.build.extraResources).toContainEqual({
       from: 'build/app-icon.png',
       to: 'icon.png'
@@ -238,7 +277,7 @@ describe('GitHub release contract', () => {
       to: 'web-import.html'
     })
     expect(packageJson.build.nsis.artifactName).toBe(
-      'bisheng-work-windows-${arch}-setup.${ext}'
+      'bisheng-windows-${arch}-setup.${ext}'
     )
     expect(packageJson.build.nsis.include).toBe('build/installer.nsh')
     expect(packageJson.build.win.target).toEqual([{ target: 'nsis', arch: ['x64'] }])
@@ -263,6 +302,7 @@ describe('GitHub release contract', () => {
     ) as {
       dependencies: Record<string, string>
       build: {
+        appId: string
         productName: string
         protocols: Array<{ name: string; schemes: string[] }>
         publish: Array<{ provider: string; url?: string; owner?: string; repo?: string }>
@@ -275,9 +315,10 @@ describe('GitHub release contract', () => {
     )
 
     expect(packageJson.dependencies['electron-updater']).toBeTruthy()
+    expect(packageJson.build.appId).toBe('io.bisheng')
     expect(packageJson.build.productName).toBe('BISHENG')
     expect(packageJson.build.protocols).toEqual([
-      { name: 'BISHENG Enterprise Login', schemes: ['bisheng-work'] }
+      { name: 'BISHENG Enterprise Login', schemes: ['bisheng'] }
     ])
     expect(packageJson.build.publish).toEqual([
       {
@@ -292,9 +333,9 @@ describe('GitHub release contract', () => {
       'latest-mac-x64.yml',
       'latest-mac.yml',
       'latest.yml',
-      'bisheng-work-mac-arm64.zip.blockmap',
-      'bisheng-work-mac-x64.zip.blockmap',
-      'bisheng-work-windows-x64-setup.exe.blockmap'
+      'bisheng-mac-arm64.zip.blockmap',
+      'bisheng-mac-x64.zip.blockmap',
+      'bisheng-windows-x64-setup.exe.blockmap'
     ]) {
       expect(workflow).toContain(asset)
     }
@@ -349,15 +390,15 @@ describe('GitHub release contract', () => {
     expect(packageJson.scripts['package:dev:win']).toContain('verify-target.mjs win32 x64')
     expect(packageJson.scripts['package:dev:win']).toContain('electron-builder.dev.cjs')
     expect(packageJson.scripts['package:dev:win']).toContain('--publish never')
-    expect(developmentConfig.appId).toBe('io.bisheng.work.dev')
+    expect(developmentConfig.appId).toBe('io.bisheng.dev')
     expect(developmentConfig.productName).toBe('BISHENG Dev')
     expect(developmentConfig.protocols).toEqual([
-      { name: 'BISHENG Dev Enterprise Login', schemes: ['bisheng-work-dev'] }
+      { name: 'BISHENG Dev Enterprise Login', schemes: ['bisheng-dev'] }
     ])
     expect(developmentConfig.directories.output).toBe('dist-dev')
     expect(developmentConfig.extraMetadata.dshDesktopChannel).toBe('development')
-    expect(developmentConfig.artifactName).toBe('bisheng-work-dev-${os}-${arch}.${ext}')
-    expect(developmentConfig.nsis.artifactName).toBe('bisheng-work-dev-windows-${arch}-setup.${ext}')
+    expect(developmentConfig.artifactName).toBe('bisheng-dev-${os}-${arch}.${ext}')
+    expect(developmentConfig.nsis.artifactName).toBe('bisheng-dev-windows-${arch}-setup.${ext}')
   })
 
   it('builds and publishes every supported platform', async () => {
@@ -375,6 +416,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('Require Rosetta for Intel packaging')
     expect(workflow).toContain('arch -x86_64 /usr/bin/true')
     expect(workflow).toContain('test "$(node -p \'process.arch\')" = x64')
+    expect(workflow).toContain('npm_config_arch: x64')
     expect(workflow).toContain('runs-on: windows-2022')
     expect(workflow).toContain('npm run package:dev:win')
     expect(workflow).toContain('Smoke test packaged Windows Harness')
@@ -398,7 +440,7 @@ describe('GitHub release contract', () => {
     expect(workflow).toContain('mode:')
     expect(workflow).toContain('--prerelease')
     expect(workflow).toContain('name: windows-x64-dev')
-    expect(workflow).toContain('dist-dev/bisheng-work-dev-windows-x64-setup.exe')
+    expect(workflow).toContain('dist-dev/bisheng-dev-windows-x64-setup.exe')
     for (const asset of releaseAssets) expect(workflow).toContain(asset)
     expect(
       workflow.match(

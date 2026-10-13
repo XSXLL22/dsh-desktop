@@ -4,7 +4,7 @@
 
 本仓库是独立的私有仓库，保留上游 Git 历史。初始化基线为上游 `main` 的 `a23788a7817b4f3980e3c4aa96ed48e24e653e74`。协作与同步方式见 [私有仓库开发说明](docs/bisheng-work.md)。
 
-当前应用产品名称为 BISHENG；为兼容已有安装，应用 ID、数据目录、登录协议及发布资产文件名继续保留 `bisheng-work` 标识。**以下下载、发布及产品介绍均属于上游 DSH Desktop，不代表 BISHENG 已发布。** 上游及第三方代码保留各自许可；新增非开源功能应明确其授权范围，不应默认沿用下方 MIT 标识。
+当前应用产品名称为 BISHENG。应用 ID 为 `io.bisheng`，数据目录、登录协议和发布资产文件名使用 `bisheng`（开发通道为 `bisheng-dev`）。更新地址、ModelScope 仓库 `alexyaojin/bisheng-work` 和 GitHub 仓库仍使用 `bisheng-work`。**以下下载、发布及产品介绍均属于上游 DSH Desktop，不代表 BISHENG 已发布。** 上游及第三方代码保留各自许可；新增非开源功能应明确其授权范围，不应默认沿用下方 MIT 标识。
 
 ---
 

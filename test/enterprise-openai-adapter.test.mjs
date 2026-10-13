@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import {
   ALLOWED_ATTRIBUTION_HEADERS,
   EnterpriseLlmAdapter,
@@ -34,6 +34,81 @@ async function usageFrom(payload) {
 }
 
 describe('BiSheng OpenAI adapter', () => {
+  it.each([
+    { text: 'result', isError: false, expected: 'result' },
+    { text: 'lookup failed', isError: true, expected: 'lookup failed' },
+    { text: '', isError: false, expected: '(no output)' }
+  ])('serializes Harness tool-role messages with their call ID: $expected', ({ text, isError, expected }) => {
+    const request = serializeEnterpriseRequest({
+      model: model.id,
+      messages: [
+        { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'lookup', arguments: '{}' }] },
+        createToolResultMessage({
+          callId: ToolCallId('call-1'),
+          content: text ? [{ type: 'text', text }] : [],
+          isError
+        })
+      ]
+    }, model)
+    expect(request.messages).toEqual([
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'call-1', content: expected }
+    ])
+  })
+
+  it('preserves parallel tool results through a complete adapter round trip', async () => {
+    const requests = []
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng',
+      models: () => [model],
+      request: async (body) => {
+        requests.push(body)
+        const first = requests.length === 1
+        if (!first) {
+          expect(body.messages.slice(2)).toEqual([
+            { role: 'tool', tool_call_id: 'call-1', content: 'first result' },
+            { role: 'tool', tool_call_id: 'call-2', content: 'second result' }
+          ])
+        }
+        const delta = first ? { tool_calls: [
+          { index: 0, id: 'call-1', type: 'function', function: { name: 'lookup', arguments: '{"q":"first"}' } },
+          { index: 1, id: 'call-2', type: 'function', function: { name: 'lookup', arguments: '{"q":"second"}' } }
+        ] } : { content: 'completed' }
+        return new Response([
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: first ? 'tool_calls' : 'stop' }] })}\n\n`,
+          'data: [DONE]\n\n'
+        ].join(''), { headers: { 'content-type': 'text/event-stream' } })
+      }
+    })
+    const options = {
+      provider: 'bisheng-enterprise', model: model.id,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'look up both' }] }],
+      tools: [{ name: 'lookup', description: 'Lookup', parameters: { type: 'object' } }]
+    }
+    const firstChunks = []
+    for await (const chunk of adapter.stream(options)) firstChunks.push(chunk)
+    const calls = firstChunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block)
+    expect(calls).toHaveLength(2)
+    expect(firstChunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'tool-calls' } })
+    const chunks = []
+    for await (const chunk of adapter.stream({
+      ...options,
+      messages: [
+        ...options.messages,
+        { role: 'assistant', content: calls },
+        ...calls.map((call, index) => createToolResultMessage({
+          callId: call.id,
+          content: [{ type: 'text', text: index === 0 ? 'first result' : 'second result' }],
+          isError: false
+        }))
+      ]
+    })) chunks.push(chunk)
+    expect(requests).toHaveLength(2)
+    expect(chunks).toContainEqual({ type: 'text-delta', index: 0, text: 'completed' })
+    expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'stop' } })
+  })
+
   it('copies only the known attribution header keys', () => {
     const headers = attributionHeaders()
     expect(Object.keys(headers).map((key) => key.toLowerCase()).sort()).toEqual([...ALLOWED_ATTRIBUTION_HEADERS])
@@ -245,6 +320,125 @@ describe('BiSheng OpenAI adapter', () => {
     })) chunks.push(chunk)
     expect(requests).toBe(1)
     expect(chunks).toContainEqual({ type: 'text-delta', index: 0, text: 'partial' })
-    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error', failure: { status: 200, requestId: 'req-1' } } })
+    expect(chunks.at(-1)).toMatchObject({
+      type: 'finish',
+      reason: { kind: 'error', failure: { code: 'monthly_token_limit_exceeded', status: 200, requestId: 'req-1' } }
+    })
+  })
+
+  async function finishFrom(response) {
+    let requests = 0
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng', models: () => [model],
+      request: async () => {
+        requests += 1
+        return response
+      }
+    })
+    const chunks = []
+    try {
+      for await (const chunk of adapter.stream({
+        provider: 'bisheng-enterprise', model: model.id,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+      })) chunks.push(chunk)
+      return { requests, failure: chunks.at(-1)?.reason?.failure }
+    } catch (error) {
+      return { requests, error }
+    }
+  }
+
+  it('keeps the BiSheng context sentence while reporting the harness overflow code', async () => {
+    const exact = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Model context length exceeded","code":"context_length_exceeded"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    const detailed = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"This model\'s maximum context length is 128000 tokens.","code":"context_length_exceeded"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    expect(exact.failure).toMatchObject({
+      code: 'CONTEXT_WINDOW_EXCEEDED',
+      message: 'Model context length exceeded'
+    })
+    expect(detailed.failure).toMatchObject({
+      code: 'CONTEXT_WINDOW_EXCEEDED',
+      message: 'Model context length exceeded'
+    })
+  })
+
+  it('keeps an in-stream upstream failure code and does not retry', async () => {
+    const stream = 'event: error\ndata: {"error":{"message":"Upstream model request failed","type":"upstream_error","code":"upstream_error"},"request_id":"req-up"}\n\n'
+    const result = await finishFrom(new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' }
+    }))
+    expect(result.requests).toBe(1)
+    expect(result.failure).toMatchObject({ code: 'upstream_error', requestId: 'req-up' })
+  })
+
+  it('maps a codeless monthly-limit sentence without treating an upstream sentence as quota', async () => {
+    const monthly = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Monthly token limit reached"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    const upstream = await finishFrom(new Response(
+      'event: error\ndata: {"error":{"message":"Upstream model request failed"}}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } }
+    ))
+    expect(monthly.failure.code).toBe('monthly_token_limit_exceeded')
+    expect(upstream.failure.code).not.toBe('monthly_token_limit_exceeded')
+  })
+
+  it('keeps chat platform codes that used to collapse or show as a badge', async () => {
+    const cases = [
+      ['internal_error', 'Platform request failed.'],
+      ['seat_revoked', 'DSH seat revoked'],
+      ['invalid_access_token', 'Invalid DSH access token'],
+      ['user_disabled', 'User account unavailable']
+    ]
+    for (const [code, message] of cases) {
+      const result = await finishFrom(new Response(
+        `event: error\ndata: ${JSON.stringify({ error: { message, code } })}\n\n`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } }
+      ))
+      expect(result.requests).toBe(1)
+      expect(result.failure.code).toBe(code)
+      expect(result.failure.code).not.toBe('AUTH')
+    }
+  })
+
+  it('maps codeless local chat sentences without guessing an upstream failure', async () => {
+    const assigned = await finishFrom(new Response(JSON.stringify({
+      error: 'Model is not assigned to this account.'
+    }), { status: 403, headers: { 'content-type': 'application/json' } }))
+    const busy = await finishFrom(new Response(JSON.stringify({
+      error: 'Too many enterprise chats.'
+    }), { status: 429, headers: { 'content-type': 'application/json' } }))
+    const internal = await finishFrom(new Response(JSON.stringify({
+      error: { message: 'Internal error.' }
+    }), { status: 500, headers: { 'content-type': 'application/json' } }))
+    expect(assigned.error.failure.code).toBe('UNKNOWN_MODEL')
+    expect(busy.error.failure.code).toBe('enterprise_chat_busy')
+    expect(internal.error.failure.code).toBe('internal_error')
+    expect(internal.error.failure.code).not.toBe('SERVER')
+  })
+
+  it('keeps a JSON request id when the response header is absent', async () => {
+    const result = await finishFrom(new Response(JSON.stringify({
+      error: { message: 'Monthly token limit reached', code: 'monthly_token_limit_exceeded' },
+      request_id: 'body-req'
+    }), { status: 429, headers: { 'content-type': 'application/json' } }))
+    expect(result.error.failure).toMatchObject({
+      code: 'monthly_token_limit_exceeded',
+      requestId: 'body-req'
+    })
+  })
+
+  it('does not surface HTML from an unknown platform error', async () => {
+    const result = await finishFrom(new Response(JSON.stringify({
+      error: { message: '<html><body>gateway</body></html>', code: 'novel_platform_code' }
+    }), { status: 502, headers: { 'content-type': 'application/json' } }))
+    expect(result.error.failure.code).toBe('novel_platform_code')
+    expect(result.error.failure.message).not.toContain('<')
   })
 })

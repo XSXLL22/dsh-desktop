@@ -150,6 +150,7 @@ export class EnterpriseService {
   private requestId: string | undefined
   private pendingLogin: PendingLogin | undefined
   private modelsTimer: NodeJS.Timeout | undefined
+  private loginExpiryTimer: NodeJS.Timeout | undefined
   private modelsAttempt = 0
   private lastPublicSignature = ''
   private chatInFlight = 0
@@ -161,6 +162,11 @@ export class EnterpriseService {
     if (!options.vault.available) {
       this.error = options.vault.unavailableReason ?? 'Operating-system secure storage is unavailable.'
     }
+  }
+
+  async readState(): Promise<EnterprisePublicState> {
+    await this.expirePendingLoginIfDue()
+    return this.snapshot()
   }
 
   snapshot(): EnterprisePublicState {
@@ -272,6 +278,9 @@ export class EnterpriseService {
         timeoutMs: ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS,
         onAccepted: (result) => {
           void this.completeLogin(loginEpoch, result)
+        },
+        onExpired: () => {
+          void this.expirePendingLoginIfDue()
         }
       })
       try {
@@ -294,15 +303,19 @@ export class EnterpriseService {
           base
         )
         expectedAuthId = authorization.auth_id
+        const lifetimeMs = Math.min(authorization.expires_in * 1000, ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS)
+        const expiresAt = this.now() + lifetimeMs
+        callback.alignTimeout(lifetimeMs)
         this.pendingLogin = {
           epoch: loginEpoch,
           base,
           codeVerifier: pkce.codeVerifier,
           state: pkce.state,
           authId: authorization.auth_id,
-          expiresAt: this.now() + ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS,
+          expiresAt,
           callback
         }
+        this.scheduleLoginExpiry(loginEpoch)
         this.phase = 'authorizing'
         this.session = this.session ? { ...this.session, base } : { base }
         this.clearError()
@@ -314,6 +327,7 @@ export class EnterpriseService {
           base
         }
       } catch (error) {
+        this.clearLoginExpiryTimer()
         await callback.close()
         if (this.epoch === loginEpoch) this.pendingLogin = undefined
         this.rememberRequest(error)
@@ -417,12 +431,22 @@ export class EnterpriseService {
   private async completeLoginLocked(expectedEpoch: number, result: LoginCallbackAccepted): Promise<void> {
     const pending = this.pendingLogin
     if (!pending || pending.epoch !== expectedEpoch || this.epoch !== expectedEpoch) return
+    this.clearLoginExpiryTimer()
     this.pendingLogin = undefined
     await pending.callback.close().catch(() => undefined)
     if (result.error || !result.identityTicket) {
       this.phase = this.session?.access_token ? 'connected' : 'idle'
-      this.error = 'Enterprise login was cancelled.'
-      this.errorCode = undefined
+      if (
+        result.error === 'access_denied' ||
+        result.error === 'authorization_expired' ||
+        result.error === 'authorization_failed'
+      ) {
+        this.error = result.error
+        this.errorCode = result.error
+      } else {
+        this.error = 'Enterprise login was cancelled.'
+        this.errorCode = undefined
+      }
       this.publish()
       this.note('login_cancelled')
       return
@@ -503,7 +527,7 @@ export class EnterpriseService {
       if (this.epoch !== epoch) return this.snapshot()
       this.rememberRequest(error)
       if (isInvalidRefreshError(error)) {
-        await this.clearLocalSession('idle')
+        await this.endSessionKeepingError('idle')
         this.note('refresh_invalid', noteFromError(error))
         return this.snapshot()
       }
@@ -600,7 +624,7 @@ export class EnterpriseService {
     this.publish()
   }
 
-  private async tickModels(): Promise<void> {
+  private async tickModels(accessRetried = false): Promise<void> {
     if (!this.session?.base || !this.session.access_token) return
     const epoch = this.epoch
     try {
@@ -634,8 +658,18 @@ export class EnterpriseService {
       this.scheduleModels(this.modelsDelay())
     } catch (error) {
       if (this.epoch !== epoch) return
+      if (!accessRetried && error instanceof EnterprisePlatformError && error.code === 'invalid_access_token') {
+        try {
+          await this.refresh()
+        } catch {
+          return
+        }
+        if (this.epoch !== epoch || !this.session?.access_token) return
+        await this.tickModels(true)
+        return
+      }
       if (isInvalidRefreshError(error)) {
-        await this.enqueueMutation(async () => this.clearLocalSession('idle'))
+        await this.enqueueMutation(async () => this.endSessionKeepingError('idle', error))
         return
       }
       this.modelsAvailable = false
@@ -907,6 +941,19 @@ export class EnterpriseService {
     }
   }
 
+  private async endSessionKeepingError(phase: EnterprisePhase, error?: unknown): Promise<void> {
+    if (error !== undefined) this.rememberRequest(error)
+    const message = this.error
+    const code = this.errorCode
+    const requestId = this.requestId
+    await this.clearLocalSession(phase)
+    if (this.phase === 'error') return
+    this.error = message
+    this.errorCode = code
+    this.requestId = requestId
+    this.publish()
+  }
+
   private async clearLocalSession(phase: EnterprisePhase): Promise<void> {
     this.epoch += 1
     this.clearModelsTimer()
@@ -946,9 +993,41 @@ export class EnterpriseService {
   }
 
   private async cancelPendingLogin(): Promise<void> {
+    this.clearLoginExpiryTimer()
     const pending = this.pendingLogin
     this.pendingLogin = undefined
     if (pending) await pending.callback.close()
+  }
+
+  private scheduleLoginExpiry(epoch: number): void {
+    this.clearLoginExpiryTimer()
+    const pending = this.pendingLogin
+    if (!pending || pending.epoch !== epoch) return
+    const delay = Math.max(0, pending.expiresAt - this.now())
+    this.loginExpiryTimer = setTimeout(() => {
+      void this.expirePendingLoginIfDue()
+    }, delay)
+    this.loginExpiryTimer.unref?.()
+  }
+
+  private clearLoginExpiryTimer(): void {
+    if (this.loginExpiryTimer) clearTimeout(this.loginExpiryTimer)
+    this.loginExpiryTimer = undefined
+  }
+
+  private async expirePendingLoginIfDue(): Promise<void> {
+    const pending = this.pendingLogin
+    if (!pending || this.phase !== 'authorizing' || pending.expiresAt > this.now()) return
+    const epoch = pending.epoch
+    await this.enqueueMutation(async () => {
+      const current = this.pendingLogin
+      if (!current || current.epoch !== epoch || this.phase !== 'authorizing' || current.expiresAt > this.now()) return
+      await this.completeLoginLocked(epoch, {
+        authId: current.authId ?? '',
+        state: current.state,
+        error: 'authorization_expired'
+      })
+    })
   }
 
   private scheduleModels(delayMs: number): void {

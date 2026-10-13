@@ -18,6 +18,7 @@ export interface LoginCallbackAccepted {
 export interface EnterpriseLoginCallbackServer {
   readonly redirectUri: string
   readonly port: number
+  alignTimeout(timeoutMs: number): void
   close(): Promise<void>
 }
 
@@ -69,13 +70,11 @@ export async function startLoginCallbackServer(options: {
   expectedAuthId: () => string | undefined
   timeoutMs?: number
   onAccepted: (result: LoginCallbackAccepted) => void
+  onExpired?: () => void
 }): Promise<EnterpriseLoginCallbackServer> {
-  const timeoutMs = Math.min(
-    Math.max(options.timeoutMs ?? ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS, 1_000),
-    ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS
-  )
   let consumed = false
   let closed = false
+  let flowTimer: ReturnType<typeof setTimeout> | undefined
   let settleClose: (() => void) | undefined
   const closedPromise = new Promise<void>((resolve) => {
     settleClose = resolve
@@ -93,8 +92,26 @@ export async function startLoginCallbackServer(options: {
   function finish(): void {
     if (closed) return
     closed = true
-    clearTimeout(flowTimer)
+    if (flowTimer) clearTimeout(flowTimer)
+    flowTimer = undefined
     server.close(() => settleClose?.())
+  }
+
+  function scheduleTimeout(timeoutMs: number): void {
+    if (consumed || closed) return
+    if (flowTimer) clearTimeout(flowTimer)
+    const delay = Math.min(
+      Math.max(timeoutMs, 1_000),
+      ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS
+    )
+    flowTimer = setTimeout(() => {
+      if (!consumed && !closed) {
+        consumed = true
+        options.onExpired?.()
+      }
+      finish()
+    }, delay)
+    flowTimer.unref?.()
   }
 
   async function handleCallbackRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -168,12 +185,14 @@ export async function startLoginCallbackServer(options: {
     throw new Error('Enterprise login callback did not receive a TCP port.')
   }
 
-  const flowTimer = setTimeout(() => finish(), timeoutMs)
-  flowTimer.unref?.()
+  scheduleTimeout(options.timeoutMs ?? ENTERPRISE_CALLBACK_FLOW_TIMEOUT_MS)
 
   return {
     redirectUri: `http://${ENTERPRISE_CALLBACK_HOST}:${port}${ENTERPRISE_CALLBACK_PATH}`,
     port,
+    alignTimeout(timeoutMs: number) {
+      scheduleTimeout(timeoutMs)
+    },
     async close() {
       finish()
       await closedPromise

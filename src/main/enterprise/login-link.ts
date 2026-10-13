@@ -5,8 +5,8 @@ import { sameHarnessOrigin } from './harness-origin'
 
 export { sameHarnessOrigin }
 
-export const ENTERPRISE_LOGIN_PROTOCOL = 'bisheng-work'
-export const ENTERPRISE_LOGIN_DEV_PROTOCOL = 'bisheng-work-dev'
+export const ENTERPRISE_LOGIN_PROTOCOL = 'bisheng'
+export const ENTERPRISE_LOGIN_DEV_PROTOCOL = 'bisheng-dev'
 
 function packagedDevelopmentChannel(): boolean {
   if (!app.isPackaged) return false

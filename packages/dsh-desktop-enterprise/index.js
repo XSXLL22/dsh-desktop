@@ -1,3 +1,4 @@
+import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
 import {
   isInsecurePrivateHttpOrigin,
@@ -160,7 +161,8 @@ async function brokerJson(path, body) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
     throw Object.assign(new Error(typeof payload.error === 'string' ? payload.error : `Enterprise request failed (${response.status}).`), {
-      status: response.status
+      status: response.status,
+      ...(typeof payload.errorCode === 'string' && payload.errorCode ? { errorCode: payload.errorCode } : {})
     })
   }
   return payload
@@ -266,7 +268,7 @@ function startEnterpriseLlm(ctx, llm) {
     models: () => modelsAvailable ? models : [],
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
-      maxPixels: 4_194_304,
+      ...requestImageDimensions(ref.width, ref.height, 4_194_304),
       maxBytes: 5 * 1024 * 1024
     }, signal)
   })

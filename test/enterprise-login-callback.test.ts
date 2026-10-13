@@ -87,4 +87,55 @@ describe('enterprise login callback server', () => {
     expect(matched.status).toBe(200)
     expect(accepted).toBe(1)
   })
+
+  it('reports authorization expiry once when the callback flow times out', async () => {
+    let expired = 0
+    const server = await startLoginCallbackServer({
+      expectedState: 'state-good',
+      expectedAuthId: () => 'auth-good',
+      timeoutMs: 1_000,
+      onAccepted: () => undefined,
+      onExpired: () => {
+        expired += 1
+      }
+    })
+    servers.push(server)
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    expect(expired).toBe(1)
+    await server.close()
+    expect(expired).toBe(1)
+  })
+
+  it('does not report expiry after the callback is accepted or closed', async () => {
+    let expired = 0
+    const accepted = await startLoginCallbackServer({
+      expectedState: 'state-good',
+      expectedAuthId: () => 'auth-good',
+      timeoutMs: 1_000,
+      onAccepted: () => undefined,
+      onExpired: () => {
+        expired += 1
+      }
+    })
+    servers.push(accepted)
+    const matched = await fetch(
+      `${accepted.redirectUri}?auth_id=auth-good&state=state-good&identity_ticket=ticket_ok`
+    )
+    expect(matched.status).toBe(200)
+
+    const closed = await startLoginCallbackServer({
+      expectedState: 'state-good',
+      expectedAuthId: () => 'auth-good',
+      timeoutMs: 5_000,
+      onAccepted: () => undefined,
+      onExpired: () => {
+        expired += 1
+      }
+    })
+    servers.push(closed)
+    closed.alignTimeout(1_000)
+    await closed.close()
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    expect(expired).toBe(0)
+  })
 })
