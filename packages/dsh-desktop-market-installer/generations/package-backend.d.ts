@@ -36,6 +36,15 @@ export interface ProfileBundlePackageBackend {
   }): Promise<{ packageResult: PackageResult } | undefined>
   switched(request: { name: string; enabled: boolean; rowIds?: readonly string[] }): Promise<void>
   removed(request: { name: string }): Promise<void>
+  /** Reject a network enable before the profile manifest changes. Local and official bundles resolve. */
+  authorizeSwitch?(request: { name: string; enabled: boolean }): Promise<void>
+  /** Refuse a network spec before a registry lookup. Resolves undefined when inspection may continue. */
+  authorizeSpec?(parsed: { kind: string; path?: string; host?: string; spec?: string }): Promise<{
+    status: 'refused'
+    problem: string
+    reason: string
+    registries: string[]
+  } | undefined>
 }
 
 export function createGenerationPackageBackend(options: {

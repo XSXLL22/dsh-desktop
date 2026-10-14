@@ -260,7 +260,7 @@ describe('market baseline at normal startup', () => {
     deps.migrateProfileToGenerations = vi.fn(async () => ({ outcome: 'no-op' }) as const)
     expect(await runProfileStartupMaintenance(deps)).toMatchObject({ outcome: 'normal-profile' })
     expect(deps.migrateProfileToGenerations).toHaveBeenCalled()
-    expect(notes.join('\n')).toContain('community market baseline skipped by enterprise policy')
+    expect(notes.join('\n')).toContain('community market baseline skipped until the tenant allows third-party plugins')
   })
 
   it('does not inspect the installed market when the community baseline is skipped', async () => {

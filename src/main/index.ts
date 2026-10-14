@@ -3,6 +3,7 @@ import { applyMacosWindowBackdrop } from './macos-window-backdrop'
 import { checkBlockingPluginUpdates, communityUpgradeBlocked, enterpriseRecoveryChecks, selectPluginRecoveryTarget, PluginRecoveryEvidence, planPluginRecovery, runPluginRecoveryPlan, type PluginRecoveryCheck } from './plugin-recovery-market'
 import { RepairAgentService, type CrashEvidence } from './repair-agent'
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -42,6 +43,7 @@ import {
   readProfileMarket
 } from './state/market-baseline'
 import { canReenableProfilePlugin, enforceCommunityPluginPolicy, isProtectedProfileBundle } from './state/community-plugin-policy'
+import { readPersistedThirdPartyPolicy } from 'dsh-desktop-market-installer/enterprise-policy'
 import {
   clearProfileInstallMarker,
   markProfileInstallComplete
@@ -67,7 +69,7 @@ import {
   type ProfileCompatibilityIssue
 } from './state/profile-compatibility'
 import { ensureStoreDirPinned, inspectStoreConsistency } from './state/profile-store'
-import { LanMobileBridge } from './mobile/lan-mobile-bridge'
+import { cookiePair, LanMobileBridge } from './mobile/lan-mobile-bridge'
 import { createFilePairingPinStore, pairingPinStorePath } from './mobile/pairing-pin-store'
 import {
   detectPluginRecovery,
@@ -227,6 +229,15 @@ let mobileWindow: BrowserWindow | undefined
 let tray: Tray | undefined
 let runtime: HarnessRuntime
 let enterpriseDesktop: EnterpriseDesktopRuntime | undefined
+let localWorkbenchCapability: string | undefined
+
+async function liveThirdPartyPluginsAllowed(): Promise<boolean> {
+  try {
+    return (await enterpriseDesktop?.readThirdPartyPolicy())?.allowThirdPartyPlugins === true
+  } catch {
+    return false
+  }
+}
 let desktopStorageManager: DesktopStorageManager | undefined
 let windowStateManager: WindowStateManager | undefined
 let mobileBridge: LanMobileBridge
@@ -1350,6 +1361,8 @@ function launchHarness(): Promise<void> {
       incompletePluginRestoreId: () => incompletePluginRestoreId(dshHome),
       enforceCommunityPluginPolicy: () =>
         enforceCommunityPluginPolicy(dshHome, (line) => runtime.note(line)),
+      thirdPartyPluginsAllowed: async () =>
+        (await readPersistedThirdPartyPolicy(dshHome)).allowThirdPartyPlugins === true,
       preparePackageStore: async () => {
         // This must run after interrupted-migration recovery has allowed
         // Profile writes, but before any operation invokes pnpm.
@@ -2050,7 +2063,8 @@ async function showPluginRecovery(options?: {
           })
         }
       })
-      const effectivePluginChecks = enterpriseRecoveryChecks(pluginChecks)
+      const communityUpgradeAllowed = await liveThirdPartyPluginsAllowed()
+      const effectivePluginChecks = enterpriseRecoveryChecks(pluginChecks, communityUpgradeAllowed)
       let upgradeCandidate = detection.plugins.length === 1
         ? effectivePluginChecks[0]?.upgradeCandidate
         : undefined
@@ -2102,7 +2116,7 @@ async function showPluginRecovery(options?: {
       notice = undefined
       const target = selectPluginRecoveryTarget(action, detection.plugins)
       if ((action.startsWith('upgrade:') || action.startsWith('uninstall:')) && !target) continue
-      if (communityUpgradeBlocked(action, target?.type)) {
+      if (communityUpgradeBlocked(action, target?.type, communityUpgradeAllowed)) {
         notice = isChinese
           ? '企业版不支持社区插件升级，请选择卸载。'
           : 'This edition cannot upgrade community plugins. Choose removal instead.'
@@ -2130,6 +2144,7 @@ async function showPluginRecovery(options?: {
         const result = await (action === 'market-remove'
           ? removeMarket(dshHome)
           : upgradeMarketInSharedTree({
+            communityUpgradeAllowed,
             dshHome,
             dshEntryPath: dshEntryPath(),
             targetVersion: targetVersion!,
@@ -2210,6 +2225,7 @@ async function showPluginRecovery(options?: {
         await runtime.stop()
         const processed = await runPluginRecoveryPlan(plan, {
           upgrade: candidate => upgradePluginToGeneration({
+            communityUpgradeAllowed,
             dshHome, pluginName: candidate.packageName, targetVersion: candidate.targetVersion,
             nodeExecutablePath: bundledNodePath(), pnpmEntryPath: bundledPnpmEntryPath(),
             pnpmRunnerPath: bundledPnpmRunnerPath(),
@@ -2906,7 +2922,7 @@ async function showSafeModeManager(initial?: {
       }
 
       if (action.type === 'upgrade') {
-        if (communityUpgradeBlocked('upgrade')) {
+        if (communityUpgradeBlocked('upgrade', undefined, await liveThirdPartyPluginsAllowed())) {
           notice = isChinese
             ? '企业版不支持社区插件升级，请选择卸载。'
             : 'This edition cannot upgrade community plugins. Choose removal instead.'
@@ -2935,6 +2951,7 @@ async function showSafeModeManager(initial?: {
         for (const pkg of targets) {
           const report = reportsByPkg.get(pkg)!
           const res = await upgradePluginToGeneration({
+            communityUpgradeAllowed: await liveThirdPartyPluginsAllowed(),
             dshHome,
             pluginName: pkg,
             targetVersion: report.upgradeVersion!,
@@ -3268,7 +3285,11 @@ async function bootstrap(): Promise<void> {
     preferredPort: harnessPreferredPort(developmentBuild),
     extraEnvironment: () => {
       enterpriseDesktop?.rotateCapability()
-      return enterpriseDesktop?.harnessEnvironment() ?? {}
+      localWorkbenchCapability = randomBytes(32).toString('base64url')
+      return {
+        ...(enterpriseDesktop?.harnessEnvironment() ?? {}),
+        DSH_DESKTOP_LOCAL_WORKBENCH_CAPABILITY: localWorkbenchCapability
+      }
     },
     launchProcess: (executablePath, args, options) =>
       process.platform === 'darwin'
@@ -3348,6 +3369,36 @@ async function bootstrap(): Promise<void> {
     appVersion: () => app.getVersion()
   })
 
+  ipcMain.handle('workbench:install-local', async (event) => {
+    assertTrustedMainWindowEvent(event)
+    const secret = localWorkbenchCapability
+    const base = runtime.snapshot().url
+    const token = runtime.snapshot().authToken
+    if (!secret || !base || !token) throw new Error('Local workbench install is unavailable until Harness is ready.')
+    const selected = await dialog.showOpenDialog(mainWindow!, {
+      title: harnessLocale() === 'zh' ? '选择本地工作台目录' : 'Select a local workbench directory',
+      properties: ['openDirectory']
+    })
+    if (selected.canceled || !selected.filePaths[0]) return { ok: false, cancelled: true }
+    const handshake = new URL('/', base)
+    handshake.searchParams.set('token', token)
+    const authenticated = await fetch(handshake, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(10_000) })
+    const cookie = cookiePair(authenticated.headers.getSetCookie?.() ?? [])
+    if (!cookie) throw new Error('Harness did not accept the desktop session.')
+    const response = await fetch(new URL('/api/desktop-workbenches/local-install', base), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie,
+        'x-dsh-local-workbench-capability': secret
+      },
+      body: JSON.stringify({ path: selected.filePaths[0] }),
+      signal: AbortSignal.timeout(120_000)
+    })
+    const payload = await response.json().catch(() => ({})) as { error?: string, restartRequired?: boolean }
+    if (!response.ok) throw new Error(payload.error || `Local workbench install failed (${response.status}).`)
+    return { ok: true, restartRequired: payload.restartRequired === true }
+  })
   ipcMain.handle('directory-picker:open', async (event) => {
     if (
       !mainWindow ||

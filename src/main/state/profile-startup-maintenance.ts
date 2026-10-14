@@ -1,4 +1,3 @@
-import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
 import type {
   MigrationOutcome,
   MigrationRecoveryOutcome
@@ -36,6 +35,8 @@ export interface ProfileStartupMaintenanceDeps {
   shouldDeferProfileMaintenance: () => Promise<boolean>
   migrateProfileToGenerations: () => Promise<MigrationOutcome>
   ensureMarketBaseline: () => Promise<void>
+  /** Last known tenant decision. Missing means the plugin market stays out of this boot. */
+  thirdPartyPluginsAllowed?: () => Promise<boolean>
   /** Whether the market already installed can carry this boot on its own. */
   marketUsableWithoutBaseline: () => Promise<boolean>
   reportProfileConsistency: () => Promise<void>
@@ -213,11 +214,12 @@ export async function runProfileStartupMaintenance(
     deps.note(`[desktop] normal profile maintenance blocked: ${reason}`)
     return { outcome: 'safe-recovery', reason }
   }
-  const marketFailure = communityPluginInstallAllowed()
+  const thirdPartyPluginsAllowed = await deps.thirdPartyPluginsAllowed?.() ?? false
+  const marketFailure = thirdPartyPluginsAllowed
     ? await establishMarketBaseline()
     : undefined
-  if (!communityPluginInstallAllowed()) {
-    deps.note('[desktop] community market baseline skipped by enterprise policy')
+  if (!thirdPartyPluginsAllowed) {
+    deps.note('[desktop] community market baseline skipped until the tenant allows third-party plugins')
   }
   if (marketFailure !== undefined) {
     // An install that cannot reach the registry is common and must not cost the

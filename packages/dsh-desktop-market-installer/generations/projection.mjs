@@ -377,8 +377,10 @@ async function prepareGenerationProjection(dshHome, profile) {
   // for an empty Profile and overwritten with a reduced generated manifest.
   const manifestState = await readProfileManifest(dir)
   const enabled = await resolveEnabledGenerations(dshHome)
+  // `disabled` is the package switch Harness reads. It must not unlink a
+  // generation the user still has in `desired`: uninstall removes it from
+  // `desired`, while disable only keeps the package out of the running set.
   const excluded = new Set(await readQuarantinedPluginNames(dshHome, profile))
-  for (const name of excluded) enabled.delete(name)
   const targets = new Map()
   for (const [pluginName, generation] of enabled) {
     targets.set(pluginName, await validateEnabledGenerationTarget(pluginName, generation))

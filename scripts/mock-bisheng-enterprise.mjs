@@ -234,6 +234,16 @@ export function createMockEnterpriseServer(options = {}) {
       if (request.method === 'GET' && url.pathname === '/healthz') return sendJson(response, 200, { ok: true, origin: state.origin }, id)
       if (request.method === 'GET' && url.pathname === '/') return sendHtml(response, 200, layout('BiSheng DSH Mock', `<span class="tag">READY</span><h1>DSH 登录与模型 Mock</h1><div class="facts"><div><span>BASE</span><strong>${escapeHtml(state.origin)}</strong></div><div><span>合同版本</span><strong>${contractVersion}</strong></div></div><p>在 DSH Desktop Dev 的「设置 → 账号与企业」中填写此 BASE。</p>`))
       if (request.method === 'GET' && url.pathname === '/api/v1/dsh/config') return sendJson(response, 200, { enabled: true, client_id: CLIENT_ID, contract_version: contractVersion }, id)
+      if (request.method === 'GET' && url.pathname === '/api/v1/dsh/market/capabilities') {
+        return sendJson(response, 200, {
+          status_code: 200,
+          status_message: 'ok',
+          data: {
+            allow_third_party_plugins: process.env.MOCK_ALLOW_THIRD_PARTY_PLUGINS === '1',
+            allow_third_party_workbenches: process.env.MOCK_ALLOW_THIRD_PARTY_WORKBENCHES === '1'
+          }
+        }, id)
+      }
 
       if (request.method === 'POST' && url.pathname === '/api/dsh/authorizations') {
         const body = await readJson(request)

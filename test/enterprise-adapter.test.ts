@@ -137,7 +137,9 @@ describe('enterprise adapter without a Broker', () => {
       phase: 'disabled',
       revision: 0,
       models: [],
-      modelsAvailable: false
+      modelsAvailable: false,
+      allowThirdPartyPlugins: false,
+      allowThirdPartyWorkbenches: false
     })
   })
 

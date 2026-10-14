@@ -8,7 +8,15 @@ import { fileURLToPath } from 'node:url'
 
 import { PassThrough } from 'node:stream'
 
-import { communityPluginInstallAllowed, restrictCommunityPackageBackend } from './enterprise-policy.mjs'
+import { OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-app-boot'
+import { readQuarantinedPluginNames, releaseQuarantinedPlugin } from './community-quarantine.mjs'
+import {
+  createEnterpriseCapabilityPolicy,
+  localSourcePath,
+  restrictCommunityPackageBackend,
+  syncMarketBundle,
+  writePersistedThirdPartyPolicy
+} from './enterprise-policy.mjs'
 import { createGenerationPackageBackend } from './generations/package-backend.mjs'
 import {
   publishGenerationManifest
@@ -22,6 +30,7 @@ import {
 } from './generations/registry.mjs'
 import { DEFAULT_NPM_REGISTRY, resolveMarketRegistry } from './market-registry.mjs'
 import { forgetPlugin } from './plugin-state.mjs'
+import { detachWorkbenchPackage } from '../dsh-desktop-workbenches/market-install.mjs'
 import { SIDELINE_MARKER } from './pnpm-runner.mjs'
 import { removeTree } from './remove-tree.mjs'
 
@@ -44,6 +53,24 @@ function dshHome() {
 
 export function profileDirectory(home = dshHome()) {
   return join(home, 'profiles', MARKET_PROFILE)
+}
+
+/** A package still present as a desired generation or a real Profile dependency. */
+export async function physicallyInstalledPlugin(home, name) {
+  if (typeof name !== 'string' || name.length === 0 || name === MARKET_PACKAGE) return false
+  const [desired, generations] = await Promise.all([readDesired(home), listGenerations(home)])
+  const byId = new Map(generations.map((generation) => [generation.id, generation]))
+  if (desired.some((id) => {
+    const generation = byId.get(id)
+    return generation?.pluginName === name && existsSync(generation.directory)
+  })) return true
+  try {
+    const manifest = JSON.parse(await readFile(join(profileDirectory(home), 'package.json'), 'utf8'))
+    if (typeof manifest?.dependencies?.[name] !== 'string') return false
+    return existsSync(join(profileDirectory(home), 'node_modules', name, 'package.json'))
+  } catch {
+    return false
+  }
 }
 
 const LEGACY_PACKAGE_IMPORT_METHOD = /^package-import-method=clone-or-copy(?:\r?\n|$)/mu
@@ -374,11 +401,7 @@ export function createDesktopProfilesService(home = dshHome()) {
 }
 
 const COMMUNITY_PLUGIN_MUTATIONS = new Set(['add', 'update', 'upgrade'])
-
-function assertCommunityMutationAllowed(command) {
-  if (communityPluginInstallAllowed() || !COMMUNITY_PLUGIN_MUTATIONS.has(command)) return
-  throw new Error('POLICY_DISABLED: community plugin install and update are disabled in the enterprise edition.')
-}
+const capabilityPolicy = createEnterpriseCapabilityPolicy()
 
 function validatePluginOperation(args, invokingDir) {
   if (!Array.isArray(args) || args.length === 0) {
@@ -439,6 +462,7 @@ export function createDesktopPnpmService(options) {
     spawnProcess = spawn,
     home = dshHome()
   } = options
+  const policy = options.policy ?? capabilityPolicy
   let active
   let closed = false
 
@@ -598,7 +622,6 @@ export function createDesktopPnpmService(options) {
    */
   const runExternalMarketPluginInstall = (args, invokingDir, signal) => {
     validatePluginOperation(args, invokingDir)
-    assertCommunityMutationAllowed('add')
     if (closed) throw new Error('The BISHENG pnpm service has been disposed.')
     if (signal?.aborted) throw signal.reason ?? new Error('The package operation was aborted.')
     if (active) throw new Error('Another desktop pnpm operation is already running.')
@@ -606,6 +629,7 @@ export function createDesktopPnpmService(options) {
     if (spec === undefined) throw new Error('The install boundary needs a package spec.')
 
     const handle = asHandle(async ({ write, isCancelled, setCancel }) => {
+      await policy.authorizePluginMutation()
       if (isCancelled()) return { exitCode: 1, message: 'The package operation was aborted.' }
       const packageName = spec.slice(0, spec.lastIndexOf('@'))
       if (packageName === MARKET_PACKAGE) {
@@ -665,8 +689,8 @@ export function createDesktopPnpmService(options) {
   // or pinned GitHub sources. Keep its existing handle contract while using
   // the same generation backend and rollback path as the official market.
   const installWorkbenchGeneration = (request, invokingDir, signal) => {
-    assertCommunityMutationAllowed('add')
-    const { pluginSpec, expectedPluginName, expectedVersion, npmIntegrity } = request ?? {}
+    const source = request?.source === 'local' ? 'local' : 'market'
+    const { pluginSpec, expectedPluginName, expectedVersion, npmIntegrity, path: localPath } = request ?? {}
     validatePluginOperation(['add', pluginSpec], invokingDir)
     if (typeof expectedPluginName !== 'string' || !expectedPluginName || expectedPluginName === MARKET_PACKAGE) {
       throw new Error('A workbench install needs the package name it provides.')
@@ -677,6 +701,10 @@ export function createDesktopPnpmService(options) {
     if (active) throw new Error('Another desktop pnpm operation is already running.')
 
     const handle = asHandle(async ({ write, isCancelled, setCancel }) => {
+      if (source === 'market') await policy.authorizeWorkbenchMarketInstall()
+      if (source === 'local' && (typeof localPath !== 'string' || !isAbsolute(localPath))) {
+        return { exitCode: 1, message: 'A local workbench install needs an absolute directory chosen by the desktop.' }
+      }
       const registry = await resolveMarketRegistry({ profileDir: profileDirectory(home), args: [], environment })
       if (npmIntegrity !== undefined) {
         const base = (registry ?? DEFAULT_NPM_REGISTRY).replace(/\/+$/u, '')
@@ -693,7 +721,14 @@ export function createDesktopPnpmService(options) {
       write(`Installing ${expectedPluginName}@${expectedVersion} as an isolated generation…`)
       const control = new AbortController()
       setCancel(() => control.abort())
-      const mutation = await marketGenerationBackend.install({
+      const mutation = await marketGenerationBackend.install(source === 'local' ? {
+        kind: 'path',
+        path: localPath,
+        expectedName: expectedPluginName,
+        expectedVersion,
+        signal: control.signal,
+        onOutput: chunk => write(chunk.replace(/\r?\n$/u, ''))
+      } : {
         kind: 'registry',
         spec: pluginSpec,
         expectedName: expectedPluginName,
@@ -738,6 +773,9 @@ export function createDesktopPnpmService(options) {
         const published = await publishGenerationManifest(home, MARKET_PROFILE, { syncBundles: true })
         // A removed package leaves no switch behind; a reinstall starts enabled.
         await forgetPlugin(profileDirectory(home), pluginName)
+        await detachWorkbenchPackage(join(home, 'desktop-workbenches'), pluginName).catch((error) => {
+          write(`workbench record kept: ${error instanceof Error ? error.message : String(error)}`)
+        })
         write(disabled
           ? `staged for next restart: ${published.plugins.join(', ')}`
           : `already absent from the next restart: ${pluginName}`)
@@ -755,7 +793,6 @@ export function createDesktopPnpmService(options) {
 
   const runPlugin = (args, invokingDir, signal) => {
     validatePluginOperation(args, invokingDir)
-    assertCommunityMutationAllowed(args[0])
     if (closed) throw new Error('The BISHENG pnpm service has been disposed.')
     if (signal?.aborted) throw signal.reason ?? new Error('The package operation was aborted.')
     if (active) throw new Error('Another desktop pnpm operation is already running.')
@@ -775,6 +812,9 @@ export function createDesktopPnpmService(options) {
             syncBundles: true
           })
           await forgetPlugin(profileDirectory(home), generationRemoval)
+          await detachWorkbenchPackage(join(home, 'desktop-workbenches'), generationRemoval).catch((error) => {
+            write(`workbench record kept: ${error instanceof Error ? error.message : String(error)}`)
+          })
           write(`staged for next restart: ${published.plugins.join(', ')}`)
           return { exitCode: 0 }
         })
@@ -789,6 +829,44 @@ export function createDesktopPnpmService(options) {
     }
 
     void cleanStaleTemporaryDirectories(home).catch(() => undefined)
+
+    if (COMMUNITY_PLUGIN_MUTATIONS.has(args[0])) {
+      const handle = asHandle(async ({ write, isCancelled, setCancel }) => {
+        const spec = args.slice(1).find((argument) => typeof argument === 'string' && !argument.startsWith('-'))
+        if (localSourcePath(spec) === undefined) await policy.authorizePluginMutation()
+        if (isCancelled()) return { exitCode: 1, message: 'The package operation was aborted.' }
+        const child = spawnProcess(
+          executablePath,
+          [dshEntryPath, 'plugin', '--profile', MARKET_PROFILE, ...args],
+          {
+            cwd: invokingDir,
+            env: buildPnpmEnvironment(binDirectory, environment, executablePath),
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            detached: process.platform !== 'win32'
+          }
+        )
+        const append = (chunk) => write(chunk.toString('utf8').replace(/\r?\n$/u, ''))
+        child.stdout.on('data', append)
+        child.stderr.on('data', append)
+        setCancel(() => killProcessTree(child))
+        const exit = await new Promise((resolveDone, rejectDone) => {
+          child.once('error', rejectDone)
+          child.once('close', (exitCode, exitSignal) => resolveDone({ exitCode, signal: exitSignal }))
+        })
+        return {
+          exitCode: exit.exitCode ?? 1,
+          message: exit.exitCode === 0 ? undefined : `plugin command failed (${exit.signal ?? exit.exitCode})`
+        }
+      })
+      active = handle
+      signal?.addEventListener('abort', handle.cancel, { once: true })
+      void handle.done.finally(() => {
+        signal?.removeEventListener('abort', handle.cancel)
+        if (active === handle) active = undefined
+      })
+      return handle
+    }
 
     const child = spawnProcess(
       executablePath,
@@ -843,6 +921,7 @@ export function createDesktopPnpmService(options) {
     runExternalMarketPluginInstall,
     installWorkbenchGeneration,
     removeWorkbenchGeneration,
+    authorizeWorkbenchMarketInstall: () => policy.authorizeWorkbenchMarketInstall(),
     async dispose() {
       closed = true
       const operation = active
@@ -941,9 +1020,25 @@ export async function apply(ctx) {
     nodeExecutablePath: process.execPath,
     pnpmEntryPath: resolvePnpmEntry()
   })
+  ctx.provide('enterpriseCapabilityPolicy', capabilityPolicy)
   ctx.provide('desktopProfiles', desktopProfiles)
   ctx.provide('desktopPnpm', desktopPnpm)
-  ctx.provide('profileBundlePackageBackend', restrictCommunityPackageBackend(profileBundlePackageBackend))
+  capabilityPolicy.setCompositionHandler(async (snapshot) => {
+    await writePersistedThirdPartyPolicy(home, snapshot)
+    if (await syncMarketBundle(home, snapshot.allowThirdPartyPlugins === true)) restartRequired = true
+  })
+  ctx.provide('profileBundlePackageBackend', restrictCommunityPackageBackend(profileBundlePackageBackend, capabilityPolicy, {
+    isQuarantined: async (name) => (await readQuarantinedPluginNames(home)).includes(name),
+    releaseQuarantine: async (name) => { await releaseQuarantinedPlugin(home, name) },
+    isOfficialBundle: async (name) => OPTIONAL_BUNDLES.includes(name),
+    isLocallyInstalled: async (name) => {
+      const generations = await listGenerations(home)
+      return generations.some((generation) =>
+        generation.pluginName === name && localSourcePath(generation.sourceSpec) !== undefined
+      )
+    },
+    isPhysicallyInstalled: (name) => physicallyInstalledPlugin(home, name)
+  }))
   ctx.effect(() => () => desktopPnpm.dispose(), 'dsh-desktop-market-installer: desktop pnpm')
 
   const runProfileCommand = async (args, action) => {
@@ -981,7 +1076,8 @@ export async function apply(ctx) {
 
   const status = async () => {
     const installation = await readMarketInstallation(home)
-    const policy = communityPluginInstallAllowed()
+    const currentPolicy = capabilityPolicy.snapshot()
+    const policy = currentPolicy.allowThirdPartyPlugins === true
       ? {}
       : { policyDisabled: true, policy: 'POLICY_DISABLED' }
     if (phase === 'installing' || phase === 'uninstalling') {
@@ -1138,7 +1234,9 @@ export async function apply(ctx) {
           sendJson(res, 403, { error: 'Request rejected.' })
           return
         }
-        if (!communityPluginInstallAllowed()) {
+        try {
+          await capabilityPolicy.authorizePluginMutation()
+        } catch {
           sendJson(res, 403, { error: 'POLICY_DISABLED' })
           return
         }

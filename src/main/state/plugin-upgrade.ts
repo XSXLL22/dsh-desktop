@@ -9,7 +9,6 @@ import {
   withRegistryLock,
   writeDesired
 } from 'dsh-desktop-market-installer/generations/registry'
-import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
 import { resolveMarketRegistry } from 'dsh-desktop-market-installer/market-registry'
 import { lstat, readFile, readlink, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -24,6 +23,8 @@ export interface PluginUpgradeOptions {
   /** The packaged lock-recovery runner the `.desktop-bin` pnpm shim routes through. */
   pnpmRunnerPath?: string
   note?: (line: string) => void
+  /** Live tenant decision. Omitted or false keeps network upgrades closed. */
+  communityUpgradeAllowed?: boolean
 }
 
 export interface PluginUpgradeResult {
@@ -40,7 +41,7 @@ export async function upgradePluginToGeneration(
   options: PluginUpgradeOptions
 ): Promise<PluginUpgradeResult> {
   const { dshHome, pluginName, targetVersion, nodeExecutablePath, pnpmEntryPath, pnpmRunnerPath, note } = options
-  if (!communityPluginInstallAllowed()) {
+  if (options.communityUpgradeAllowed !== true) {
     note?.(`[plugin-upgrade] rejected community upgrade of ${pluginName}`)
     return { ok: false, detail: 'POLICY_DISABLED' }
   }
@@ -128,6 +129,8 @@ export interface MarketSharedTreeUpgradeOptions {
    */
   pnpmRunnerPath: string
   note?: (line: string) => void
+  /** Live tenant decision. Omitted or false keeps the market upgrade closed. */
+  communityUpgradeAllowed?: boolean
 }
 
 /**
@@ -151,7 +154,7 @@ export async function upgradeMarketInSharedTree(
   options: MarketSharedTreeUpgradeOptions
 ): Promise<PluginUpgradeResult> {
   const { dshHome, dshEntryPath, targetVersion, nodeExecutablePath, pnpmEntryPath, pnpmRunnerPath, note } = options
-  if (!communityPluginInstallAllowed()) {
+  if (options.communityUpgradeAllowed !== true) {
     note?.('[plugin-upgrade] rejected community market upgrade')
     return { ok: false, detail: 'POLICY_DISABLED' }
   }
