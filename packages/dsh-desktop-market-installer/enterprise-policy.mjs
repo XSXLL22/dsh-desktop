@@ -1,13 +1,157 @@
-/**
- * This repository ships the enterprise edition only. Community plugin
- * install and update stay closed even when the user is offline or signed out.
- */
-export const ENTERPRISE_CAPABILITY_POLICY = Object.freeze({
-  communityPluginInstall: false
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join } from 'node:path'
+
+const POLICY_PATH = join('profiles', 'web', '.dsh-desktop', 'third-party-policy.json')
+const CLOSED = Object.freeze({
+  allowThirdPartyPlugins: false,
+  allowThirdPartyWorkbenches: false,
+  syncSeconds: 60,
+  connectionKey: undefined,
+  connected: false,
+  authoritative: false
 })
 
-export function communityPluginInstallAllowed() {
-  return ENTERPRISE_CAPABILITY_POLICY.communityPluginInstall === true
+function booleanFlag(value) {
+  return value === true
+}
+
+function syncSeconds(value) {
+  return Number.isSafeInteger(value) && value >= 5 && value <= 3600 ? value : 60
+}
+
+export function normalizeThirdPartyPolicy(value) {
+  const source = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return {
+    allowThirdPartyPlugins: booleanFlag(source.allowThirdPartyPlugins ?? source.allow_third_party_plugins),
+    allowThirdPartyWorkbenches: booleanFlag(source.allowThirdPartyWorkbenches ?? source.allow_third_party_workbenches),
+    syncSeconds: syncSeconds(source.syncSeconds ?? source.sync_seconds),
+    connectionKey: typeof source.connectionKey === 'string' ? source.connectionKey : undefined,
+    connected: source.connected === true,
+    authoritative: source.authoritative === true,
+    ...(source.stale === true ? { stale: true } : {})
+  }
+}
+
+export function createEnterpriseCapabilityPolicy(options = {}) {
+  const now = options.now ?? (() => Date.now())
+  let snapshot = { ...CLOSED }
+  let resolver
+  // Tenant and resolver lifetime. Reads never advance it, so a display refresh
+  // cannot invalidate an authorization that is already in flight.
+  let lifecycle = 0
+  const inflight = new Map()
+  let fetchedAt = 0
+  let compositionHandler
+
+  const publish = (next) => {
+    snapshot = next
+    fetchedAt = next.authoritative && next.connected ? now() : 0
+    void compositionHandler?.({ ...snapshot })
+    return snapshot
+  }
+  const failClosed = (connectionKey, connected = false) => publish({
+    ...CLOSED,
+    connectionKey,
+    connected,
+    authoritative: true
+  })
+  const disabled = (kind) => new Error(`POLICY_DISABLED: current enterprise has not opened ${kind}.`)
+  const dropReads = () => { inflight.clear() }
+  const readTenant = (expectedConnectionKey, { force }) => {
+    if (!resolver) return Promise.resolve({ policy: failClosed(expectedConnectionKey, false), accepted: false })
+    const fresh = !force
+      && snapshot.authoritative
+      && snapshot.connectionKey === expectedConnectionKey
+      && now() - fetchedAt < snapshot.syncSeconds * 1000
+    if (fresh) return Promise.resolve({ policy: { ...snapshot }, accepted: true })
+    const slot = expectedConnectionKey ?? ''
+    const existing = inflight.get(slot)
+    if (existing) return existing
+    const started = lifecycle
+    const request = (async () => {
+      try {
+        const value = normalizeThirdPartyPolicy(await resolver())
+        if (started !== lifecycle || (expectedConnectionKey !== undefined && value.connectionKey !== expectedConnectionKey) || value.stale === true) {
+          return { policy: { ...snapshot }, accepted: false }
+        }
+        if (value.connected !== true) return { policy: failClosed(expectedConnectionKey, false), accepted: false }
+        const policy = publish({
+          allowThirdPartyPlugins: value.allowThirdPartyPlugins,
+          allowThirdPartyWorkbenches: value.allowThirdPartyWorkbenches,
+          syncSeconds: value.syncSeconds,
+          connectionKey: expectedConnectionKey ?? value.connectionKey,
+          connected: true,
+          authoritative: true
+        })
+        return { policy: { ...policy }, accepted: true }
+      } catch {
+        if (started !== lifecycle) return { policy: { ...snapshot }, accepted: false }
+        return { policy: failClosed(expectedConnectionKey, true), accepted: false }
+      } finally {
+        if (inflight.get(slot) === request) inflight.delete(slot)
+      }
+    })()
+    inflight.set(slot, request)
+    return request
+  }
+
+  const policy = {
+    registerResolver(next) {
+      resolver = next
+      lifecycle += 1
+      dropReads()
+      snapshot = { ...CLOSED }
+      fetchedAt = 0
+      return () => {
+        if (resolver !== next) return
+        resolver = undefined
+        lifecycle += 1
+        dropReads()
+        snapshot = { ...CLOSED }
+        fetchedAt = 0
+      }
+    },
+    setCompositionHandler(next) {
+      compositionHandler = next
+      return () => {
+        if (compositionHandler === next) compositionHandler = undefined
+      }
+    },
+    snapshot() {
+      return { ...snapshot }
+    },
+    reset() {
+      lifecycle += 1
+      dropReads()
+      publish({ ...CLOSED })
+    },
+    async refresh(expectedConnectionKey, refreshOptions = {}) {
+      const result = await readTenant(expectedConnectionKey, { force: refreshOptions.force === true })
+      return { ...result.policy }
+    },
+    async authorize(kind) {
+      if (!resolver) {
+        failClosed(snapshot.connectionKey, false)
+        throw disabled(kind)
+      }
+      const started = lifecycle
+      const key = snapshot.connectionKey
+      const result = await readTenant(key, { force: true })
+      if (started !== lifecycle || result.accepted !== true || result.policy.connected !== true) throw disabled(kind)
+      if (key !== undefined && result.policy.connectionKey !== key) throw disabled(kind)
+      const allowed = kind === 'network plugin installation'
+        ? result.policy.allowThirdPartyPlugins
+        : result.policy.allowThirdPartyWorkbenches
+      if (allowed !== true) throw disabled(kind)
+    },
+    authorizePluginMutation() {
+      return policy.authorize('network plugin installation')
+    },
+    authorizeWorkbenchMarketInstall() {
+      return policy.authorize('network workbench installation')
+    }
+  }
+  return policy
 }
 
 const PROTECTED_BUNDLES = new Set([
@@ -31,21 +175,151 @@ export function isProtectedProfileBundle(name) {
   return PROTECTED_BUNDLES.has(name)
 }
 
-/** Preserve enterprise admission at the official Plugin Manager's new backend seam. */
-export function restrictCommunityPackageBackend(backend) {
+/** Startup and recovery stay closed until a live tenant read explicitly allows them. */
+export function communityPluginInstallAllowed() {
+  return false
+}
+
+/** Absolute path carried by a local directory or local tarball spec. Remote URLs are not absolute paths. */
+export function localSourcePath(spec) {
+  if (typeof spec !== 'string') return undefined
+  const stripped = spec.trim().replace(/^(?:file|link):/u, '')
+  return isAbsolute(stripped) ? stripped : undefined
+}
+
+/** A package-manager request whose bytes already live on this machine. */
+export function isLocalPluginRequest(request) {
+  if (request === null || typeof request !== 'object') return false
+  if (request.kind === 'path') return localSourcePath(request.path) !== undefined
+  if (request.kind === 'tarball') return request.host === undefined && localSourcePath(request.path) !== undefined
+  return false
+}
+
+const NETWORK_PLUGIN_REFUSAL = Object.freeze({
+  status: 'refused',
+  problem: 'unknown',
+  reason: 'POLICY_DISABLED: current enterprise has not opened network plugin installation.',
+  registries: []
+})
+
+export function restrictCommunityPackageBackend(backend, policy = createEnterpriseCapabilityPolicy(), options = {}) {
+  const releaseQuarantine = options.releaseQuarantine ?? (async () => undefined)
+  const isOfficialBundle = options.isOfficialBundle ?? (async () => false)
+  const isLocallyInstalled = options.isLocallyInstalled ?? (async () => false)
+  const isPhysicallyInstalled = options.isPhysicallyInstalled ?? (async () => false)
+  // Kept so existing callers can still pass the historical quarantine list.
+  // Enablement no longer consults it; source decides.
+  void options.isQuarantined
+
+  const mayEnableWithoutNetwork = async (name) => {
+    if (typeof name !== 'string' || name.length === 0) return false
+    if (isProtectedProfileBundle(name)) return true
+    if (await isOfficialBundle(name)) return true
+    return isLocallyInstalled(name)
+  }
+
   return {
     ...backend,
     async install(request) {
-      if (!communityPluginInstallAllowed()) {
-        throw new Error('POLICY_DISABLED: use the enterprise plugin market to install and update plugins.')
+      if (!isLocalPluginRequest(request)) await policy.authorizePluginMutation()
+      const result = await backend.install(request)
+      const name = request?.expectedName ?? request?.name
+      if (typeof name === 'string' && name) await releaseQuarantine(name)
+      return result
+    },
+    async authorizeSpec(parsed) {
+      if (isLocalPluginRequest(parsed)) return undefined
+      try {
+        await policy.authorizePluginMutation()
+        return undefined
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('POLICY_DISABLED')) {
+          return { ...NETWORK_PLUGIN_REFUSAL }
+        }
+        throw error
       }
-      return backend.install(request)
+    },
+    async authorizeSwitch(request) {
+      if (request?.enabled !== true) return
+      // dshmarket is the market UI itself. Enabling it while the tenant has
+      // closed third-party plugins would show that market again.
+      if (request?.name === 'dshmarket') {
+        await policy.authorizePluginMutation()
+        return
+      }
+      if (await mayEnableWithoutNetwork(request.name)) return
+      // An already installed package only flips the local switch. The bytes
+      // are already on disk, so this is not a network install.
+      if (await isPhysicallyInstalled(request.name)) return
+      await policy.authorizePluginMutation()
     },
     async switched(request) {
-      if (request.enabled && !communityPluginInstallAllowed() && !isProtectedProfileBundle(request.name)) {
-        throw new Error('POLICY_DISABLED: community plugins cannot be re-enabled in the enterprise edition.')
-      }
+      const installed = request?.name !== 'dshmarket' && (
+        await mayEnableWithoutNetwork(request.name) || await isPhysicallyInstalled(request.name)
+      )
+      if (request?.enabled === true && installed) await releaseQuarantine(request.name)
       return backend.switched(request)
     }
   }
+}
+
+function policyFile(dshHome) {
+  return join(dshHome, POLICY_PATH)
+}
+
+export async function readPersistedThirdPartyPolicy(dshHome) {
+  try {
+    return normalizeThirdPartyPolicy(JSON.parse(await readFile(policyFile(dshHome), 'utf8')))
+  } catch {
+    return normalizeThirdPartyPolicy(undefined)
+  }
+}
+
+export async function writePersistedThirdPartyPolicy(dshHome, policy) {
+  const path = policyFile(dshHome)
+  const next = normalizeThirdPartyPolicy(policy)
+  await mkdir(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify({
+    allowThirdPartyPlugins: next.allowThirdPartyPlugins,
+    allowThirdPartyWorkbenches: next.allowThirdPartyWorkbenches
+  }, null, 2)}\n`, 'utf8')
+  await rename(temporary, path)
+}
+
+async function readManifest(dshHome) {
+  const path = join(dshHome, 'profiles', 'web', 'package.json')
+  const manifest = JSON.parse(await readFile(path, 'utf8'))
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error(`profile manifest is not a JSON object at ${path}`)
+  }
+  return { path, manifest }
+}
+
+/** Keep the dshmarket package, but only compose it when the tenant allows the plugin market. */
+export async function syncMarketBundle(dshHome, allowed) {
+  let loaded
+  try {
+    loaded = await readManifest(dshHome)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+  const { path, manifest } = loaded
+  const profile = manifest.dsh?.profile ?? {}
+  const bundles = Array.isArray(profile.bundles) ? profile.bundles.filter((name) => typeof name === 'string') : []
+  const hasMarket = bundles.includes('dshmarket')
+  const installed = typeof manifest.dependencies?.dshmarket === 'string'
+  let next = bundles
+  if (allowed && installed && !hasMarket) next = [...bundles, 'dshmarket']
+  if (!allowed && hasMarket) next = bundles.filter((name) => name !== 'dshmarket')
+  if (next.length === bundles.length && next.every((name, index) => name === bundles[index])) return false
+  const dsh = manifest.dsh ?? {}
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify({
+    ...manifest,
+    dsh: { ...dsh, profile: { ...profile, bundles: next } }
+  }, null, 2)}\n`, 'utf8')
+  await rename(temporary, path)
+  return true
 }

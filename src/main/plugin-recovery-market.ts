@@ -1,4 +1,3 @@
-import { communityPluginInstallAllowed } from 'dsh-desktop-market-installer/enterprise-policy'
 import type { PluginHealthReport, PluginUpgradeCandidate } from './state/plugin-market-check'
 import type { ProfileCompatibilityIssue } from './state/profile-compatibility'
 
@@ -46,8 +45,8 @@ export interface PluginRecoveryCheck {
  * candidate and recommend removal so the screen and the executor share one plan.
  * Calling this twice yields the same checks.
  */
-export function enterpriseRecoveryChecks(checks: readonly PluginRecoveryCheck[]): PluginRecoveryCheck[] {
-  if (communityPluginInstallAllowed()) return [...checks]
+export function enterpriseRecoveryChecks(checks: readonly PluginRecoveryCheck[], communityUpgradeAllowed = false): PluginRecoveryCheck[] {
+  if (communityUpgradeAllowed) return [...checks]
   return checks.map((check) => {
     if (check.upgradeCandidate === undefined) return check
     return {
@@ -59,8 +58,8 @@ export function enterpriseRecoveryChecks(checks: readonly PluginRecoveryCheck[])
 }
 
 /** Explicit upgrade actions stay upgrades. The enterprise edition refuses them instead of uninstalling. */
-export function communityUpgradeBlocked(action: string, targetType?: 'upgrade' | 'uninstall'): boolean {
-  if (communityPluginInstallAllowed()) return false
+export function communityUpgradeBlocked(action: string, targetType?: 'upgrade' | 'uninstall', communityUpgradeAllowed = false): boolean {
+  if (communityUpgradeAllowed) return false
   return action === 'market-upgrade' || action === 'upgrade' || targetType === 'upgrade'
 }
 

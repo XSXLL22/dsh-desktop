@@ -5,6 +5,7 @@ import {
   createPkceTransaction,
   parseAuthorization,
   parseConfig,
+  parseThirdPartyPolicy,
   parseModels,
   parseModelsLenient,
   parseToken,
@@ -73,6 +74,23 @@ async function issueSession(origin: string) {
     raw: await tokenResponse.json()
   }
 }
+
+describe('third-party capability parsing', () => {
+  it('treats missing and non-boolean switches as closed without throwing', () => {
+    expect(parseThirdPartyPolicy(undefined)).toMatchObject({
+      allowThirdPartyPlugins: false,
+      allowThirdPartyWorkbenches: false
+    })
+    expect(parseThirdPartyPolicy({ allow_third_party_plugins: 'yes', allow_third_party_workbenches: 1 })).toMatchObject({
+      allowThirdPartyPlugins: false,
+      allowThirdPartyWorkbenches: false
+    })
+    expect(parseThirdPartyPolicy({ allow_third_party_plugins: true })).toMatchObject({
+      allowThirdPartyPlugins: true,
+      allowThirdPartyWorkbenches: false
+    })
+  })
+})
 
 describe('BiSheng compatible client API mock', () => {
   it('registers every local enterprise route with buffered request bodies', () => {

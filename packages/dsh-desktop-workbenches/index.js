@@ -3,7 +3,8 @@ import { CatalogError, createCatalogReader } from './catalog.mjs'
 import { awaitHandle, createMarketInstallStore, MarketInstallError, resolveInstallTarget } from './market-install.mjs'
 import { readSubmissionStatus, SubmissionStatusError } from './submission-status.mjs'
 import { createStateStore, MAX_STATE_BYTES, StateError } from './state.mjs'
-import { readFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
+import { consumeLocalWorkbenchCapability, localCapabilityMatches, LOCAL_WORKBENCH_CAPABILITY_HEADER, readLocalWorkbenchPackage } from './local-install.mjs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -53,6 +54,19 @@ async function readPayload(request, maximum = MAX_STATE_BYTES, tooLarge = 'Workb
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) }
     catch { throw new StateError('Invalid JSON body.') }
   } finally { reader.releaseLock() }
+}
+
+const localWorkbenchCapability = consumeLocalWorkbenchCapability()
+
+async function recordLocalInstall(root, install) {
+  const path = join(root, 'local-installs.json')
+  let current = {}
+  try { current = JSON.parse(await readFile(path, 'utf8')) } catch (error) { if (error?.code !== 'ENOENT') throw error }
+  if (current === null || typeof current !== 'object' || Array.isArray(current)) current = {}
+  const next = { ...current, [install.pluginName]: install }
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  await rename(temporary, path)
 }
 
 export function apply(ctx, config) {
@@ -187,6 +201,11 @@ export function apply(ctx, config) {
       requestBody: 'buffered',
       async fetch(request) {
         try {
+          try { await ctx.desktopPnpm.authorizeWorkbenchMarketInstall() }
+          catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            throw new MarketInstallError(message.startsWith('POLICY_DISABLED') ? 'POLICY_DISABLED' : message, 403)
+          }
           const id = await catalogIdFrom(request)
           // The install source always comes from the Awesome catalog, never from the request.
           const entry = (await readCatalog()).catalog.workbenches.find((item) => item.id === id)
@@ -196,6 +215,7 @@ export function apply(ctx, config) {
             let handle
             try {
               handle = ctx.desktopPnpm.installWorkbenchGeneration({
+                source: 'market',
                 pluginSpec: target.pluginSpec,
                 expectedPluginName: target.expectedPluginName,
                 expectedVersion: target.expectedVersion,
@@ -208,6 +228,41 @@ export function apply(ctx, config) {
           await marketInstalls.record(id, install)
           return Response.json({ install, restartRequired: true }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) { return installFailure(error, 'Could not install the workbench.') }
+      }
+    })
+    ctx.connection.fetch.register({
+      path: '/api/desktop-workbenches/local-install',
+      methods: ['POST'],
+      requestBody: 'buffered',
+      async fetch(request) {
+        try {
+          const provided = request.headers.get(LOCAL_WORKBENCH_CAPABILITY_HEADER)
+          if (!localCapabilityMatches(localWorkbenchCapability, provided)) {
+            throw new MarketInstallError('Local workbench install was not authorized by the desktop.', 403)
+          }
+          const payload = await readPayload(request, 4096, 'Request is too large.')
+          const pkg = await readLocalWorkbenchPackage(payload?.path)
+          let handle
+          try {
+            handle = ctx.desktopPnpm.installWorkbenchGeneration({
+              source: 'local',
+              pluginSpec: pkg.directory,
+              path: pkg.directory,
+              expectedPluginName: pkg.name,
+              expectedVersion: pkg.version
+            }, config.root)
+          } catch (error) { throw new MarketInstallError(error instanceof Error ? error.message : String(error), 409) }
+          await awaitHandle(handle)
+          const install = {
+            source: 'local',
+            pluginName: pkg.name,
+            version: pkg.version,
+            path: pkg.directory,
+            installedAt: new Date().toISOString()
+          }
+          await recordLocalInstall(config.root, install)
+          return Response.json({ install, restartRequired: true }, { headers: { 'cache-control': 'no-store' } })
+        } catch (error) { return installFailure(error, 'Could not install the local workbench.') }
       }
     })
     ctx.connection.fetch.register({

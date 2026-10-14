@@ -754,31 +754,35 @@ window.__ModuleLoader__.load({
           BuiltInImageControl
         )
       )
-      if (marketAlreadyComposed()) {
-        ctx.slots.inject('settings.plugins.tab', () =>
-          ctx.slots.register(
-            {
-              name: 'settings.plugins.tab',
-              id: 'desktop-market-management',
-              order: 30,
-              label: () => t('managementTab'),
-              inject: () => ({ t })
-            },
-            MarketManagementTab
-          )
-        )
-        return
+      ctx.effect(() => {
+      let disposeMarket
+      let disposed = false
+      let revision = 0
+      const syncMarketEntry = async () => {
+        const current = ++revision
+        let account
+        try {
+          const response = await fetch('/api/enterprise.state', { credentials: 'same-origin', cache: 'no-store' })
+          account = await response.json()
+        } catch { account = undefined }
+        if (disposed || current !== revision) return
+        const allowed = account?.connected === true
+          && Date.parse(account.sessionExpiresAt) > Date.now()
+          && account.allowThirdPartyPlugins === true
+        disposeMarket?.()
+        disposeMarket = undefined
+        if (!allowed) return
+        disposeMarket = ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register(
+          marketAlreadyComposed()
+            ? { name: 'settings.plugins.tab', id: 'desktop-market-management', order: 30, label: () => t('managementTab'), inject: () => ({ t }) }
+            : { name: 'settings.plugins.tab', id: 'desktop-market-installer', order: 30, label: () => t('nav'), inject: () => ({ t }) },
+          marketAlreadyComposed() ? MarketManagementTab : MarketInstallerSection
+        ))
       }
-      ctx.slots.inject('settings.section', () =>
-        ctx.slots.register(
-          { name: 'settings.plugins.tab', id: 'desktop-host-plugins', order: 20,
-            label: () => t('builtInImageTitle'), locale: NS,
-            inject: () => ({ t }) },
-          BuiltInImageControl
-        )
-      )
-      // Enterprise edition does not register the community market section or
-      // its management tab. The built-in image card and enterprise market stay.
+      const timer = window.setInterval(() => { void syncMarketEntry() }, 5000)
+      void syncMarketEntry()
+      return () => { disposed = true; revision += 1; disposeMarket?.(); window.clearInterval(timer) }
+      }, 'dsh-desktop-market-installer: plugin market entry')
     }
 
     exports.apply = apply

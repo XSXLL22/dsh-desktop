@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
+import { createStateStore } from './state.mjs'
 import { gunzipSync } from 'node:zlib'
 
 export const MAX_PACKAGE_BYTES = 8 * 1024 * 1024
@@ -175,6 +176,33 @@ export function createMarketInstallStore(root) {
       return changed
     })
   }
+}
+
+/**
+ * Drop a workbench market install and its sidebar entry when its package is
+ * uninstalled. Notes, favorites, and session bindings stay.
+ */
+export async function detachWorkbenchPackage(root, pluginName) {
+  const installs = createMarketInstallStore(root)
+  const recorded = await installs.read()
+  const ids = Object.entries(recorded)
+    .filter(([, install]) => install?.pluginName === pluginName)
+    .map(([id]) => id)
+  if (ids.length === 0) return []
+  await installs.forgetPlugin(pluginName)
+  const states = createStateStore(root)
+  const current = await states.read()
+  const drop = new Set(ids)
+  const state = {
+    ...current.state,
+    added: current.state.added.filter((id) => !drop.has(id)),
+    pinned: current.state.pinned.filter((id) => !drop.has(id)),
+    active: drop.has(current.state.active) ? null : current.state.active
+  }
+  if (state.added.length !== current.state.added.length || state.pinned.length !== current.state.pinned.length || state.active !== current.state.active) {
+    await states.write({ revision: current.revision, state })
+  }
+  return ids
 }
 
 /** Awaits a desktopPnpm handle and returns the last useful output line on failure. */

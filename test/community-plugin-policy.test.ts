@@ -53,14 +53,11 @@ describe('community plugin policy', () => {
     expect(manifest.dependencies['community-plugin']).toBe('1.0.0')
     expect(manifest.dependencies.dshmarket).toBe('1.65.1')
     expect(manifest.dependencies['transitive-lib']).toBe('1.2.3')
-    expect(manifest.dsh.profile.bundles).toEqual(['@deepseek-ai/dsh-base', 'dsh-image-generation'])
-    const state = JSON.parse(await readFile(join(profile, '.dsh-market', 'state.json'), 'utf8'))
-    expect(state.disabled).toEqual(['dshmarket', 'community-plugin'])
-    expect(state.desktop.quarantinedLegacyBundles).toEqual(['dshmarket', 'community-plugin'])
-    expect(notes.filter((line) => line.includes('removed community bundles'))).toHaveLength(1)
+    expect(manifest.dsh.profile.bundles).toEqual(['community-plugin', '@deepseek-ai/dsh-base', 'dsh-image-generation'])
+    expect(notes.filter((line) => line.includes('removed dshmarket'))).toHaveLength(1)
   })
 
-  it('keeps a quarantined generation in desired but out of the active projection', async () => {
+  it('keeps a switched-off generation installed and out of the running set', async () => {
     const { home, profile } = await profileHome()
     const generationDir = join(registryLayout(home).generations, 'community-plugin+1.0.0+abcd')
     const packageDir = join(generationDir, 'node_modules', 'community-plugin')
@@ -78,10 +75,13 @@ describe('community plugin policy', () => {
     }))
 
     await enforceCommunityPluginPolicy(home, () => {})
-    const projection = await projectGenerations(home)
-    expect(projection.linked).not.toContain('community-plugin')
-    expect(projection.bundles).not.toContain('community-plugin')
     expect(await readDesired(home)).toEqual(['community-plugin+1.0.0+abcd'])
+    await mkdir(join(profile, '.dsh-market'), { recursive: true })
+    await writeFile(join(profile, '.dsh-market', 'state.json'), JSON.stringify({ disabled: ['community-plugin'] }))
+    const projection = await projectGenerations(home)
+    expect(projection.linked).toContain('community-plugin')
+    expect(projection.bundles).toContain('community-plugin')
+    expect(JSON.parse(await readFile(join(profile, '.dsh-market', 'state.json'), 'utf8')).disabled).toEqual(['community-plugin'])
   })
 })
 

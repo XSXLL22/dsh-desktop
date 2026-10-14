@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { parseThirdPartyPolicy } from 'dsh-desktop-enterprise/contract'
 import {
   startEnterpriseCredentialBroker,
   type EnterpriseCredentialBroker
@@ -13,6 +14,7 @@ import {
 
 export interface EnterpriseDesktopRuntime {
   snapshot(): EnterprisePublicState
+  readThirdPartyPolicy(): Promise<{ allowThirdPartyPlugins: boolean, allowThirdPartyWorkbenches: boolean }>
   harnessEnvironment(): NodeJS.ProcessEnv
   rotateCapability(): void
   stop(): Promise<void>
@@ -58,6 +60,21 @@ export async function startEnterpriseDesktop(options: {
 
   return {
     snapshot: () => service.snapshot(),
+    async readThirdPartyPolicy() {
+      const closed = { allowThirdPartyPlugins: false, allowThirdPartyWorkbenches: false }
+      const state = service.snapshot()
+      if (!state.connected || !state.connectionKey) return closed
+      try {
+        const result = await service.marketRequest({
+          path: '/api/v1/dsh/market/capabilities',
+          connectionKey: state.connectionKey
+        })
+        const envelope = JSON.parse(result.bytes.toString('utf8')) as { status_code?: unknown, data?: unknown }
+        return parseThirdPartyPolicy(envelope?.status_code === 200 ? envelope.data : undefined)
+      } catch {
+        return closed
+      }
+    },
     harnessEnvironment: () => broker?.environment() ?? {},
     rotateCapability() {
       broker?.rotateCapability()

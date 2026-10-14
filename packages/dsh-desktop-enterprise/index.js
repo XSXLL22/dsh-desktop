@@ -1,5 +1,6 @@
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
+import { parseThirdPartyPolicy } from './contract.js'
 import {
   isInsecurePrivateHttpOrigin,
   normalizeEnterpriseServerUrl,
@@ -171,34 +172,74 @@ async function brokerJson(path, body) {
 export function apply(ctx) {
   const connection = Reflect.get(ctx, 'connection')
   let market
+  let capabilityPolicy
   let account = disabledState()
   let ingestEnterpriseState = () => undefined
+  const thirdPartyFlags = () => {
+    const snap = capabilityPolicy?.snapshot()
+    const connected = account.connected === true && snap?.connected === true && snap?.connectionKey === account.connectionKey
+    return {
+      allowThirdPartyPlugins: connected && snap.allowThirdPartyPlugins === true,
+      allowThirdPartyWorkbenches: connected && snap.allowThirdPartyWorkbenches === true
+    }
+  }
   const readBrokerState = async () => {
     const state = brokerConfig() ? await brokerJson('/v1/state') : disabledState()
-    if (account.connectionKey !== state.connectionKey) await market?.stop()
+    if (account.connectionKey !== state.connectionKey) {
+      await market?.stop()
+      capabilityPolicy?.reset()
+    }
     account = state
+    if (!state.connected) capabilityPolicy?.reset()
+    else void capabilityPolicy?.refresh(state.connectionKey).catch(() => undefined)
     ingestEnterpriseState(state)
-    return state
+    return { ...state, ...thirdPartyFlags() }
+  }
+  const marketRequest = async (path, body, binary = false) => {
+    const broker = brokerConfig()
+    if (!broker) unavailable()
+    const response = await fetch(new URL('/v1/market', broker.origin), {
+      method: 'POST', redirect: 'error',
+      headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ path, connectionKey: account.connectionKey, ...(body === undefined ? {} : { body }) })
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload.error || `Enterprise market request failed (${response.status}).`)
+    }
+    return binary ? Buffer.from(await response.arrayBuffer()) : response.json()
   }
   market = applyEnterpriseMarket(ctx, {
     state: () => account,
     refreshState: readBrokerState,
     refreshProfile: readBrokerState,
-    async marketRequest(path, body, binary = false) {
-      const broker = brokerConfig()
-      if (!broker) unavailable()
-      const response = await fetch(new URL('/v1/market', broker.origin), {
-        method: 'POST', redirect: 'error',
-        headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ path, connectionKey: account.connectionKey, ...(body === undefined ? {} : { body }) })
-      })
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}))
-        throw new Error(payload.error || `Enterprise market request failed (${response.status}).`)
-      }
-      return binary ? Buffer.from(await response.arrayBuffer()) : response.json()
-    }
+    marketRequest
   })
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['enterpriseCapabilityPolicy'], (scoped) => {
+      capabilityPolicy = scoped.enterpriseCapabilityPolicy
+      const disposeResolver = capabilityPolicy.registerResolver(async () => {
+        const connectionKey = account.connectionKey
+        if (!account.connected || !connectionKey) return { connected: false, connectionKey, authoritative: true }
+        try {
+          const envelope = await marketRequest('/api/v1/dsh/market/capabilities')
+          if (account.connectionKey !== connectionKey) return { stale: true, connectionKey }
+          const parsed = envelope?.status_code === 200
+            ? parseThirdPartyPolicy(envelope.data)
+            : parseThirdPartyPolicy(undefined)
+          return { connected: true, connectionKey, authoritative: true, ...parsed }
+        } catch {
+          if (account.connectionKey !== connectionKey) return { stale: true, connectionKey }
+          return { connected: true, connectionKey, authoritative: true, ...parseThirdPartyPolicy(undefined) }
+        }
+      })
+      if (account.connected) void capabilityPolicy.refresh(account.connectionKey).catch(() => undefined)
+      return () => {
+        disposeResolver()
+        capabilityPolicy = undefined
+      }
+    })
+  }
   registerJsonRoute(connection, LOCAL_PATHS.state, ['GET'], async () => readBrokerState())
   registerJsonRoute(connection, LOCAL_PATHS.inspectBase, ['POST'], async (request) => {
     const body = await readJson(request)
@@ -214,8 +255,10 @@ export function apply(ctx) {
   registerJsonRoute(connection, LOCAL_PATHS.manual, ['POST'], async (request) => {
     const body = await readJson(request)
     const state = await brokerJson('/v1/login/manual', { identityTicket: String(body?.identityTicket ?? '') })
+    account = state
     ingestEnterpriseState(state)
-    return state
+    if (state.connected) await capabilityPolicy?.refresh(state.connectionKey).catch(() => undefined)
+    return { ...state, ...thirdPartyFlags() }
   })
   registerJsonRoute(connection, LOCAL_PATHS.inspectDeepLink, ['POST'], async (request) => {
     const body = await readJson(request)
@@ -241,9 +284,10 @@ export function apply(ctx) {
     if (!brokerConfig()) return disabledState()
     const state = await brokerJson('/v1/logout', {})
     await market.stop()
+    capabilityPolicy?.reset()
     account = state
     ingestEnterpriseState(state)
-    return state
+    return { ...state, allowThirdPartyPlugins: false, allowThirdPartyWorkbenches: false }
   })
   const llm = ctx.llm
   if (llm && brokerConfig()) {

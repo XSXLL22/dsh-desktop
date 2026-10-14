@@ -337,10 +337,11 @@ describe('desktop plugin market installer', () => {
       fetchImpl: async () => { calls.push('fetch'); throw new Error('must not fetch') },
       runGenerationInstall: async () => { calls.push('install'); throw new Error('must not install') }
     })
-    expect(() => service.installWorkbenchGeneration({
+    const handle = service.installWorkbenchGeneration({
       pluginSpec: 'demo-workbench@1.0.0', expectedPluginName: 'demo-workbench',
       expectedVersion: '1.0.0', npmIntegrity: 'sha512-demo'
-    }, join(home, 'desktop-workbenches'))).toThrow('POLICY_DISABLED')
+    }, join(home, 'desktop-workbenches'))
+    await expect(handle.done).resolves.toMatchObject({ exitCode: 1 })
     expect(calls).toEqual([])
     expect(await readDesired(home)).toEqual([])
     await service.dispose()
