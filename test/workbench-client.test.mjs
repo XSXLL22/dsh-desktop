@@ -2435,6 +2435,60 @@ describe('workbench market screenshot and metadata display', () => {
     return calls
   }
 
+  it('shows one installed card for old and market IDs of the same package without changing stored state', async () => {
+    const initial = { ...emptyState(), added: ['o/old', 'o/new'], pinned: ['o/old'],
+      notes: { 'o/old': 'Keep notes' }, sessionBindings: { old: 'o/old' } }
+    const { service, ctx, saved } = await fixture(initial)
+    service.remoteCatalog = [listed({ id: 'o/new', repository: 'new', url: 'https://github.com/o/new' })]
+    setFiberPackage(ctx, 'helper')
+    service.register({ title: 'Helper', repository: 'https://github.com/o/new' }, () => null)
+    service.knownProviders['o/old'] = { id: 'o/old', sourcePackage: 'helper', title: 'Helper' }
+    service.native = { status: 'ready', bundles: { helper: { name: 'helper', installed: true, enabled: true } } }
+    service.publish()
+
+    expect(service.getSnapshot().catalog.filter(entry => entry.id === 'o/old')).toHaveLength(0)
+    const ui = interactiveMarket(service, 'mine')
+    expect(ui.find(ui.render(), node => node.type === 'article').map(card => card.props.key)).toContain('o/new')
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/old')).toHaveLength(0)
+    expect(service.state.added).toEqual(['o/old', 'o/new'])
+    expect(service.state.notes).toEqual(initial.notes)
+    expect(service.state.sessionBindings).toEqual(initial.sessionBindings)
+    expect(saved().state).toEqual(initial)
+    expect(service.pluginFor(service.getSnapshot().catalog.find(entry => entry.id === 'o/new'))).toBe('helper')
+
+    service.state = { ...service.state, added: ['o/old'] }
+    service.publish()
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/old')).toHaveLength(1)
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/new')).toHaveLength(1)
+    expect(service.state.added).toEqual(['o/old'])
+  })
+
+  it('keeps same-title cards from different packages and old IDs without a usable replacement', async () => {
+    const { service, ctx } = await fixture({ ...emptyState(), added: ['o/old', 'o/new'] })
+    service.remoteCatalog = [listed({ id: 'o/new', repository: 'new', url: 'https://github.com/o/new' })]
+    setFiberPackage(ctx, 'helper')
+    service.register({ title: 'Helper', repository: 'https://github.com/o/new' }, () => null)
+    service.knownProviders['o/old'] = { id: 'o/old', sourcePackage: 'other-helper', title: 'Helper' }
+    service.native = { status: 'ready', bundles: {
+      helper: { name: 'helper', installed: true, enabled: true },
+      'other-helper': { name: 'other-helper', installed: true, enabled: true }
+    } }
+    service.publish()
+    expect(service.getSnapshot().catalog.map(entry => entry.id)).toEqual(expect.arrayContaining(['o/old', 'o/new']))
+    let ui = interactiveMarket(service, 'mine')
+    expect(ui.find(ui.render(), node => node.type === 'article' && ['o/old', 'o/new'].includes(node.props.key))).toHaveLength(2)
+
+    service.knownProviders['o/old'].sourcePackage = 'helper'
+    service.catalog.delete('o/new')
+    service.publish()
+    expect(service.getSnapshot().catalog.some(entry => entry.id === 'o/old')).toBe(true)
+    service.catalog.set('o/new', { id: 'o/new', sourcePackage: 'helper', title: 'Helper' })
+    service.native.bundles = {}
+    service.publish()
+    ui = interactiveMarket(service, 'mine')
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/old')).toHaveLength(1)
+  })
+
   it('sorts market cards by visible stars, downloads, update time and name without changing the default order', async () => {
     const { service } = await fixture()
     service.remoteCatalog = [

@@ -251,6 +251,14 @@ window.__ModuleLoader__.load({
         // remains available on the listing even when no install record exists.
         return this.installRecordFor(entry.catalogId || entry.id)?.pluginName || entry.sourcePackage || entry.distribution?.name || this.knownProviders[entry.catalogId || entry.id]?.sourcePackage || null
       }
+      hasUsablePackageAlias(id, entries) {
+        const source = this.knownProviders[id]?.sourcePackage
+        const bundle = source && this.native.bundles[source]
+        if (!source || this.native.status !== NATIVE_STATUS.ready || !bundle || bundle.installed === false || bundle.error) return false
+        // Opening a provider also requires its current ID in state.added. Keep
+        // the old recovery card when only the legacy ID has been added.
+        return entries.some((entry) => entry.id !== id && this.state.added.includes(entry.id) && entry.installed && this.pluginFor(entry) === source)
+      }
       activationFor(entry) {
         const name = this.pluginFor(entry)
         if (!name || this.native.status !== NATIVE_STATUS.ready) return 'unknown'
@@ -378,6 +386,7 @@ window.__ModuleLoader__.load({
           if (visible.has(id) || this.removedWorkbenchIds.has(id) || typeof remembered?.sourcePackage !== 'string') continue
           const bundle = this.native.bundles[remembered.sourcePackage]
           if (!bundle && !this.state.added.includes(id)) continue
+          if (this.hasUsablePackageAlias(id, remote)) continue
           remote.push({ ...remembered, id, catalogId: id, installedMetadata: remembered, listed: false, local: this.packageEvidence?.[remembered.sourcePackage]?.origin === 'local', installed: !!bundle,
             loadFailure: !bundle && this.native.status === NATIVE_STATUS.ready ? '工作台插件当前不可用。' : '' })
         }
@@ -1936,7 +1945,12 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
       const unavailableEntry = (id) => ({ id, title: id, category: tr('其他'), categoryId: 'other', unavailable: true, description: both('提供此工作台的插件当前未加载。', 'The plugin for this workbench is not loaded.'), loadFailure: both('工作台插件当前未加载。', 'The workbench plugin is not loaded.') })
       const localizedCatalog = catalog.map((entry) => displayEntry(tab === 'mine' ? service.installedEntry(entry) : entry))
       const marketEntries = localizedCatalog.filter((entry) => entry.listed === true)
-      const installedEntries = [...added.filter((id) => !removedWorkbenchIds.includes(id)).map((id) => localizedCatalog.find((entry) => entry.id === id) || unavailableEntry(id)), ...localizedCatalog.filter((entry) => entry.installed && !added.includes(entry.id))]
+      const installedEntries = [
+        ...added.filter((id) => !removedWorkbenchIds.includes(id) &&
+          (localizedCatalog.some((entry) => entry.id === id) || !service.hasUsablePackageAlias(id, catalog)))
+          .map((id) => localizedCatalog.find((entry) => entry.id === id) || unavailableEntry(id)),
+        ...localizedCatalog.filter((entry) => entry.installed && !added.includes(entry.id))
+      ]
       const allEntries = tab === 'mine'
         ? installedEntries
         : tab === 'favorites'
