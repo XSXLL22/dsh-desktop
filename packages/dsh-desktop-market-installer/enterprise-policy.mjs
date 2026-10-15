@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
 const POLICY_PATH = join('profiles', 'web', '.dsh-desktop', 'third-party-policy.json')
@@ -42,11 +43,41 @@ export function createEnterpriseCapabilityPolicy(options = {}) {
   const inflight = new Map()
   let fetchedAt = 0
   let compositionHandler
+  // Several surfaces read enterprise state together. Each reset publishes, and
+  // the handler renames a profile file. Overlapping renames of one temp path
+  // throw ENOENT on Windows, and an unhandled rejection is a fatal Harness
+  // load failure. Coalesce onto the latest snapshot and keep the process up
+  // when persistence still fails; the in-memory snapshot remains the gate.
+  let compositionScheduled = false
+  let compositionDrain
 
+  const scheduleComposition = () => {
+    if (!compositionHandler) return
+    compositionScheduled = true
+    if (compositionDrain) return
+    compositionDrain = drainComposition().finally(() => {
+      compositionDrain = undefined
+      if (compositionScheduled && compositionHandler) scheduleComposition()
+    })
+  }
+  const drainComposition = async () => {
+    while (compositionScheduled && compositionHandler) {
+      compositionScheduled = false
+      const handler = compositionHandler
+      const delivered = { ...snapshot }
+      try {
+        await handler(delivered)
+      } catch (error) {
+        const code = typeof error?.code === 'string' ? ` (${error.code})` : ''
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(`[dsh-desktop-market-installer] third-party policy composition failed${code}: ${message}`)
+      }
+    }
+  }
   const publish = (next) => {
     snapshot = next
     fetchedAt = next.authoritative && next.connected ? now() : 0
-    void compositionHandler?.({ ...snapshot })
+    scheduleComposition()
     return snapshot
   }
   const failClosed = (connectionKey, connected = false) => publish({
@@ -275,16 +306,56 @@ export async function readPersistedThirdPartyPolicy(dshHome) {
   }
 }
 
+const TRANSIENT_REPLACE_CODES = new Set(['ENOENT', 'EPERM', 'EBUSY', 'EACCES'])
+const replaceTails = new Map()
+
+function temporaryPath(path) {
+  return `${path}.${process.pid}.${Date.now().toString(36)}.${randomBytes(4).toString('hex')}.tmp`
+}
+
+async function renameOver(from, to) {
+  const attempts = process.platform === 'win32' ? 8 : 1
+  let error
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await rename(from, to)
+      return
+    } catch (caught) {
+      error = caught
+      const code = typeof caught?.code === 'string' ? caught.code : undefined
+      if (attempt === attempts - 1 || !TRANSIENT_REPLACE_CODES.has(code)) break
+      await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)))
+    }
+  }
+  throw error
+}
+
+async function replaceFileNow(path, contents) {
+  await mkdir(dirname(path), { recursive: true })
+  const temporary = temporaryPath(path)
+  try {
+    await writeFile(temporary, contents, 'utf8')
+    await renameOver(temporary, path)
+  } finally {
+    // A successful rename has already moved the temp file.
+    await rm(temporary, { force: true }).catch(() => undefined)
+  }
+}
+
+function replaceFile(path, contents) {
+  const previous = replaceTails.get(path) ?? Promise.resolve()
+  const run = previous.then(() => replaceFileNow(path, contents))
+  replaceTails.set(path, run.then(() => undefined, () => undefined))
+  return run
+}
+
 export async function writePersistedThirdPartyPolicy(dshHome, policy) {
   const path = policyFile(dshHome)
   const next = normalizeThirdPartyPolicy(policy)
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${process.pid}.tmp`
-  await writeFile(temporary, `${JSON.stringify({
+  await replaceFile(path, `${JSON.stringify({
     allowThirdPartyPlugins: next.allowThirdPartyPlugins,
     allowThirdPartyWorkbenches: next.allowThirdPartyWorkbenches
-  }, null, 2)}\n`, 'utf8')
-  await rename(temporary, path)
+  }, null, 2)}\n`)
 }
 
 async function readManifest(dshHome) {
@@ -315,11 +386,9 @@ export async function syncMarketBundle(dshHome, allowed) {
   if (!allowed && hasMarket) next = bundles.filter((name) => name !== 'dshmarket')
   if (next.length === bundles.length && next.every((name, index) => name === bundles[index])) return false
   const dsh = manifest.dsh ?? {}
-  const temporary = `${path}.${process.pid}.tmp`
-  await writeFile(temporary, `${JSON.stringify({
+  await replaceFile(path, `${JSON.stringify({
     ...manifest,
     dsh: { ...dsh, profile: { ...profile, bundles: next } }
-  }, null, 2)}\n`, 'utf8')
-  await rename(temporary, path)
+  }, null, 2)}\n`)
   return true
 }

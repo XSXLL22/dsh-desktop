@@ -1,6 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { describe, expect, it } from 'vitest'
-import { createEnterpriseCapabilityPolicy } from '../packages/dsh-desktop-market-installer/enterprise-policy.mjs'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  createEnterpriseCapabilityPolicy,
+  writePersistedThirdPartyPolicy
+} from '../packages/dsh-desktop-market-installer/enterprise-policy.mjs'
 import { consumeLocalWorkbenchCapability } from '../packages/dsh-desktop-workbenches/local-install.mjs'
 
 describe('enterprise capability policy service', () => {
@@ -108,6 +114,69 @@ describe('enterprise capability policy service', () => {
     policy.registerResolver(async () => { throw new Error('offline') })
     await expect(policy.authorizePluginMutation()).rejects.toThrow('POLICY_DISABLED')
     expect(policy.snapshot()).toMatchObject({ allowThirdPartyPlugins: false, allowThirdPartyWorkbenches: false, authoritative: true })
+  })
+
+  it('writes one third-party policy file when persistence overlaps', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-third-party-policy-'))
+    try {
+      const writes = []
+      for (let index = 0; index < 16; index += 1) {
+        writes.push(writePersistedThirdPartyPolicy(home, {
+          allowThirdPartyPlugins: index % 2 === 0,
+          allowThirdPartyWorkbenches: index % 3 === 0
+        }))
+      }
+      await Promise.all(writes)
+      const directory = join(home, 'profiles', 'web', '.dsh-desktop')
+      const saved = JSON.parse(await readFile(join(directory, 'third-party-policy.json'), 'utf8'))
+      expect(saved).toEqual({
+        allowThirdPartyPlugins: false,
+        allowThirdPartyWorkbenches: true
+      })
+      expect((await readdir(directory)).filter((name) => name.endsWith('.tmp'))).toEqual([])
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('coalesces overlapping composition writes and keeps a persistence failure inside the process', async () => {
+    const policy = createEnterpriseCapabilityPolicy()
+    const rejections = []
+    const onRejection = (error) => { rejections.push(error) }
+    process.on('unhandledRejection', onRejection)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      let active = 0
+      let maxActive = 0
+      let release
+      const calls = []
+      policy.setCompositionHandler(async (snapshot) => {
+        active += 1
+        maxActive = Math.max(maxActive, active)
+        calls.push(snapshot.connectionKey)
+        if (calls.length === 1) {
+          await new Promise((resolve) => { release = resolve })
+          active -= 1
+          throw Object.assign(new Error('ENOENT: rename failed'), { code: 'ENOENT' })
+        }
+        active -= 1
+      })
+      policy.reset()
+      policy.reset()
+      policy.reset()
+      expect(calls).toEqual([undefined])
+      expect(maxActive).toBe(1)
+      release()
+      await vi.waitFor(() => {
+        expect(calls).toEqual([undefined, undefined])
+      })
+      expect(maxActive).toBe(1)
+      expect(rejections).toEqual([])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('third-party policy composition failed (ENOENT)'))
+    } finally {
+      process.off('unhandledRejection', onRejection)
+      warn.mockRestore()
+    }
   })
 
   it('removes the local install secret before a child process starts', () => {
