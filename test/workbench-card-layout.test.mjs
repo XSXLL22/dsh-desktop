@@ -10,7 +10,7 @@ const code = await readFile(new URL('../packages/dsh-desktop-workbenches/client.
 
 // Mount the public Market component and its real controller. Layout dimensions
 // are verified separately in Electron: jsdom only checks DOM/state/accessibility.
-async function mountCard({ state = 'normal', language = 'zh', listed = true, origin = 'market', request = async () => { throw new Error('Unexpected network request') } } = {}) {
+async function mountCard({ state = 'normal', language = 'zh', listed = true, origin = 'market', favorite = false, request = async () => { throw new Error('Unexpected network request') } } = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
   globalThis.window = dom.window
@@ -44,6 +44,7 @@ async function mountCard({ state = 'normal', language = 'zh', listed = true, ori
     service.native.bundles.helper.readOnlyReason = 'management-required'
   }
   service.ready = true
+  if (favorite) service.state.favorites = ['owner/helper']
   if (state === 'loading') service.installing = 'owner/helper'
   if (state === 'restart') service.pendingRestart.add('owner/helper')
   if (state === 'install-failure' || state === 'update-failure') service.installFailures.set('owner/helper', { kind: state.split('-')[0], message: 'Could not download package: fetch failed '.repeat(20) })
@@ -81,6 +82,56 @@ describe('compact workbench card states', () => {
       expect(detail.querySelector('.dshWbMetrics')).toBeNull()
       expect(detail.querySelector('.dshWbTitleLink').tagName).toBe('SPAN')
       expect(detail.querySelector('.dshWbAuthor')).not.toBeNull()
+    } finally { await ui.close() }
+  })
+
+  it('lets a favorite unlisted provider be removed from Favorites without showing market signals', async () => {
+    const ui = await mountCard({ listed: false, favorite: true, request: path => {
+      expect(path).toBe('/api/desktop-workbenches/state/write')
+      return Response.json({ revision: 1 })
+    } })
+    try {
+      const favoritesTab = ui.document.getElementById('dsh-workbench-favorites-tab')
+      await React.act(async () => favoritesTab.click())
+      const card = ui.document.querySelector('article.dshWbCard')
+      expect(card).not.toBeNull()
+      expect(card.querySelector('.dshWbMetrics')).toBeNull()
+      expect(card.querySelector('.dshWbTitleLink').tagName).toBe('SPAN')
+      expect(card.querySelector('.dshWbRoundButton')).toBeNull()
+      const removeFavorite = card.querySelector('.dshWbFavorite')
+      expect(removeFavorite.getAttribute('aria-label')).toBe('取消收藏Helper')
+      expect(removeFavorite.getAttribute('aria-pressed')).toBe('true')
+      await React.act(async () => { removeFavorite.click(); await ui.service.queue })
+      expect(ui.service.state.favorites).toEqual([])
+      expect(ui.document.querySelector('article.dshWbCard')).toBeNull()
+      expect(favoritesTab.textContent).toBe('我的收藏 (0)')
+    } finally { await ui.close() }
+  })
+
+  it('lets an unavailable old favorite be removed from Favorites', async () => {
+    const ui = await mountCard({ request: path => {
+      expect(path).toBe('/api/desktop-workbenches/state/write')
+      return Response.json({ revision: 1 })
+    } })
+    try {
+      ui.service.state.favorites = ['retired/workbench']
+      ui.service.catalog.clear()
+      ui.service.providers.clear()
+      ui.service.knownProviders = {}
+      ui.service.remoteCatalog = []
+      ui.service.installs = {}
+      ui.service.native.bundles = {}
+      ui.service.publish()
+      await React.act(async () => ui.document.getElementById('dsh-workbench-favorites-tab').click())
+      const card = ui.document.querySelector('article.dshWbCard')
+      expect(card).not.toBeNull()
+      expect(card.querySelector('.dshWbMetrics')).toBeNull()
+      expect(card.querySelector('.dshWbRoundButton')).toBeNull()
+      const removeFavorite = card.querySelector('.dshWbFavorite')
+      expect(removeFavorite.getAttribute('aria-pressed')).toBe('true')
+      await React.act(async () => { removeFavorite.click(); await ui.service.queue })
+      expect(ui.service.state.favorites).toEqual([])
+      expect(ui.document.querySelector('article.dshWbCard')).toBeNull()
     } finally { await ui.close() }
   })
 
