@@ -29,6 +29,7 @@ async function mountCard({ state = 'normal', language = 'zh' } = {}) {
   if (installed) {
     service.native = { status: 'ready', bundles: { helper: { name: 'helper', installed: true, enabled: true, version: '1.0.0', removable: true } } }
     service.installs = { 'owner/helper': { catalogId: 'owner/helper', pluginName: 'helper', version: '1.0.0' } }
+    service.packageEvidence = { helper: { origin: 'market' } }
   }
   if (installed) {
     service.state.added = ['owner/helper']
