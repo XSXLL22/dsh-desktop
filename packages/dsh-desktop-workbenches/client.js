@@ -1645,6 +1645,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dshWbMeta', 'aria-label': tr('工作台信息') }, h(AuthorItem, { entry, showVersion }), h(EntryMetrics, { entry }))
     }
     function EntryMetrics({ entry }) {
+      if (entry.listed !== true) return null
       const downloads = metricValue(entry.metrics?.npmDownloads30d?.value, entry.metrics?.githubReleaseDownloads?.value, entry.installations, entry.installCount)
       const stars = metricValue(entry.metrics?.githubStars?.value, entry.githubStars)
       return h('span', { className: 'dshWbMetrics', 'aria-label': tr('工作台信息') },
@@ -1653,7 +1654,7 @@ window.__ModuleLoader__.load({
     }
     // The card link includes the workbench icon so its underline covers both.
     function EntryTitle({ entry, showIcon = false }) {
-      const href = typeof entry.repository === 'string' && /^https:\/\/github\.com\//.test(entry.repository) ? entry.repository : ''
+      const href = entry.listed === true && typeof entry.repository === 'string' && /^https:\/\/github\.com\//.test(entry.repository) ? entry.repository : ''
       const icon = showIcon && h('span', { className: 'dshWbCardIcon', 'aria-hidden': true }, h(WorkbenchIcon, { entry, size: 15 }))
       const title = h('span', { className: 'dshWbTitleText' }, entry.title)
       return href ? h('a', { className: 'dshWbTitleLink', href, target: '_blank', rel: 'noopener noreferrer', title: both(`在 GitHub 上查看${entry.title || ''}`, `View ${entry.title || ''} on GitHub`) }, icon, title) : h('span', { className: 'dshWbTitleLink' }, icon, title)
@@ -2098,8 +2099,8 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
                     installedFailure && FailureHint({ id: catalogId, kind: entry.failureKind, detail: entry.loadFailure }),
                     canRetryInstalled && h('button', { type: 'button', className: 'dshWbRetry', title: both(`重试安装${entry.title}`, `Retry installing ${entry.title}`), 'aria-label': both(`重试安装${entry.title}`, `Retry installing ${entry.title}`), disabled: disabled || !!installing, onClick: () => installMarket(entry) }, h(MarketIcon, { name: 'refresh', size: 17 }))),
                   h('div', { className: 'dshWbCardControls' },
-                  entry.repository && h('span', { className: 'dshWbControlHint' }, h('a', { className: 'dshWbRoundButton', href: entry.repository, target: '_blank', rel: 'noopener noreferrer', 'aria-describedby': `dsh-wb-github-tooltip-${catalogId}`, 'aria-label': both(`在 GitHub 查看${entry.title}`, `View ${entry.title} on GitHub`) }, h(MarketIcon, { name: 'github', size: 16 })), h('span', { id: `dsh-wb-github-tooltip-${catalogId}`, className: 'dshWbControlTooltip', role: 'tooltip' }, tr('查看 GitHub'))),
-                  !entry.local && h('span', { className: 'dshWbControlHint' }, h('button', { type: 'button', className: 'dshWbFavorite', 'aria-describedby': `dsh-wb-favorite-tooltip-${catalogId}`, 'aria-label': isFavorite ? both(`取消收藏${entry.title}`, `Remove ${entry.title} from favorites`) : both(`收藏${entry.title}`, `Add ${entry.title} to favorites`), 'aria-pressed': isFavorite, disabled: disabled, onClick: () => service.run(service.toggleFavorite(catalogId)) }, h(MarketIcon, { name: 'bookmark', size: 17 })), h('span', { id: `dsh-wb-favorite-tooltip-${catalogId}`, className: 'dshWbControlTooltip', role: 'tooltip' }, isFavorite ? tr('已收藏') : both('收藏', 'Favorite'))),
+                  entry.listed === true && entry.repository && h('span', { className: 'dshWbControlHint' }, h('a', { className: 'dshWbRoundButton', href: entry.repository, target: '_blank', rel: 'noopener noreferrer', 'aria-describedby': `dsh-wb-github-tooltip-${catalogId}`, 'aria-label': both(`在 GitHub 查看${entry.title}`, `View ${entry.title} on GitHub`) }, h(MarketIcon, { name: 'github', size: 16 })), h('span', { id: `dsh-wb-github-tooltip-${catalogId}`, className: 'dshWbControlTooltip', role: 'tooltip' }, tr('查看 GitHub'))),
+                  entry.listed === true && h('span', { className: 'dshWbControlHint' }, h('button', { type: 'button', className: 'dshWbFavorite', 'aria-describedby': `dsh-wb-favorite-tooltip-${catalogId}`, 'aria-label': isFavorite ? both(`取消收藏${entry.title}`, `Remove ${entry.title} from favorites`) : both(`收藏${entry.title}`, `Add ${entry.title} to favorites`), 'aria-pressed': isFavorite, disabled: disabled, onClick: () => service.run(service.toggleFavorite(catalogId)) }, h(MarketIcon, { name: 'bookmark', size: 17 })), h('span', { id: `dsh-wb-favorite-tooltip-${catalogId}`, className: 'dshWbControlTooltip', role: 'tooltip' }, isFavorite ? tr('已收藏') : both('收藏', 'Favorite'))),
                   tab === 'mine' && !canUninstall && h('span', { className: 'dshWbFailureHint dshWbRemovalHint' },
                     h('span', { className: 'dshWbFailureIcon', tabIndex: 0, 'aria-label': tr(localRemoval?.reason) || tr('原生插件状态未知或不可卸载'), 'aria-describedby': `dsh-wb-uninstall-reason-${catalogId}` }, h(MarketIcon, { name: 'failure', size: 17 })),
                     h('span', { id: `dsh-wb-uninstall-reason-${catalogId}`, className: 'dshWbFailureTooltip', role: 'tooltip', tabIndex: 0 }, tr(localRemoval?.reason) || tr('原生插件状态未知或不可卸载'))),
@@ -2114,7 +2115,7 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
                       ? h('span', { className: 'dshWbInstalled', role: 'status' }, tr(origin === 'local' ? '本地已有' : origin === 'market' ? '已安装' : '本机已有·来源待确认'))
                       : entry.distribution
                         ? h(Button, { primary: true, disabled: disabled || !!installing, onClick: () => installMarket(entry) }, installing === catalogId ? tr('正在安装…') : tr('安装'))
-                        : h('a', { className: 'dshWbBtn dshWbPrimary', href: entry.repository, target: '_blank', rel: 'noopener noreferrer' }, tr('查看安装说明'))))))
+                        : entry.listed === true && entry.repository && h('a', { className: 'dshWbBtn dshWbPrimary', href: entry.repository, target: '_blank', rel: 'noopener noreferrer' }, tr('查看安装说明'))))))
           }), entries.length === 0 && h('div', { className: 'dshWbEmpty' }, h('div', null,
             h('strong', null, tab === 'favorites' && !search ? tr('还没有收藏工作台') : tab === 'mine' && !search ? tr('还没有安装工作台') : tr('没有找到匹配的工作台')),
             h('p', { className: 'dshWbMuted' }, tab === 'favorites' && !search ? tr('把鼠标移到市场卡片上，点击书签即可收藏。') : tab === 'mine' && !search ? tr('到工作台市场选择一个工作台开始。') : tr('试试其他关键词或分类。')))))),
