@@ -2888,6 +2888,103 @@ describe('workbench market screenshot and metadata display', () => {
     expect(typeof service.removeWorkbench).toBe('function')
   })
 
+  it('closes the uninstall dialog when removal fails and leaves the reload notice usable', async () => {
+    const { service, ctx, externalUpdate } = await fixture({ ...emptyState(), added: ['owner/local'], pinned: ['owner/local'] })
+    setFiberPackage(ctx, 'local-package')
+    service.register({ title: 'Local', repository: 'https://github.com/owner/local' }, () => null)
+    let finishRemoval
+    ctx.remote = { pluginManager: {
+      listBundles: vi.fn(async () => ({ ok: true, value: [{ name: 'local-package', installed: true, enabled: true, removable: true }] })),
+      removeBundle: vi.fn(() => new Promise(resolve => { finishRemoval = () => resolve({ ok: true, value: { changed: true, application: 'applied' } }) }))
+    } }
+    await service.refreshNative()
+    const marketNode = { inert: false }
+    const doc = {
+      querySelector: (selector) => selector === '.dshWbMarket' ? marketNode : null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      body: { style: { overflow: '' } },
+      activeElement: { isConnected: true, focus: vi.fn() }
+    }
+    let renderMarket
+    let stateIndex = 0
+    const state = []
+    const testReact = {
+      createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+      Component: class {},
+      Fragment: Symbol('Fragment'),
+      useState: (initial) => {
+        const index = stateIndex++
+        if (!(index in state)) state[index] = index === 0 ? 'mine' : initial
+        return [state[index], (value) => { state[index] = typeof value === 'function' ? value(state[index]) : value }]
+      },
+      useRef: (initial) => ({ current: initial }),
+      useEffect: () => {},
+      useLayoutEffect: () => {},
+      useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot()
+    }
+    vm.runInNewContext(code, { window: { sessionStorage, localStorage: enabledStorage, __ModuleLoader__: { load({ factory }) {
+      const requireModule = (name) => {
+        if (name === 'react') return testReact
+        if (name === '@deepseek-ai/cordis') return { Service }
+        if (name === 'react-dom') return { createPortal: (node) => node }
+        return { Switch: () => null }
+      }
+      renderMarket = factory(requireModule).Market
+    } } }, document: doc, setTimeout, clearTimeout, AbortController })
+    const find = (node, predicate) => {
+      if (Array.isArray(node)) return node.flatMap(item => find(item, predicate))
+      if (!node || typeof node !== 'object') return []
+      return [...(predicate(node) ? [node] : []), ...find(node.props?.children, predicate)]
+    }
+    const render = () => { stateIndex = 0; return renderMarket({ service }) }
+    const textOf = (node) => {
+      if (node == null || typeof node === 'boolean') return ''
+      if (typeof node === 'string' || typeof node === 'number') return String(node)
+      if (Array.isArray(node)) return node.map(textOf).join('')
+      return textOf(node.props?.children)
+    }
+    const card = find(render(), node => node.type === 'article' && node.props.key === 'owner/local')[0]
+    find(card, node => node.props?.className === 'dshWbCardUninstall')[0].props.onClick()
+    const modal = find(render(), node => node.type?.name === 'ConfirmRemoveModal')[0]
+    const registered = []
+    testReact.useEffect = (fn) => { registered.push(fn) }
+    modal.type(modal.props)
+    const cleanups = registered.map(fn => fn())
+    expect(marketNode.inert).toBe(true)
+    let removal
+    const run = service.run.bind(service)
+    service.run = (promise) => { removal = promise; run(promise) }
+    modal.props.onConfirm()
+    expect(find(render(), node => node.type?.name === 'ConfirmRemoveModal')).toHaveLength(1)
+    expect(marketNode.inert).toBe(true)
+    externalUpdate()
+    finishRemoval()
+    await removal.catch(() => {})
+    for (const cleanup of cleanups) cleanup?.()
+    const tree = render()
+    expect(find(tree, node => node.type?.name === 'ConfirmRemoveModal')).toHaveLength(0)
+    expect(marketNode.inert).toBe(false)
+    const noticeNode = find(tree, node => node.type?.name === 'Notice')[0]
+    const notice = noticeNode.type(noticeNode.props)
+    expect(notice.props.className).toBe('dshWbNotice')
+    expect(notice.props.role).toBe('alert')
+    expect(textOf(notice)).toContain('工作台已在其他窗口更新，请重新加载后再操作。')
+    const reload = find(notice, node => node.type?.name === 'Button')[0]
+    expect(reload.props.disabled).toBe(false)
+    expect(reload.props.children).toEqual(['重新加载'])
+  })
+
+  it('uses compact spacing for the settings workbench tab', () => {
+    const start = code.indexOf('function WorkbenchSettingsTab')
+    const settings = code.slice(start, code.indexOf('function apply(ctx)', start))
+    expect(settings).toContain("className: 'dshWb dshWbSettings'")
+    expect(settings).not.toContain('dshWbMarket')
+    expect(code).toContain('.dshWbSettings{box-sizing:border-box;padding-top:8px;display:flex;flex-direction:column;gap:8px}')
+    expect(code).toContain('.dshWbSettings h2{margin:0;')
+    expect(code).toContain('.dshWbMarket{container-type:inline-size;container-name:workbench-market;overflow:auto;height:100%;width:100%;min-width:0;padding:30px 32px 52px;')
+  })
+
   it('offers local native uninstall but disables unknown failed Installed cards', async () => {
     const { service, ctx } = await fixture({ ...emptyState(), added: ['owner/local', 'o/helper'] })
     service.remoteCatalog = [listed()]

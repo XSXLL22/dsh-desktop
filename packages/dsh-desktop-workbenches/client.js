@@ -1265,6 +1265,7 @@ window.__ModuleLoader__.load({
       .dshWbActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
       .dshWbSessionIcon{width:16px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--dsw-alias-label-tertiary)}
       .dshWbMarket{container-type:inline-size;container-name:workbench-market;overflow:auto;height:100%;width:100%;min-width:0;padding:30px 32px 52px;max-width:1440px;margin:0 auto;scrollbar-color:var(--dsw-alias-border-l2) transparent;scrollbar-width:thin}
+      .dshWbSettings{box-sizing:border-box;padding-top:8px;display:flex;flex-direction:column;gap:8px}.dshWbSettings h2{margin:0;font-size:15px;line-height:22px;font-weight:600}.dshWbSettings p{margin:0}
       .dshWbMarket::selection,.dshWbMarket *::selection{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-label-primary-foreground)}
       .dshWbMarketHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:28px}
       .dshWbMarketHeaderText{max-width:70ch}.dshWbMarket h1{font-size:28px;line-height:36px;letter-spacing:-.025em;font-weight:650;margin:0 0 7px;text-wrap:balance}.dshWbMarketHeader p{margin:0}
@@ -2049,7 +2050,12 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
             h('p', { className: 'dshWbMuted' }, showingEnterprise && !search && enterpriseCatalogStatus === 'error' ? (enterpriseCatalogError || enterpriseText(service.ctx, 'retryHint')) : showingEnterprise && !search && enterpriseCatalogStatus === 'unavailable' ? enterpriseText(service.ctx, 'unavailableHint') : showingEnterprise && !search && enterpriseCatalogStatus !== 'loading' && enterpriseCatalogStatus !== 'idle' ? enterpriseText(service.ctx, 'emptyHint') : visibleTab === 'favorites' && !search ? '把鼠标移到市场卡片上，点击书签即可收藏。' : visibleTab === 'mine' && !search ? '到工作台市场选择一个工作台开始。' : search ? '试试其他关键词或分类。' : ''),
             showingEnterprise && enterpriseCatalogStatus === 'error' && h(Button, { onClick: () => service.run(service.refreshEnterpriseCatalog()) }, '重试'))))),
         detail != null && h(DetailModal, { entry: selected, service, onClose: () => setDetail(null) }),
-        removing != null && h(ConfirmRemoveModal, { entry: removingEntry, disabled: disabled || !!installing || !!removingPlugin, onCancel: () => setRemoving(null), uninstall: !removingStale && !!service.marketInstallFor(removing), nativeUninstall: !removingStale && !service.marketInstallFor(removing), recordOnly: !!removingStale, onConfirm: () => service.run((removingStale ? service.removeStaleWorkbenchRecord(removing) : service.removeWorkbench(removing)).then(() => setRemoving(null))) }))
+        removing != null && h(ConfirmRemoveModal, { entry: removingEntry, disabled: disabled || !!installing || !!removingPlugin, onCancel: () => setRemoving(null), uninstall: !removingStale && !!service.marketInstallFor(removing), nativeUninstall: !removingStale && !service.marketInstallFor(removing), recordOnly: !!removingStale, onConfirm: () => {
+          // A rejected state write sets blocked and disables dismiss. Close on
+          // failure too, or the inert market hides the reload notice forever.
+          const removal = removingStale ? service.removeStaleWorkbenchRecord(removing) : service.removeWorkbench(removing)
+          service.run(removal.finally(() => setRemoving(null)))
+        } }))
     }
     function Notebook({ service, entry }) {
       const { state, drafts, pending, error } = useWorkbench(service)
@@ -2123,7 +2129,7 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
     function WorkbenchSettingsTab() {
       const enabled = React.useSyncExternalStore(workbenchPreference.subscribe.bind(workbenchPreference), workbenchPreference.getSnapshot.bind(workbenchPreference))
       const enterprise = React.useSyncExternalStore(enterpriseCapability.subscribe.bind(enterpriseCapability), enterpriseCapability.getSnapshot.bind(enterpriseCapability))
-      return h('section', { className: 'dshWb dshWbMarket' },
+      return h('section', { className: 'dshWb dshWbSettings' },
         h('h2', null, '工作台'),
         h('label', null,
           h('input', { type: 'checkbox', role: 'switch', checked: enabled, onChange: (event) => workbenchPreference.set(event.target.checked) }),
