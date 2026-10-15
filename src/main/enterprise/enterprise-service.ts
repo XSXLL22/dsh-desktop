@@ -2,6 +2,7 @@ import { parseMarketRequest } from './enterprise-market'
 import { createEnterpriseFetch } from './platform-fetch'
 import { resolveEnterpriseEndpoint } from './enterprise-request'
 import type { ServerResponse } from 'node:http'
+import type { AuditContextField } from 'dsh-desktop-enterprise/contract'
 import {
   CHAT_HEADER_TIMEOUT_MS,
   CHAT_IDLE_TIMEOUT_MS,
@@ -92,6 +93,7 @@ export interface EnterprisePublicState {
   connectionKey?: string
   sessionExpiresAt?: string
   loginExpiresAt?: string
+  audit_context?: { fields: AuditContextField[] }
 }
 
 export interface EnterpriseLoginStartResult {
@@ -156,6 +158,8 @@ export class EnterpriseService {
   private chatInFlight = 0
   private readonly chatControllers = new Set<AbortController>()
   private allowPrivateHttpForSession = false
+  private auditFields: AuditContextField[] = []
+  private auditRefreshGeneration = 0
 
   constructor(private readonly options: EnterpriseServiceOptions) {
     this.phase = options.vault.available ? 'idle' : 'disabled'
@@ -173,6 +177,7 @@ export class EnterpriseService {
     const connected = this.phase === 'connected' || this.phase === 'degraded' || this.phase === 'refreshing'
     return {
       connected,
+      ...(connected && this.auditFields.length ? { audit_context: { fields: [...this.auditFields] } } : {}),
       secureStorageAvailable: this.options.vault.available,
       phase: this.phase,
       revision: this.revision,
@@ -209,6 +214,7 @@ export class EnterpriseService {
       const { isInsecurePrivateHttpOrigin } = await import('dsh-desktop-enterprise/deep-link')
       this.allowPrivateHttpForSession = isInsecurePrivateHttpOrigin(stored.session.base ?? '')
       this.phase = 'connected'
+      await this.refreshAuditCapability()
       this.clearError()
       this.publish()
       this.scheduleModels(0)
@@ -270,6 +276,10 @@ export class EnterpriseService {
       this.epoch += 1
       const loginEpoch = this.epoch
       this.pauseSessionForRelogin()
+      const config = contract.parseConfig((await requestEnterpriseJson(
+        this.options.fetchImpl, base, contract.API_PATHS.config, this.platformRequestOptions()
+      )).body)
+      if (!config.enabled) throw Object.assign(new Error('Enterprise login is disabled.'), { status: 503 })
       const pkce = contract.createPkceTransaction()
       let expectedAuthId: string | undefined
       const callback = await (this.options.startCallback ?? startLoginCallbackServer)({
@@ -391,7 +401,7 @@ export class EnterpriseService {
   }
 
   async proxyChat(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
-    const parsed = parseEnterpriseChatPayload(payload)
+    const parsed = parseEnterpriseChatPayload(payload, this.auditFields)
     if (!this.session?.base || !this.session.access_token || !this.modelsAvailable) {
       throw Object.assign(new Error('Enterprise models are unavailable.'), { status: 409 })
     }
@@ -415,6 +425,7 @@ export class EnterpriseService {
   }
 
   async stop(): Promise<void> {
+    this.auditFields = []
     await this.cancelPendingLogin()
     this.clearModelsTimer()
     this.epoch += 1
@@ -562,6 +573,7 @@ export class EnterpriseService {
       // Leave phase as refreshing; syncCatalog flips to connected after usage.
     } catch {
       this.session = null
+      this.auditFields = []
       this.allowPrivateHttpForSession = false
       this.models = []
       this.modelsAvailable = false
@@ -584,6 +596,8 @@ export class EnterpriseService {
   private async syncCatalog(expectedEpoch: number, options: { includeUsage: boolean }): Promise<void> {
     if (this.epoch !== expectedEpoch || !this.session?.base || !this.session.access_token) return
     const contract = await loadEnterpriseContract()
+    await this.refreshAuditCapability()
+    if (this.epoch !== expectedEpoch) return
     try {
       const modelsResult = await requestEnterpriseJson(
         this.options.fetchImpl,
@@ -955,6 +969,7 @@ export class EnterpriseService {
   }
 
   private async clearLocalSession(phase: EnterprisePhase): Promise<void> {
+    this.auditFields = []
     this.epoch += 1
     this.clearModelsTimer()
     for (const controller of this.chatControllers) controller.abort()
@@ -988,6 +1003,7 @@ export class EnterpriseService {
   }
 
   private pauseSessionForRelogin(): void {
+    this.auditFields = []
     this.modelsAvailable = false
     this.publish()
   }
@@ -997,6 +1013,29 @@ export class EnterpriseService {
     const pending = this.pendingLogin
     this.pendingLogin = undefined
     if (pending) await pending.callback.close()
+  }
+
+  async refreshAuditCapability(): Promise<void> {
+    const generation = ++this.auditRefreshGeneration
+    this.auditFields = []
+    this.publish()
+    const epoch = this.epoch
+    const base = this.session?.base
+    const connectionKey = this.connectionKey()
+    if (!base || !this.session?.access_token) return
+    try {
+      const contract = await loadEnterpriseContract()
+      const config = contract.parseConfig((await requestEnterpriseJson(
+        this.options.fetchImpl, base, contract.API_PATHS.config, this.platformRequestOptions()
+      )).body)
+      if (generation !== this.auditRefreshGeneration || epoch !== this.epoch ||
+          base !== this.session?.base || connectionKey !== this.connectionKey()) return
+      this.auditFields = config.enabled ? config.audit_context?.fields ?? [] : []
+    } catch {
+      // Only optional audit capability is lost; do not replay or reject model calls.
+      if (generation === this.auditRefreshGeneration && epoch === this.epoch) this.note('audit_capability_unavailable')
+    }
+    if (generation === this.auditRefreshGeneration && epoch === this.epoch) this.publish()
   }
 
   private scheduleLoginExpiry(epoch: number): void {
@@ -1118,6 +1157,7 @@ function publicStateSignature(state: EnterprisePublicState): string {
     phase: state.phase,
     models: state.models,
     modelsAvailable: state.modelsAvailable,
+    audit_context: state.audit_context,
     base: state.base,
     user: state.user,
     tenant: state.tenant,

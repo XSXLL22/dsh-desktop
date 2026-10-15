@@ -1,3 +1,4 @@
+import { normalizeAuditContext } from './contract.js'
 import {
   LlmAdapter,
   LlmError,
@@ -465,6 +466,15 @@ function finishReason(value) {
 }
 
 export class EnterpriseLlmAdapter extends LlmAdapter {
+  /**
+   * @param {object} options
+   * @param {() => string} options.providerName
+   * @param {() => import('./contract.js').EnterpriseModel[]} options.models
+   * @param {() => readonly string[]} [options.auditFields] Current trusted connection capability; not persisted.
+   * @param {Function} options.request Existing credential broker transport.
+   * @param {Function} [options.readImage]
+   * @param {Function} [options.onComplete]
+   */
   constructor(options) {
     super()
     this.options = options
@@ -507,8 +517,14 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
     const images = model.capabilities.vision
       ? await readRequestImages(history, this.options.readImage, options.signal)
       : new Map()
+    const request = serializeEnterpriseRequest({ ...options, messages: history }, model, images)
+    const auditContext = normalizeAuditContext({
+      conversation_id: options.sessionId,
+      request_kind: options.purpose === undefined ? 'chat' : options.purpose
+    }, this.options.auditFields?.() ?? [])
+    if (auditContext) request.audit_context = auditContext
     const response = await this.options.request(
-      serializeEnterpriseRequest({ ...options, messages: history }, model, images),
+      request,
       options.signal,
       pickAttributionHeaders(attributionHeaders())
     )

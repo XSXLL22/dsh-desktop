@@ -2,6 +2,14 @@ export declare const CONTRACT_VERSION = "0.5.0"
 export declare const CLIENT_ID = "dsh-desktop"
 export declare const CALLBACK_PATH = "/dsh/callback"
 export declare const ACCESS_REFRESH_SKEW_MS = 60000
+export type AuditContextField = 'conversation_id' | 'request_kind'
+export interface EnterpriseAuditContext {
+  conversation_id?: string
+  request_kind?: 'chat' | 'compaction' | 'session-title'
+}
+export declare const AUDIT_CONTEXT_FIELDS: readonly AuditContextField[]
+export declare function parseAuditContextFields(value: unknown): AuditContextField[]
+export declare function normalizeAuditContext(value: unknown, allowedFields?: readonly string[]): EnterpriseAuditContext | undefined
 export declare const COMPATIBLE_CONTRACT_VERSIONS: readonly ['0.4.0', '0.5.0']
 export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'usage', string>>
 
@@ -40,6 +48,7 @@ export declare function parseConfig(value: unknown): { enabled: false } | {
   enabled: true
   client_id: 'dsh-desktop'
   contract_version: '0.4.0' | '0.5.0'
+  audit_context?: { fields: AuditContextField[] }
 }
 export declare function parseAuthorization(value: unknown, base: string): {
   auth_id: string

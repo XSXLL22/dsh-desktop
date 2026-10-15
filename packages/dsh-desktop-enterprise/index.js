@@ -266,6 +266,7 @@ function startEnterpriseLlm(ctx, llm) {
   const adapter = new EnterpriseLlmAdapter({
     providerName: () => latest.tenant?.name || latest.user?.display_name || 'BiSheng Enterprise',
     models: () => modelsAvailable ? models : [],
+    auditFields: () => latest.connected ? latest.audit_context?.fields ?? [] : [],
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
       ...requestImageDimensions(ref.width, ref.height, 4_194_304),
