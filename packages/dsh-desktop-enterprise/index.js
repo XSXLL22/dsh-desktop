@@ -1,5 +1,6 @@
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
+import { applyEnterpriseWorkbenchMarket } from './workbench-market.js'
 import { parseThirdPartyPolicy } from './contract.js'
 import {
   isInsecurePrivateHttpOrigin,
@@ -172,6 +173,7 @@ async function brokerJson(path, body) {
 export function apply(ctx) {
   const connection = Reflect.get(ctx, 'connection')
   let market
+  let workbenches
   let capabilityPolicy
   let account = disabledState()
   let ingestEnterpriseState = () => undefined
@@ -187,6 +189,7 @@ export function apply(ctx) {
     const state = brokerConfig() ? await brokerJson('/v1/state') : disabledState()
     if (account.connectionKey !== state.connectionKey) {
       await market?.stop()
+      await workbenches?.stop()
       capabilityPolicy?.reset()
     }
     account = state
@@ -209,12 +212,67 @@ export function apply(ctx) {
     }
     return binary ? Buffer.from(await response.arrayBuffer()) : response.json()
   }
-  market = applyEnterpriseMarket(ctx, {
+  const verifyWorkbenchArtifact = async (input) => {
+    const broker = brokerConfig()
+    if (!broker) unavailable()
+    const response = await fetch(new URL('/v1/workbench/verify', broker.origin), {
+      method: 'POST', redirect: 'error',
+      headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...input, connectionKey: account.connectionKey })
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw Object.assign(new Error(payload.error || `Enterprise workbench verification failed (${response.status}).`), { status: response.status })
+    }
+    return payload
+  }
+  const materializeWorkbenchArtifact = async (input) => {
+    const broker = brokerConfig()
+    if (!broker) unavailable()
+    const response = await fetch(new URL('/v1/workbench/materialize', broker.origin), {
+      method: 'POST', redirect: 'error',
+      headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...input, connectionKey: account.connectionKey })
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw Object.assign(new Error(payload.error || `Enterprise workbench installation failed (${response.status}).`), { status: response.status })
+    }
+    return payload
+  }
+  const releaseWorkbenchArtifact = async (ticket, connectionKey) => {
+    const broker = brokerConfig()
+    if (!broker || typeof ticket !== 'string' || typeof connectionKey !== 'string') return
+    await fetch(new URL('/v1/workbench/release', broker.origin), {
+      method: 'POST', redirect: 'error',
+      headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ connectionKey, ticket })
+    }).catch(() => undefined)
+  }
+  const accountController = {
     state: () => account,
     refreshState: readBrokerState,
     refreshProfile: readBrokerState,
-    marketRequest
-  })
+    marketRequest,
+    verifyWorkbenchArtifact,
+    materializeWorkbenchArtifact,
+    releaseWorkbenchArtifact
+  }
+  market = applyEnterpriseMarket(ctx, accountController)
+  workbenches = applyEnterpriseWorkbenchMarket(ctx, accountController)
+  if (typeof ctx.provide === 'function') {
+    ctx.provide('enterpriseWorkbenchPackages', {
+      async open(id) {
+        const opened = await workbenches.packageForInstall(id)
+        return {
+          path: opened.path,
+          packageName: opened.packageName,
+          version: opened.version,
+          release: () => releaseWorkbenchArtifact(opened.ticket, opened.connectionKey)
+        }
+      }
+    })
+  }
   if (typeof ctx.inject === 'function') {
     ctx.inject(['enterpriseCapabilityPolicy'], (scoped) => {
       capabilityPolicy = scoped.enterpriseCapabilityPolicy
@@ -284,6 +342,7 @@ export function apply(ctx) {
     if (!brokerConfig()) return disabledState()
     const state = await brokerJson('/v1/logout', {})
     await market.stop()
+    await workbenches?.stop()
     capabilityPolicy?.reset()
     account = state
     ingestEnterpriseState(state)
