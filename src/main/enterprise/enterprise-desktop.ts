@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { parseThirdPartyPolicy } from 'dsh-desktop-enterprise/contract'
+import { sweepWorkbenchVerifyDirectory } from './workbench-artifact'
 import {
   startEnterpriseCredentialBroker,
   type EnterpriseCredentialBroker
@@ -29,6 +30,7 @@ export async function startEnterpriseDesktop(options: {
   allowInsecureLoopback: boolean
   note?: (line: string) => void
 }): Promise<EnterpriseDesktopRuntime> {
+  await sweepWorkbenchVerifyDirectory().catch(() => undefined)
   const vault = new SecureEnterpriseCredentialVault(
     join(options.userDataPath, ENTERPRISE_VAULT_FILENAME),
     options.safeStorage
