@@ -481,6 +481,16 @@ window.__ModuleLoader__.load({
             if (typeof legacy === 'string' && legacy !== entry.id && referenced(legacy)) migrations[legacy] = entry.id
           }
         }
+        if (this.native.status === NATIVE_STATUS.ready) {
+          for (const [legacy, remembered] of Object.entries(this.knownProviders)) {
+            const source = remembered?.sourcePackage
+            const bundle = source && this.native.bundles[source]
+            if (!source || !bundle || bundle.installed === false || bundle.error || this.catalog.has(legacy) || !referenced(legacy) || migrations[legacy]) continue
+            const current = [...this.catalog.values()].filter((provider) => provider.sourcePackage === source &&
+              this.remoteCatalog.some((entry) => entry.id === provider.id))
+            if (current.length === 1 && current[0].id !== legacy) migrations[legacy] = current[0].id
+          }
+        }
         if (!Object.keys(migrations).length) return
         this.run(this.commit((state) => {
           const replace = id => migrations[id] || id
@@ -825,6 +835,7 @@ window.__ModuleLoader__.load({
         if (this.ready) void this.readInstalls().then(() => { if (!this.disposed) this.publish() }).catch(() => { this.packageEvidence = {}; if (!this.disposed) this.publish() })
         this.rebuildProviders()
         this.publish()
+        this.migrateLegacyWorkbenchIds()
         this.reconcileMarketInstalls()
         this.reconcileLocalProviders()
         return () => {

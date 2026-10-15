@@ -2489,6 +2489,26 @@ describe('workbench market screenshot and metadata display', () => {
     expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/old')).toHaveLength(1)
   })
 
+  it('migrates an old-only installed ID to its unique live market provider and preserves owned data', async () => {
+    const initial = { ...emptyState(), added: ['o/old'], pinned: ['o/old'], favorites: ['o/old'], active: 'o/old',
+      notes: { 'o/old': 'Keep notes' }, sessionBindings: { old: 'o/old' }, recentSessions: { 'o/old': 'old' } }
+    const { service, ctx, saved } = await fixture(initial)
+    service.remoteCatalog = [listed({ id: 'o/new', repository: 'new', url: 'https://github.com/o/new' })]
+    service.knownProviders['o/old'] = { id: 'o/old', sourcePackage: 'helper', title: 'Helper' }
+    service.native = { status: 'ready', bundles: { helper: { name: 'helper', installed: true, enabled: true } } }
+    setFiberPackage(ctx, 'helper')
+    service.register({ title: 'Helper', repository: 'https://github.com/o/new' }, () => null)
+    await service.queue
+
+    expect(saved().state).toMatchObject({ added: ['o/new'], pinned: ['o/new'], favorites: ['o/new'], active: 'o/new',
+      notes: { 'o/new': 'Keep notes' }, sessionBindings: { old: 'o/new' }, recentSessions: { 'o/new': 'old' } })
+    expect(service.knownProviders['o/old'].sourcePackage).toBe('helper')
+    const ui = interactiveMarket(service, 'mine')
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/old')).toHaveLength(0)
+    expect(ui.find(ui.render(), node => node.type === 'article' && node.props.key === 'o/new')).toHaveLength(1)
+    await expect(service.open('o/new')).resolves.toBeUndefined()
+  })
+
   it('sorts market cards by visible stars, downloads, update time and name without changing the default order', async () => {
     const { service } = await fixture()
     service.remoteCatalog = [
