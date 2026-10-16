@@ -89,7 +89,7 @@ export function parseEnterpriseChatPayload(value: unknown, trustedAuditFields: r
   }
   validateChatImages(request.messages)
   const { audit_context: rawContext, ...businessRequest } = request
-  const auditContext = normalizeAuditContext(rawContext, trustedAuditFields)
+  const auditContext = normalizeAuditContext(rawContext, trustedAuditFields, request.messages.length)
   return {
     request: { ...businessRequest, ...(auditContext ? { audit_context: auditContext } : {}) },
     attribution: pickAttributionHeaders(value.attribution),

@@ -26,14 +26,14 @@ describe('optional model audit context', () => {
       .toEqual({ conversation_id: 'abc' })
   })
 
-  it('checks Unicode codepoints and total compact JSON UTF-8 bytes before stripping unknown keys', () => {
+  it('checks Unicode IDs and excludes unknown values from the independent budgets', () => {
     expect(normalizeAuditContext({ conversation_id: '😀'.repeat(256) }, fields)).toBeDefined()
     expect(normalizeAuditContext({ conversation_id: '😀'.repeat(257) }, fields)).toBeUndefined()
     const raw = { request_kind: 'chat', padding: '' }
     const overhead = Buffer.byteLength(JSON.stringify(raw))
     expect(normalizeAuditContext({ ...raw, padding: 'x'.repeat(4096 - overhead) }, fields))
       .toEqual({ request_kind: 'chat' })
-    expect(normalizeAuditContext({ ...raw, padding: 'x'.repeat(4097 - overhead) }, fields)).toBeUndefined()
+    expect(normalizeAuditContext({ ...raw, padding: 'x'.repeat(4097 - overhead) }, fields)).toEqual({ request_kind: 'chat' })
     for (const value of [null, 1, [], 'bad']) expect(normalizeAuditContext(value, fields)).toBeUndefined()
   })
 })

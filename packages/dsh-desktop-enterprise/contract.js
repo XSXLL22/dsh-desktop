@@ -1,35 +1,18 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { normalizeEnterpriseServerUrl } from './deep-link.js'
+export { normalizeAuditContext } from './audit-context.js'
 
 export const CONTRACT_VERSION = '0.5.0'
 export const CLIENT_ID = 'dsh-desktop'
 export const CALLBACK_PATH = '/dsh/callback'
 export const ACCESS_REFRESH_SKEW_MS = 60_000
-export const AUDIT_CONTEXT_FIELDS = Object.freeze(['conversation_id', 'request_kind'])
+export const AUDIT_CONTEXT_FIELDS = Object.freeze(['conversation_id', 'request_kind', 'session_origin', 'parent_conversation_id', 'message_sources'])
 
 export function parseAuditContextFields(value) {
   if (!isObject(value) || !Array.isArray(value.fields) || value.fields.some((field) => typeof field !== 'string')) return []
   return AUDIT_CONTEXT_FIELDS.filter((field) => value.fields.includes(field))
 }
 
-export function normalizeAuditContext(value, allowedFields = []) {
-  if (!isObject(value)) return undefined
-  try {
-    if (Buffer.byteLength(JSON.stringify(value), 'utf8') > 4096) return undefined
-  } catch {
-    // An invalid optional extension must not reject a valid model request.
-    return undefined
-  }
-  const context = {}
-  if (allowedFields.includes('conversation_id') && typeof value.conversation_id === 'string' &&
-      value.conversation_id.length > 0 && [...value.conversation_id].length <= 256) {
-    context.conversation_id = value.conversation_id
-  }
-  if (allowedFields.includes('request_kind') && ['chat', 'compaction', 'session-title'].includes(value.request_kind)) {
-    context.request_kind = value.request_kind
-  }
-  return Object.keys(context).length > 0 ? context : undefined
-}
 export const COMPATIBLE_CONTRACT_VERSIONS = Object.freeze(['0.4.0', CONTRACT_VERSION])
 export const API_PATHS = Object.freeze({
   config: '/api/v1/dsh/config',

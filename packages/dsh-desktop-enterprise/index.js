@@ -267,6 +267,17 @@ function startEnterpriseLlm(ctx, llm) {
     providerName: () => latest.tenant?.name || latest.user?.display_name || 'BiSheng Enterprise',
     models: () => modelsAvailable ? models : [],
     auditFields: () => latest.connected ? latest.audit_context?.fields ?? [] : [],
+    resolveAuditSession: (id) => {
+      try {
+        const header = ctx.get?.('sessions')?.get(id)?.header
+        if (!header || header.id !== id) return undefined
+        if (header.origin === 'subagent') return { session_origin: 'subagent', parent_conversation_id: header.parentSession }
+        return header.origin === undefined ? { session_origin: 'main' } : undefined
+      } catch {
+        // Sessions are optional; unavailable provenance never blocks model generation.
+        return undefined
+      }
+    },
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
       ...requestImageDimensions(ref.width, ref.height, 4_194_304),
