@@ -11,6 +11,40 @@ const TICKET_TTL_MS = 60 * 1000
 const ACCESS_TTL_SECONDS = 300
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
 const MAX_BODY = 128 * 1024
+const WORKBENCH_ID = '0123456789abcdef0123456789abcdef'
+const WORKBENCH_VERSION = 'fedcba9876543210fedcba9876543210'
+const LEGACY_WORKBENCH_ID = 'abcdef0123456789abcdef0123456789'
+const LEGACY_VERSION = '1234567890abcdef1234567890abcdef'
+const WORKBENCH_ARTIFACT = Buffer.from('enterprise-workbench-package')
+const WORKBENCH_SHA256 = createHash('sha256').update(WORKBENCH_ARTIFACT).digest('hex')
+
+function workbenchCatalog() {
+  return [
+    {
+      id: WORKBENCH_ID, identity_kind: 'repository', workbench_key: 'cinderzhan/dsh-media-workbench', legacy_id: null,
+      package_name: 'dsh-media-workbench', display_name: 'Media workbench', description: '内容运营工作台',
+      current_version: { id: WORKBENCH_VERSION, version: '0.12.6' }, verification_level: 'static', updated_at: '2026-10-15T00:00:00Z'
+    },
+    {
+      id: LEGACY_WORKBENCH_ID, identity_kind: 'legacy', workbench_key: null, legacy_id: 'legacy-workbench',
+      package_name: 'legacy-workbench', display_name: 'Legacy workbench', description: '旧格式工作台',
+      current_version: { id: LEGACY_VERSION, version: '0.1.0' }, verification_level: 'static', updated_at: '2026-10-15T00:00:00Z'
+    }
+  ]
+}
+
+function workbenchDetail(entry) {
+  const artifact = `/api/v1/dsh/market/workbenches/${entry.id}/versions/${entry.current_version.id}/artifact`
+  return {
+    ...entry,
+    current_version: { ...entry.current_version, sha256: WORKBENCH_SHA256, size_bytes: WORKBENCH_ARTIFACT.length, artifact_url: artifact },
+    package_metadata: {
+      repository_url: entry.identity_kind === 'repository' ? `https://github.com/${entry.workbench_key}` : null,
+      patch_entry_id: entry.package_name, server_entry: 'index.js', client_entry: 'client.js', bundle_patch: 'cordis.patch.yml',
+      license: null, node_engine: null, dependencies: [], legacy_manifest: entry.identity_kind === 'legacy'
+    }
+  }
+}
 
 const EMPLOYEE_MODELS = [
   'bisheng:42',
@@ -243,6 +277,39 @@ export function createMockEnterpriseServer(options = {}) {
             allow_third_party_workbenches: process.env.MOCK_ALLOW_THIRD_PARTY_WORKBENCHES === '1'
           }
         }, id)
+      }
+      if (url.pathname.startsWith('/api/v1/dsh/market/workbenches')) {
+        const session = sessionFromAccess(state, request)
+        if (!session) return sendError(response, 401, 'invalid_access_token', 'Access token is invalid.', 'authentication_error', id)
+        const rows = process.env.MOCK_WORKBENCH_EMPTY === '1' ? [] : workbenchCatalog()
+        if (request.method === 'GET' && url.pathname === '/api/v1/dsh/market/workbenches') {
+          if (process.env.MOCK_WORKBENCH_BAD === '1') return sendJson(response, 200, { status_code: 500, status_message: 'ERROR', data: null }, id)
+          const page = Number(url.searchParams.get('page') || '1')
+          const size = Number(url.searchParams.get('size') || '20')
+          const start = Math.max(0, (page - 1) * size)
+          return sendJson(response, 200, { status_code: 200, status_message: 'SUCCESS', data: { data: rows.slice(start, start + size), total: rows.length } }, id)
+        }
+        const detail = /^\/api\/v1\/dsh\/market\/workbenches\/([a-f0-9]{32})$/u.exec(url.pathname)
+        if (request.method === 'GET' && detail) {
+          const entry = rows.find(item => item.id === detail[1])
+          if (!entry) return sendJson(response, 200, { status_code: 26207, status_message: 'NOT_FOUND', data: null }, id)
+          return sendJson(response, 200, { status_code: 200, status_message: 'SUCCESS', data: workbenchDetail(entry) }, id)
+        }
+        const artifact = /^\/api\/v1\/dsh\/market\/workbenches\/([a-f0-9]{32})\/versions\/([a-f0-9]{32})\/artifact$/u.exec(url.pathname)
+        if (request.method === 'GET' && artifact) {
+          const entry = rows.find(item => item.id === artifact[1] && item.current_version.id === artifact[2])
+          if (!entry) return sendJson(response, 200, { status_code: 26207, status_message: 'NOT_FOUND' }, id)
+          response.writeHead(200, {
+            'content-type': 'application/gzip',
+            'content-disposition': 'attachment; filename="workbench.tgz"',
+            etag: `"${WORKBENCH_SHA256}"`,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            'content-length': WORKBENCH_ARTIFACT.length
+          })
+          response.end(WORKBENCH_ARTIFACT)
+          return undefined
+        }
       }
 
       if (request.method === 'POST' && url.pathname === '/api/dsh/authorizations') {

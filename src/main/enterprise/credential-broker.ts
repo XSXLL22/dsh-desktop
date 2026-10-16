@@ -18,7 +18,10 @@ const JSON_ROUTES = new Map<string, 'GET' | 'POST'>([
   ['/v1/logout', 'POST'],
   ['/v1/chat', 'POST'],
   ['/v1/responses', 'POST'],
-  ['/v1/market', 'POST']
+  ['/v1/market', 'POST'],
+  ['/v1/workbench/verify', 'POST'],
+  ['/v1/workbench/materialize', 'POST'],
+  ['/v1/workbench/release', 'POST']
 ])
 
 export interface EnterpriseCredentialBroker {
@@ -114,6 +117,30 @@ export async function startEnterpriseCredentialBroker(
         const result = await service.marketRequest(body)
         response.writeHead(200, { 'content-type': result.binary ? 'application/octet-stream' : 'application/json', 'cache-control': 'no-store' })
         response.end(result.bytes)
+        return
+      }
+      if (path === '/v1/workbench/verify') {
+        if (!isWorkbenchVerifyBody(body)) {
+          sendJson(response, 400, { error: 'A workbench artifact verification request is required.' })
+          return
+        }
+        sendJson(response, 200, await service.verifyWorkbenchArtifact(body))
+        return
+      }
+      if (path === '/v1/workbench/materialize') {
+        if (!isWorkbenchVerifyBody(body)) {
+          sendJson(response, 400, { error: 'A workbench artifact verification request is required.' })
+          return
+        }
+        sendJson(response, 200, await service.materializeWorkbenchArtifact(body))
+        return
+      }
+      if (path === '/v1/workbench/release') {
+        if (!isWorkbenchReleaseBody(body)) {
+          sendJson(response, 400, { error: 'A workbench artifact release request is required.' })
+          return
+        }
+        sendJson(response, 200, await service.releaseWorkbenchArtifact(body))
         return
       }
       if (path === '/v1/login/start') {
@@ -234,6 +261,22 @@ function isExactObject(value: unknown, keys: string[]): value is Record<string, 
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     && Object.keys(value).every((key) => keys.includes(key))
     && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key) || keys.length === 0)
+}
+
+function isWorkbenchVerifyBody(value: unknown): value is { connectionKey: string, id: string, versionId: string, sha256: string, sizeBytes: number } {
+  if (!isExactObject(value, ['connectionKey', 'id', 'versionId', 'sha256', 'sizeBytes'])) return false
+  const sizeBytes = value.sizeBytes
+  return typeof value.connectionKey === 'string' && value.connectionKey.length > 0
+    && typeof value.id === 'string' && /^[a-f0-9]{32}$/u.test(value.id)
+    && typeof value.versionId === 'string' && /^[a-f0-9]{32}$/u.test(value.versionId)
+    && typeof value.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(value.sha256)
+    && typeof sizeBytes === 'number' && Number.isSafeInteger(sizeBytes) && sizeBytes > 0
+}
+
+function isWorkbenchReleaseBody(value: unknown): value is { connectionKey: string, ticket: string } {
+  if (!isExactObject(value, ['connectionKey', 'ticket'])) return false
+  return typeof value.connectionKey === 'string' && value.connectionKey.length > 0
+    && typeof value.ticket === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value.ticket)
 }
 
 function isLoginStartBody(
