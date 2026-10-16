@@ -76,6 +76,30 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
 }
 
 describe('enterprise service login loop', () => {
+  it('retains reasoning metadata through login, refresh and detached public snapshots', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    const reasoning = { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' }
+    const fetchImpl: EnterpriseFetch = async (input, init) => {
+      const response = await globalThis.fetch(input, init)
+      if (!String(input).endsWith('/api/v1/dsh/models')) return response
+      const body = await response.json()
+      body.data = body.data.map((model: Record<string, unknown>) => ({ ...model, reasoning }))
+      return Response.json(body)
+    }
+    const { service } = await createService(createEnterpriseFetch(fetchImpl))
+    const started = await service.startLogin(origin)
+    await completeBrowserLogin(origin, started.authorizationUrl)
+    await waitFor(() => service.snapshot().modelsAvailable)
+    const snapshot = service.snapshot()
+    expect(snapshot.models[0]?.reasoning).toEqual(reasoning)
+    snapshot.models[0]?.reasoning?.efforts.splice(0)
+    expect(service.snapshot().models[0]?.reasoning).toEqual(reasoning)
+    await service.refresh()
+    expect(service.snapshot().models[0]?.reasoning).toEqual(reasoning)
+  })
+
   it.each([false, true])('reports the app version and commits login even when activation fails: %s', async (failActivation) => {
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()

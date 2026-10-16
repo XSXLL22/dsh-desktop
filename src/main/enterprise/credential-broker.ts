@@ -17,6 +17,7 @@ const JSON_ROUTES = new Map<string, 'GET' | 'POST'>([
   ['/v1/refresh', 'POST'],
   ['/v1/logout', 'POST'],
   ['/v1/chat', 'POST'],
+  ['/v1/responses', 'POST'],
   ['/v1/market', 'POST']
 ])
 
@@ -91,7 +92,7 @@ export async function startEnterpriseCredentialBroker(
         sendJson(response, 200, await service.readState())
         return
       }
-      if (path === '/v1/chat') {
+      if (path === '/v1/chat' || path === '/v1/responses') {
         const body = await readJsonBody(request, ENTERPRISE_BROKER_CHAT_LIMIT)
         const controller = new AbortController()
         const abortIfClientGone = () => {
@@ -100,7 +101,8 @@ export async function startEnterpriseCredentialBroker(
         request.on('aborted', abortIfClientGone)
         response.on('close', abortIfClientGone)
         try {
-          await service.proxyChat(body, response, controller.signal)
+          if (path === '/v1/chat') await service.proxyChat(body, response, controller.signal)
+          else await service.proxyResponses(body, response, controller.signal)
         } finally {
           request.off('aborted', abortIfClientGone)
           response.off('close', abortIfClientGone)

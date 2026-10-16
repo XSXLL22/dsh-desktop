@@ -120,12 +120,12 @@ function unavailable() {
   throw Object.assign(new Error('Enterprise login is not available yet.'), { status: 503 })
 }
 
-async function brokerChat(body, signal, attribution) {
+async function brokerChat(body, signal, attribution, connectionKey) {
   const broker = brokerConfig()
   if (!broker) unavailable()
   let response
   try {
-    response = await fetch(new URL('/v1/chat', `${broker.origin}/`), {
+    response = await fetch(new URL(connectionKey === undefined ? '/v1/chat' : '/v1/responses', `${broker.origin}/`), {
       method: 'POST',
       redirect: 'error',
       signal,
@@ -133,7 +133,7 @@ async function brokerChat(body, signal, attribution) {
         authorization: `Bearer ${broker.capability}`,
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ request: body, attribution })
+      body: JSON.stringify({ request: body, attribution, ...(connectionKey === undefined ? {} : { connectionKey }) })
     })
   } catch (error) {
     if (signal?.aborted) throw error
@@ -311,6 +311,9 @@ function startEnterpriseLlm(ctx, llm) {
     providerName: () => latest.tenant?.name || latest.user?.display_name || 'BiSheng Enterprise',
     models: () => modelsAvailable ? models : [],
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
+    requestResponses: (body, signal, headers, connectionKey) => brokerChat(body, signal, pickAttributionHeaders(headers), connectionKey),
+    connectionKey: () => latest.connectionKey,
+    onReplayDegrade: (reason) => ctx.logger?.info?.(`Enterprise Responses replay degraded: ${reason}`),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
       ...requestImageDimensions(ref.width, ref.height, 4_194_304),
       maxBytes: 5 * 1024 * 1024

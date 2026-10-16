@@ -136,7 +136,8 @@ export async function requestEnterpriseStream(
         'content-type': 'application/json',
         'x-request-id': requestId,
         authorization: `Bearer ${options.accessToken}`,
-        ...(options.attribution?.['user-agent'] ? { 'user-agent': options.attribution['user-agent'] } : {})
+        ...Object.fromEntries(['user-agent', 'x-dsh-conversation-id', 'x-dsh-request-purpose']
+          .flatMap((key) => options.attribution?.[key] ? [[key, options.attribution[key]]] : []))
       },
       body: JSON.stringify(options.body)
     })

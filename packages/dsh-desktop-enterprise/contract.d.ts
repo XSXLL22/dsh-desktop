@@ -3,7 +3,12 @@ export declare const CLIENT_ID = "dsh-desktop"
 export declare const CALLBACK_PATH = "/dsh/callback"
 export declare const ACCESS_REFRESH_SKEW_MS = 60000
 export declare const COMPATIBLE_CONTRACT_VERSIONS: readonly ['0.4.0', '0.5.0']
-export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'usage', string>>
+export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'responses' | 'usage', string>>
+
+export interface EnterpriseModelReasoning {
+  efforts: Array<{ id: string; name: string }>
+  defaultEffort?: string
+}
 
 export interface EnterpriseModel {
   id: string
@@ -11,7 +16,8 @@ export interface EnterpriseModel {
   created: number
   owned_by: string
   display_name: string
-  capabilities: { streaming: boolean; tools: boolean; reasoning_content: boolean; vision?: boolean }
+  reasoning?: EnterpriseModelReasoning
+  capabilities: { streaming: boolean; tools: boolean; reasoning_content: boolean; vision?: boolean; responses?: boolean }
   usage?: {
     source: 'live' | 'persisted' | 'unavailable'
     quota_state: 'available' | 'exhausted' | 'unavailable'

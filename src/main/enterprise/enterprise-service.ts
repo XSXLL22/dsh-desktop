@@ -1,4 +1,5 @@
 import { parseMarketRequest } from './enterprise-market'
+import { parseEnterpriseResponsesPayload } from './enterprise-responses'
 import { createEnterpriseFetch } from './platform-fetch'
 import { resolveEnterpriseEndpoint } from './enterprise-request'
 import type { ServerResponse } from 'node:http'
@@ -65,11 +66,13 @@ export interface EnterprisePublicUsage {
 export interface EnterprisePublicModel {
   id: string
   display_name: string
+  reasoning?: { efforts: Array<{ id: string; name: string }>; defaultEffort?: string }
   capabilities: {
     streaming: boolean
     tools: boolean
     reasoning_content: boolean
     vision?: boolean
+    responses?: boolean
   }
 }
 
@@ -182,6 +185,7 @@ export class EnterpriseService {
       models: this.models.map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: structuredClone(model.reasoning) }),
         capabilities: { ...model.capabilities }
       })),
       modelsAvailable: this.modelsAvailable && (this.phase === 'connected' || this.phase === 'refreshing'),
@@ -392,6 +396,21 @@ export class EnterpriseService {
 
   async proxyChat(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
     const parsed = parseEnterpriseChatPayload(payload)
+    await this.proxyModel(parsed, response, signal)
+  }
+
+  async proxyResponses(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
+    const parsed = parseEnterpriseResponsesPayload(payload)
+    if (parsed.connectionKey !== this.connectionKey()) {
+      throw Object.assign(new Error('Enterprise session changed.'), { status: 409 })
+    }
+    if (!this.models.some((model) => model.id === parsed.model && model.capabilities.responses === true)) {
+      throw Object.assign(new Error('Native Responses is unavailable for this model.'), { status: 403 })
+    }
+    await this.proxyModel(parsed, response, signal)
+  }
+
+  private async proxyModel(parsed: ReturnType<typeof parseEnterpriseChatPayload> | ReturnType<typeof parseEnterpriseResponsesPayload>, response: ServerResponse, signal: AbortSignal): Promise<void> {
     if (!this.session?.base || !this.session.access_token || !this.modelsAvailable) {
       throw Object.assign(new Error('Enterprise models are unavailable.'), { status: 409 })
     }
@@ -599,6 +618,7 @@ export class EnterpriseService {
       this.models = parsedModels.map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         capabilities: model.capabilities
       }))
       this.modelsAvailable = this.models.length > 0
@@ -648,6 +668,7 @@ export class EnterpriseService {
       this.models = contract.parseModelsLenient(modelsResult.body).map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         capabilities: model.capabilities
       }))
       this.modelsAvailable = this.models.length > 0
@@ -682,7 +703,7 @@ export class EnterpriseService {
   }
 
   private async runChat(
-    parsed: ReturnType<typeof parseEnterpriseChatPayload>,
+    parsed: ReturnType<typeof parseEnterpriseChatPayload> | ReturnType<typeof parseEnterpriseResponsesPayload>,
     response: ServerResponse,
     signal: AbortSignal,
     epoch: number,
@@ -701,7 +722,7 @@ export class EnterpriseService {
       upstream = await requestEnterpriseStream(
         this.options.fetchImpl,
         this.session!.base!,
-        contract.API_PATHS.chat,
+        'protocol' in parsed ? contract.API_PATHS.responses : contract.API_PATHS.chat,
         {
           body: parsed.request,
           accessToken,
@@ -727,12 +748,12 @@ export class EnterpriseService {
     }
     const contentType = upstream.headers.get('content-type')
     if (!upstream.ok || !isSseContentType(contentType)) {
-      const text = await upstream.text()
+      const text = await this.boundedResponseText(upstream)
       this.handleChatStatus(upstream.status, text, parsed.model, epoch)
       this.writeForwarded(response, upstream, text)
       return
     }
-    await this.pipeSse(upstream, response, signal)
+    await this.pipeSse(upstream, response, signal, 'protocol' in parsed)
     if (this.epoch === epoch) void this.syncUsage(epoch, parsed.model)
   }
 
@@ -898,7 +919,27 @@ export class EnterpriseService {
     response.end(text)
   }
 
-  private async pipeSse(upstream: Response, response: ServerResponse, signal: AbortSignal): Promise<void> {
+  private async boundedResponseText(upstream: Response): Promise<string> {
+    if (!upstream.body) return ''
+    const reader = upstream.body.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > 2 * 1024 * 1024) throw new Error('Enterprise error response is too large.')
+        chunks.push(value)
+      }
+      return Buffer.concat(chunks).toString('utf8')
+    } finally {
+      await reader.cancel().catch(() => undefined)
+      reader.releaseLock()
+    }
+  }
+
+  private async pipeSse(upstream: Response, response: ServerResponse, signal: AbortSignal, native = false): Promise<void> {
     if (response.headersSent) return
     const requestId = sanitizeRequestId(upstream.headers.get('x-request-id') ?? undefined)
     const contentType = upstream.headers.get('content-type') ?? 'text/event-stream'
@@ -912,6 +953,7 @@ export class EnterpriseService {
       return
     }
     const reader = upstream.body.getReader()
+    let totalBytes = 0
     let idle = setTimeout(() => response.destroy(), CHAT_IDLE_TIMEOUT_MS)
     const resetIdle = () => {
       clearTimeout(idle)
@@ -929,6 +971,8 @@ export class EnterpriseService {
         if (done) break
         resetIdle()
         const chunk = Buffer.from(value)
+        totalBytes += chunk.byteLength
+        if (native && totalBytes > 32 * 1024 * 1024) throw new Error('Enterprise response is too large.')
         if (!response.write(chunk)) {
           await waitForDrain(response, signal)
         }
@@ -937,6 +981,7 @@ export class EnterpriseService {
     } finally {
       clearTimeout(idle)
       signal.removeEventListener('abort', onAbort)
+      await reader.cancel().catch(() => undefined)
       reader.releaseLock()
     }
   }

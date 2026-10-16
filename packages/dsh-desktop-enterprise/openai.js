@@ -9,8 +9,13 @@ import {
   requestImageHandleText,
   textOnlyImageText
 } from '@deepseek-ai/dsh-llm'
+import {
+  enforceEnterpriseRequestSize,
+  projectEnterpriseOffloadedImages,
+  readEnterpriseRequestImages
+} from './request-images.js'
 
-export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent'])
+export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent', 'x-dsh-conversation-id', 'x-dsh-request-purpose'])
 
 export function pickAttributionHeaders(headers = {}) {
   const picked = {}
@@ -34,19 +39,6 @@ function assertTextOnly(blocks) {
   }
 }
 
-function messageImageBlocks(message) {
-  const blocks = []
-  for (const block of message.content ?? []) {
-    if (block.type === 'image') blocks.push(block)
-    else if (block.type === 'tool-result') {
-      for (const inner of block.content ?? []) {
-        if (inner.type === 'image') blocks.push(inner)
-      }
-    }
-  }
-  return blocks
-}
-
 function assertRoleAllowsImages(message) {
   if (message.role === 'user' || message.role === 'tool') return
   assertTextOnly(message.content)
@@ -57,7 +49,7 @@ function assertRoleAllowsImages(message) {
 
 // Text-only routes stay usable by replacing images with the upstream placeholder.
 // The shared projection does not recurse into legacy tool-result blocks.
-function projectEnterpriseMessagesForTextModel(messages) {
+export function projectEnterpriseMessagesForTextModel(messages) {
   return projectImagesForTextModel(messages).map((message) => {
     if (!message.content?.some((block) => block.type === 'tool-result' && contentHasImage(block.content ?? []))) {
       return message
@@ -83,29 +75,6 @@ function imageUrlPart(block, images) {
   const image = images.get(block.attachment.attachmentId)
   if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
   return { type: 'image_url', image_url: { url: image.url } }
-}
-
-async function readRequestImages(messages, readImage, signal) {
-  const images = new Map()
-  let imageBytes = 0
-  for (const message of messages) {
-    assertRoleAllowsImages(message)
-    for (const block of messageImageBlocks(message)) {
-      const image = await readImage?.(block.attachment, signal)
-      if (!image) throw new LlmError('Image attachment is unavailable.', 'UNSUPPORTED_CONTENT')
-      imageBytes += image.data.byteLength
-      if (image.data.byteLength > 5 * 1024 * 1024 || imageBytes > 20 * 1024 * 1024) {
-        throw new LlmError('Image request exceeds the size limit.', 'UNSUPPORTED_CONTENT')
-      }
-      images.set(block.attachment.attachmentId, {
-        url: `data:${image.mediaType};base64,${Buffer.from(image.data).toString('base64')}`,
-        width: image.width,
-        height: image.height,
-        mediaType: image.mediaType
-      })
-    }
-  }
-  return images
 }
 
 function assistantMessage(message, includeReasoning) {
@@ -204,11 +173,16 @@ export function serializeEnterpriseRequest(options, model, images = new Map()) {
   if (tools && tools.length > 0 && !model.capabilities.tools) {
     throw new LlmError(`BiSheng model "${model.id}" does not support tools.`, 'UNSUPPORTED_OPTION')
   }
+  const reasoningEffort = options.reasoningEffort ?? model.reasoning?.defaultEffort
+  if (reasoningEffort !== undefined && !model.reasoning?.efforts.some((effort) => effort.id === reasoningEffort)) {
+    throw new LlmError(`BiSheng model "${model.id}" does not support reasoning effort "${reasoningEffort}".`, 'UNSUPPORTED_REASONING_EFFORT')
+  }
   return {
     model: options.model,
     messages,
     stream: true,
     stream_options: { include_usage: true },
+    ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
     ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
     ...(options.maxTokens === undefined ? {} : { max_completion_tokens: options.maxTokens }),
@@ -217,20 +191,30 @@ export function serializeEnterpriseRequest(options, model, images = new Map()) {
   }
 }
 
-export async function* parseSseEvents(body, signal) {
+export async function* parseSseEvents(body, signal, limits) {
   if (!body) throw new LlmError('BiSheng returned an empty event stream.', 'STREAM_CLOSED')
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let total = 0
+  let pendingCr = false
+  const onAbort = () => { void reader.cancel().catch(() => undefined) }
+  signal?.addEventListener('abort', onAbort, { once: true })
   try {
     while (true) {
       if (signal?.aborted) throw signal.reason
       const { value, done } = await reader.read()
-      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
-      buffer = buffer.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n')
+      signal?.throwIfAborted()
+      total += value?.byteLength ?? 0
+      if (limits && total > limits.total) throw new LlmError('BiSheng stream exceeds the size limit.', 'INVALID_RESPONSE')
+      let decoded = (pendingCr ? '\r' : '') + decoder.decode(value ?? new Uint8Array(), { stream: !done })
+      pendingCr = !done && decoded.endsWith('\r')
+      if (pendingCr) decoded = decoded.slice(0, -1)
+      buffer += decoded.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n')
       let boundary
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const frame = buffer.slice(0, boundary)
+        if (limits && Buffer.byteLength(frame) > limits.event) throw new LlmError('BiSheng event exceeds the size limit.', 'INVALID_RESPONSE')
         buffer = buffer.slice(boundary + 2)
         if (!frame || frame.startsWith(':')) continue
         let event = 'message'
@@ -241,12 +225,15 @@ export async function* parseSseEvents(body, signal) {
         }
         if (data.length > 0) yield { event, data: data.join('\n') }
       }
+      if (limits && Buffer.byteLength(buffer) > limits.event) throw new LlmError('BiSheng event exceeds the size limit.', 'INVALID_RESPONSE')
       if (done) break
     }
     if (buffer.trim() && !buffer.trimStart().startsWith(':')) {
       throw new LlmError('BiSheng event stream ended with an incomplete frame.', 'STREAM_CLOSED')
     }
   } finally {
+    signal?.removeEventListener('abort', onAbort)
+    await reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }
@@ -411,7 +398,7 @@ function requestFailure(status, requestId, payload) {
   )
 }
 
-async function responseFailure(response) {
+export async function responseFailure(response) {
   const payload = await response.json().catch(() => ({}))
   return requestFailure(response.status, response.headers.get('x-request-id') ?? undefined, payload)
 }
@@ -483,6 +470,7 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
       provider,
       id: model.id,
       name: model.display_name,
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
       inputModalities: model.capabilities.vision ? ['text', 'image'] : ['text']
     })))
   }
@@ -494,6 +482,7 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
       provider,
       id,
       name: model.display_name,
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
       inputModalities: model.capabilities.vision ? ['text', 'image'] : ['text']
     })
   }
@@ -501,16 +490,32 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
   async *stream(options) {
     const model = this.options.models().find((candidate) => candidate.id === options.model)
     if (!model) throw new LlmError(`BiSheng provider has no authorized model "${options.model}".`, 'UNKNOWN_MODEL')
+    if (model.capabilities.responses === true) {
+      const connectionKey = this.options.connectionKey?.()
+      const { streamEnterpriseResponses } = await import('./responses.js')
+      yield* streamEnterpriseResponses(options, model, this.options, connectionKey)
+      return
+    }
     const history = model.capabilities.vision
-      ? options.messages
+      ? projectEnterpriseOffloadedImages(options.messages)
       : projectEnterpriseMessagesForTextModel(options.messages)
     const images = model.capabilities.vision
-      ? await readRequestImages(history, this.options.readImage, options.signal)
+      ? await readEnterpriseRequestImages(history, this.options.readImage, options.signal)
       : new Map()
+    options.signal?.throwIfAborted()
+    const headers = pickAttributionHeaders({
+      ...attributionHeaders(),
+      ...(options.sessionId === undefined ? {} : {
+        'x-dsh-conversation-id': String(options.sessionId),
+        'x-dsh-request-purpose': options.purpose ?? 'chat'
+      })
+    })
+    const serialize = (messages) => serializeEnterpriseRequest({ ...options, messages }, model, images)
+    enforceEnterpriseRequestSize(history, serialize, headers)
     const response = await this.options.request(
-      serializeEnterpriseRequest({ ...options, messages: history }, model, images),
+      serialize(history),
       options.signal,
-      pickAttributionHeaders(attributionHeaders())
+      headers
     )
     if (!response.ok) throw await responseFailure(response)
     const contentType = response.headers.get('content-type') ?? ''

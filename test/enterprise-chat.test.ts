@@ -4,6 +4,8 @@ import {
   parseEnterpriseChatPayload,
   pickAttributionHeaders
 } from '../src/main/enterprise/enterprise-chat'
+import { serializeEnterpriseRequest } from '../packages/dsh-desktop-enterprise/openai.js'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const validRequest = {
   model: 'bisheng:42',
@@ -14,8 +16,24 @@ const validRequest = {
 }
 
 describe('enterprise chat payload validation', () => {
+  it.each([undefined, 'high'])('accepts actual adapter serialization with default or explicit effort: %s', (effort) => {
+    const model = {
+      id: 'bisheng:42', display_name: 'Reasoner', capabilities: { streaming: true, tools: true, reasoning_content: false },
+      reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' }
+    }
+    const request = serializeEnterpriseRequest({
+      model: model.id, messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] })],
+      ...(effort === undefined ? {} : { reasoningEffort: ReasoningEffortId(effort) })
+    }, model)
+    expect(parseEnterpriseChatPayload({ request }).request.reasoning_effort).toBe(effort ?? 'low')
+  })
+
+  it.each([null, true, 1, {}, '', 'a'.repeat(129), ' high', 'high\r\nx-header: injected'])('rejects invalid effort %j', (effort) => {
+    expect(() => parseEnterpriseChatPayload({ request: { ...validRequest, reasoning_effort: effort } })).toThrow('reasoning effort is invalid')
+  })
+
   it('accepts a streaming request and keeps only attribution user-agent', () => {
-    expect(ALLOWED_ATTRIBUTION_HEADERS).toEqual(['user-agent'])
+    expect(ALLOWED_ATTRIBUTION_HEADERS).toEqual(['user-agent', 'x-dsh-conversation-id', 'x-dsh-request-purpose'])
     const parsed = parseEnterpriseChatPayload({
       request: validRequest,
       attribution: { 'user-agent': 'deepseek-harness/0.1.5-rc.2 (+https://github.com/deepseek-ai/deepseek-harness)' }
