@@ -21,6 +21,28 @@ node scripts/pack-enterprise-plugin.mjs release.json plugin.zip
 
 脚本读取已准备的依赖树，输出带文件摘要的离线包。详细接收合同由 `offline-bundle.js` 校验。管理员将 ZIP 导入企业后台后，客户端可从“来自企业”安装。
 
+## 通用企业认证通道
+
+市场插件通过 `ctx.enterpriseAuth.getState()` 和 `ctx.enterpriseAuth.request(path, init)` 使用企业认证，不获取企业 token。服务在未登录时仍注册，调用请求时明确返回 `not_connected`。宿主不理解业务 API，不维护业务路径白名单；新增相对 API 路径不需要更新 Desktop。完整接口、安全边界和限制见 [通用企业认证通道](enterprise-auth-channel.zh.md)。
+
+当前授权单位是通过企业市场校验、启用的插件执行实例；实例由宿主 Loader 创建，随机独立凭证由主进程签发，停用、卸载、激活失败和运行时关闭时撤销。**后端若只校验用户 token，则获准使用此通道的插件可以调用该用户有权访问的企业 API。**这不是逐业务接口授权；细粒度控制由企业后端结合宿主覆盖的插件身份头实施。
+
+搜索插件负责注册 provider、选择或替换以及清理恢复。宿主不再提供搜索专属服务或本地搜索 Broker。旧版搜索 ZIP 必须迁移至通用 SDK 后重新发布，不能只依赖安装成功来判断兼容性。宿主企业插件仍显式依赖 `loader`，企业 generation 通过当前安装目录校验缺失的 `@deepseek-ai/*` peer，不从宿主补普通第三方依赖。
+
+源码行为回归：
+
+```sh
+npm test -- test/enterprise-auth-transport.test.ts test/enterprise-auth-sdk.test.mjs test/enterprise-search-bridge.test.ts test/enterprise-search-market.test.ts test/enterprise-market.test.ts
+```
+
+打包后用实际市场 ZIP 验证（macOS 路径示例，先设置 APP 和 PLUGIN_ZIP）：
+
+```sh
+ELECTRON_RUN_AS_NODE=1 "${APP:?}/Contents/MacOS/BISHENG" --expose-internals scripts/verify-enterprise-search.mjs "${APP:?}/Contents/Resources" "${PLUGIN_ZIP:?}"
+```
+
+脚本使用临时 DSH_HOME、本地测试 Broker、临时 Ed25519 授权和真实 Cordis Loader，验证实际插件包的下载、摘要和 peer 校验、激活、搜索、停用、启用和卸载；不读取真实账号凭据、不请求生产搜索服务，也不修改现有 Profile。只有该脚本在重建应用与已迁移插件 ZIP 上成功运行，才证明对应打包运行时与插件包可组合；本次尚未执行安装包验证，也不代替真实企业账号、完整 GUI 或 Windows 原生验收。
+
 ## 本次迁移
 
 基线：`upstream/V0.9.2@294e9290262dd68f402fa526cfb6aeacd571f627`；Harness：`0.1.5-rc.2`。功能源自本地企业完整试用包 r2 的市场模块，本次保留 V0.9.2 的登录和账号页，并接入该版本的凭据代理与 locale 服务。

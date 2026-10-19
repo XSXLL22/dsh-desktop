@@ -29,6 +29,7 @@ function createPluginContext(
 ) {
   const routes: RegisteredRoute[] = []
   applyEnterprise({
+    provide() {},
     effect(callback: () => (() => unknown) | undefined) {
       const dispose = callback()
       if (dispose) adapterCleanups.push(async () => { await dispose() })

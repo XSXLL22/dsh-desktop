@@ -1,5 +1,7 @@
 import { parseMarketRequest } from './enterprise-market'
 import { parseEnterpriseResponsesPayload } from './enterprise-responses'
+import { randomUUID } from 'node:crypto'
+import { EnterpriseAuthError, EnterpriseAuthTransport, type EnterpriseAuthState } from './enterprise-auth'
 import { createEnterpriseFetch } from './platform-fetch'
 import { resolveEnterpriseEndpoint } from './enterprise-request'
 import type { ServerResponse } from 'node:http'
@@ -108,6 +110,9 @@ export interface EnterpriseServiceNote {
   status?: number
   requestId?: string
   originHash?: string
+  pluginId?: string
+  path?: string
+  duration?: number
 }
 
 export interface EnterpriseServiceOptions {
@@ -123,6 +128,7 @@ export interface EnterpriseServiceOptions {
 
 interface PendingLogin {
   epoch: number
+  authEpoch: number
   base: string
   codeVerifier: string
   state: string
@@ -159,6 +165,10 @@ export class EnterpriseService {
   private chatInFlight = 0
   private readonly chatControllers = new Set<AbortController>()
   private allowPrivateHttpForSession = false
+  private readonly authTransport = new EnterpriseAuthTransport()
+  private readonly authVersionPrefix = randomUUID()
+  private authEpoch = 0
+  private authEnabled = false
 
   constructor(private readonly options: EnterpriseServiceOptions) {
     this.phase = options.vault.available ? 'idle' : 'disabled'
@@ -210,6 +220,7 @@ export class EnterpriseService {
       this.vaultGeneration = stored.generation
       if (!stored.session) return
       this.session = stored.session
+      this.authEnabled = true
       const { isInsecurePrivateHttpOrigin } = await import('dsh-desktop-enterprise/deep-link')
       this.allowPrivateHttpForSession = isInsecurePrivateHttpOrigin(stored.session.base ?? '')
       this.phase = 'connected'
@@ -246,6 +257,8 @@ export class EnterpriseService {
     baseValue: string,
     options: { confirmInsecurePrivateHttp?: boolean } = {}
   ): Promise<EnterpriseLoginStartResult> {
+    this.invalidateAuthSession()
+    const authEpoch = this.authEpoch
     return this.enqueueMutation(async () => {
       if (!this.options.vault.available) {
         throw Object.assign(new Error(this.options.vault.unavailableReason ?? 'Secure storage is unavailable.'), {
@@ -312,6 +325,7 @@ export class EnterpriseService {
         callback.alignTimeout(lifetimeMs)
         this.pendingLogin = {
           epoch: loginEpoch,
+          authEpoch,
           base,
           codeVerifier: pkce.codeVerifier,
           state: pkce.state,
@@ -370,6 +384,7 @@ export class EnterpriseService {
   }
 
   async logout(): Promise<EnterprisePublicState> {
+    this.invalidateAuthSession()
     return this.enqueueMutation(async () => {
       const current = this.session
       await this.cancelPendingLogin()
@@ -434,6 +449,7 @@ export class EnterpriseService {
   }
 
   async stop(): Promise<void> {
+    this.invalidateAuthSession()
     await this.cancelPendingLogin()
     this.clearModelsTimer()
     this.epoch += 1
@@ -492,6 +508,7 @@ export class EnterpriseService {
       )
       if (this.epoch !== expectedEpoch) return
       await this.commitSession(token as EnterpriseCredentialSession, expectedEpoch)
+      if (this.authEpoch === pending.authEpoch && this.session?.access_token) this.authEnabled = true
       await this.syncCatalog(expectedEpoch, { includeUsage: true })
       this.note('login_committed', { originHash: hashEnterpriseOrigin(pending.base) })
       try {
@@ -580,6 +597,7 @@ export class EnterpriseService {
       this.modelsAttempt = 0
       // Leave phase as refreshing; syncCatalog flips to connected after usage.
     } catch {
+      this.invalidateAuthSession()
       this.session = null
       this.allowPrivateHttpForSession = false
       this.models = []
@@ -759,6 +777,49 @@ export class EnterpriseService {
 
   private connectionKey(): string {
     return hashEnterpriseOrigin(JSON.stringify([this.session?.base, this.session?.tenant?.id, this.session?.user?.id]))
+  }
+
+  authState(): EnterpriseAuthState {
+    const connected = this.authEnabled && Boolean(this.session?.base && this.session.access_token) &&
+      ['connected', 'degraded', 'refreshing'].includes(this.phase) &&
+      (this.session?.session_expires_at === undefined || Date.parse(this.session.session_expires_at) > this.now())
+    return {
+      connected,
+      sessionVersion: this.authVersionPrefix + ':' + this.authEpoch,
+      ...(connected && this.session?.tenant?.id ? { enterpriseId: this.session.tenant.id } : {}),
+      ...(connected && this.session?.user?.id ? { userId: this.session.user.id } : {})
+    }
+  }
+
+  private invalidateAuthSession(): void {
+    this.authEpoch += 1
+    this.authEnabled = false
+    this.authTransport.invalidate()
+  }
+
+  async authRequest(plugin: { pluginId: string; instanceId: string }, input: unknown, signal: AbortSignal): Promise<Response> {
+    const epoch = this.epoch
+    const assertSession = (version: string) => {
+      const state = this.authState()
+      if (state.sessionVersion !== version) throw new EnterpriseAuthError('session_changed', 409)
+      if (!state.connected) throw new EnterpriseAuthError('not_connected', 401)
+    }
+    return this.authTransport.request(plugin, input, signal, {
+      assertSession,
+      access: async request => {
+        const accessToken = await this.ensureAccess(epoch)
+        assertSession(request.sessionVersion)
+        const base = this.session?.base
+        if (!base) throw new EnterpriseAuthError('not_connected', 401)
+        const { endpoint } = await resolveEnterpriseEndpoint(base, request.path,
+          this.options.allowInsecureLoopback, this.platformRequestOptions().allowInsecurePrivateHttp)
+        assertSession(request.sessionVersion)
+        if (endpoint.origin !== new URL(base).origin) throw new EnterpriseAuthError('invalid_request', 400)
+        return { endpoint: endpoint.toString(), accessToken }
+      },
+      fetch: this.options.fetchImpl,
+      audit: entry => this.note('auth_request', entry)
+    })
   }
 
   async marketRequest(input: unknown): Promise<{ bytes: Buffer, binary: boolean }> {
@@ -1000,6 +1061,7 @@ export class EnterpriseService {
   }
 
   private async clearLocalSession(phase: EnterprisePhase): Promise<void> {
+    this.invalidateAuthSession()
     this.epoch += 1
     this.clearModelsTimer()
     for (const controller of this.chatControllers) controller.abort()
@@ -1136,7 +1198,10 @@ export class EnterpriseService {
       event,
       ...(details.status ? { status: details.status } : {}),
       ...(sanitizeRequestId(details.requestId) ? { requestId: sanitizeRequestId(details.requestId) } : {}),
-      ...(details.originHash ? { originHash: details.originHash } : {})
+      ...(details.originHash ? { originHash: details.originHash } : {}),
+      ...(details.pluginId ? { pluginId: details.pluginId } : {}),
+      ...(details.path ? { path: details.path } : {}),
+      ...(details.duration !== undefined ? { duration: details.duration } : {})
     })
   }
 
