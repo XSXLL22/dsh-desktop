@@ -8,8 +8,9 @@ import { gzipSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../packages/dsh-desktop-workbenches/index.js'
 import {
-  createMarketInstallStore, MAX_PACKAGE_BYTES, MarketInstallError, readPackedManifest, resolveInstallTarget
+  createMarketInstallStore, detachWorkbenchPackage, MAX_PACKAGE_BYTES, MarketInstallError, readPackedManifest, resolveInstallTarget
 } from '../packages/dsh-desktop-workbenches/market-install.mjs'
+import { createStateStore } from '../packages/dsh-desktop-workbenches/state.mjs'
 
 const roots = []
 afterEach(async () => {
@@ -104,6 +105,25 @@ describe('workbench market install targets', () => {
     expect(await store.read()).toEqual({ 'other/kept': { catalogId: 'other/kept', pluginName: 'kept', version: '1.0.0' } })
     expect(JSON.parse(await readFile(join(root, 'market-installs.json'), 'utf8')).installs).toEqual(await store.read())
   })
+
+  it('removes the workbench entry when its package is uninstalled and keeps notes', async () => {
+    const root = await tempRoot()
+    const store = createMarketInstallStore(root)
+    await store.record('owner/tracker', { catalogId: 'owner/tracker', pluginName: 'daily', version: '1.0.0' })
+    const states = createStateStore(root)
+    const current = await states.read()
+    await states.write({
+      revision: current.revision,
+      state: { ...current.state, added: ['owner/tracker'], pinned: ['owner/tracker'], active: 'owner/tracker', notes: { 'owner/tracker': 'keep' } }
+    })
+    await detachWorkbenchPackage(root, 'daily')
+    expect(await store.read()).toEqual({})
+    const next = await states.read()
+    expect(next.state.added).toEqual([])
+    expect(next.state.pinned).toEqual([])
+    expect(next.state.active).toBeNull()
+    expect(next.state.notes['owner/tracker']).toBe('keep')
+  })
 })
 
 describe('workbench market install routes', () => {
@@ -131,6 +151,9 @@ describe('workbench market install routes', () => {
     const connection = { fetch: { register(route) { routes.push(route) } } }
     // The catalog reader captures fetch when the plugin applies.
     vi.stubGlobal('fetch', vi.fn(async () => Response.json(index)))
+    if (desktopPnpm && typeof desktopPnpm.authorizeWorkbenchMarketInstall !== 'function') {
+      desktopPnpm = { ...desktopPnpm, authorizeWorkbenchMarketInstall: async () => {} }
+    }
     apply({ effect: fn => fn(), reflect: { provide() {} }, connection, inject(deps, callback) { if (desktopPnpm) callback({ connection, desktopPnpm }) } }, { root })
     const call = async (path, body) => {
       const route = routes.find(value => value.path === path)
@@ -153,8 +176,23 @@ describe('workbench market install routes', () => {
     const result = await call('/api/desktop-workbenches/market-install', { id: KEY })
     expect(result.status).toBe(200)
     expect(result.body).toMatchObject({ restartRequired: true, install: { catalogId: 'o/project-helper', pluginName: 'project-helper', version: '1.2.0', source: 'npm' } })
-    expect(installWorkbenchGeneration).toHaveBeenCalledWith({ pluginSpec: 'project-helper@1.2.0', expectedPluginName: 'project-helper', expectedVersion: '1.2.0', npmIntegrity: 'sha512-abc' }, root)
+    expect(installWorkbenchGeneration).toHaveBeenCalledWith({ source: 'market', pluginSpec: 'project-helper@1.2.0', expectedPluginName: 'project-helper', expectedVersion: '1.2.0', npmIntegrity: 'sha512-abc' }, root)
     expect(Object.keys((await call('/api/desktop-workbenches/market-installs')).body.installs)).toEqual([KEY])
+  })
+
+  it('returns a stable code when network workbench installation is closed', async () => {
+    const installWorkbenchGeneration = vi.fn(() => handle())
+    const { call } = await host({
+      installWorkbenchGeneration,
+      authorizeWorkbenchMarketInstall: async () => {
+        throw new Error('POLICY_DISABLED: current enterprise has not opened network workbench installation.')
+      }
+    })
+    expect(await call('/api/desktop-workbenches/market-install', { id: KEY })).toEqual({
+      status: 403,
+      body: { error: 'POLICY_DISABLED' }
+    })
+    expect(installWorkbenchGeneration).not.toHaveBeenCalled()
   })
 
   it('reports install failures without recording anything', async () => {

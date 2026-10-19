@@ -95,6 +95,18 @@ export function pkceChallenge(codeVerifier) {
   return createHash('sha256').update(codeVerifier, 'ascii').digest('base64url')
 }
 
+export function parseThirdPartyPolicy(value) {
+  const source = isObject(value) ? value : {}
+  const syncSeconds = Number.isSafeInteger(source.sync_seconds) && source.sync_seconds >= 5 && source.sync_seconds <= 3600
+    ? source.sync_seconds
+    : 60
+  return {
+    allowThirdPartyPlugins: source.allow_third_party_plugins === true,
+    allowThirdPartyWorkbenches: source.allow_third_party_workbenches === true,
+    syncSeconds
+  }
+}
+
 export function parseConfig(value) {
   if (!isObject(value) || typeof value.enabled !== 'boolean') {
     throw new Error('BiSheng config response is invalid.')

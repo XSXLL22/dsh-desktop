@@ -5,6 +5,7 @@ import {
   createPkceTransaction,
   parseAuthorization,
   parseConfig,
+  parseThirdPartyPolicy,
   parseModels,
   parseModelsLenient,
   parseToken,
@@ -74,6 +75,23 @@ async function issueSession(origin: string) {
   }
 }
 
+describe('third-party capability parsing', () => {
+  it('treats missing and non-boolean switches as closed without throwing', () => {
+    expect(parseThirdPartyPolicy(undefined)).toMatchObject({
+      allowThirdPartyPlugins: false,
+      allowThirdPartyWorkbenches: false
+    })
+    expect(parseThirdPartyPolicy({ allow_third_party_plugins: 'yes', allow_third_party_workbenches: 1 })).toMatchObject({
+      allowThirdPartyPlugins: false,
+      allowThirdPartyWorkbenches: false
+    })
+    expect(parseThirdPartyPolicy({ allow_third_party_plugins: true })).toMatchObject({
+      allowThirdPartyPlugins: true,
+      allowThirdPartyWorkbenches: false
+    })
+  })
+})
+
 describe('BiSheng compatible client API mock', () => {
   it('registers every local enterprise route with buffered request bodies', () => {
     const routes: Array<{ path: string, methods: string[], requestBody?: string }> = []
@@ -97,6 +115,9 @@ describe('BiSheng compatible client API mock', () => {
       '/api/enterprise.market.state',
       '/api/enterprise.market.catalog',
       '/api/enterprise.market.action',
+      '/api/enterprise.workbenches/catalog',
+      '/api/enterprise.workbenches/detail',
+      '/api/enterprise.workbenches/verify',
       '/api/enterprise.state',
       '/api/enterprise.base.inspect',
       '/api/enterprise.login.start',
@@ -130,6 +151,28 @@ describe('BiSheng compatible client API mock', () => {
       client_id: 'other-client',
       contract_version: '0.5.0'
     })).toThrow('contract version is incompatible')
+  })
+
+  it('serves audit negotiation alongside third-party capabilities and the workbench catalog', async () => {
+    const auditContext = { fields: ['conversation_id', 'request_kind'] }
+    service = createMockEnterpriseServer({ port: 0, auditContext })
+    const origin = await service.listen()
+    const config = await fetch(`${origin}${API_PATHS.config}`).then(response => response.json())
+    expect(config.audit_context).toEqual(auditContext)
+    expect(service.state.configRequests).toBe(1)
+
+    const capabilities = await fetch(`${origin}/api/v1/dsh/market/capabilities`).then(response => response.json())
+    expect(capabilities).toMatchObject({ status_code: 200, data: {
+      allow_third_party_plugins: expect.any(Boolean),
+      allow_third_party_workbenches: expect.any(Boolean)
+    } })
+    const issued = await issueSession(origin)
+    const session = parseToken(issued.raw, origin, 0)
+    const catalog = await fetch(`${origin}/api/v1/dsh/market/workbenches`, {
+      headers: { authorization: `Bearer ${session.access_token}` }
+    }).then(response => response.json())
+    expect(catalog).toMatchObject({ status_code: 200, data: { total: 2 } })
+    expect(service.state.configRequests).toBe(1)
   })
 
   it('runs config, PKCE login, models, usage, model streaming, refresh, and logout', async () => {

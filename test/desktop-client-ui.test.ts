@@ -227,9 +227,11 @@ describe('BISHENG client slot occupants', () => {
     expect(wideBrandStart).toBeGreaterThan(-1)
     expect(wideBrandEnd).toBeGreaterThan(wideBrandStart)
     expect(wideBrand).toContain('renderSlot("sidebar.brand.name"')
+    expect(wideBrand).not.toContain('renderSlot("sidebar.brand.mark"')
     expect(wideBrand).toContain('"data-dsh-sidebar-brand-identity": true')
     const desktopClient = await readFile(path.join(projectRoot, 'packages/dsh-desktop-client-ui/client.js'), 'utf8')
     expect(desktopClient).toContain('[data-dsh-sidebar-brand-identity] { display:none !important; }')
+    expect(desktopClient).toContain('div[data-window-drag]:has([data-dsh-sidebar-brand-identity])')
 
     const railMarkStart = source.indexOf(
       'className: SidebarRoot_module_css_default.railMark'

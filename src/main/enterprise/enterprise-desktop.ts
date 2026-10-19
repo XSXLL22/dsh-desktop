@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { parseThirdPartyPolicy } from 'dsh-desktop-enterprise/contract'
+import { sweepWorkbenchVerifyDirectory } from './workbench-artifact'
 import {
   startEnterpriseCredentialBroker,
   type EnterpriseCredentialBroker
@@ -13,6 +15,7 @@ import {
 
 export interface EnterpriseDesktopRuntime {
   snapshot(): EnterprisePublicState
+  readThirdPartyPolicy(): Promise<{ allowThirdPartyPlugins: boolean, allowThirdPartyWorkbenches: boolean }>
   harnessEnvironment(): NodeJS.ProcessEnv
   rotateCapability(): void
   stop(): Promise<void>
@@ -27,6 +30,7 @@ export async function startEnterpriseDesktop(options: {
   allowInsecureLoopback: boolean
   note?: (line: string) => void
 }): Promise<EnterpriseDesktopRuntime> {
+  await sweepWorkbenchVerifyDirectory().catch(() => undefined)
   const vault = new SecureEnterpriseCredentialVault(
     join(options.userDataPath, ENTERPRISE_VAULT_FILENAME),
     options.safeStorage
@@ -58,6 +62,21 @@ export async function startEnterpriseDesktop(options: {
 
   return {
     snapshot: () => service.snapshot(),
+    async readThirdPartyPolicy() {
+      const closed = { allowThirdPartyPlugins: false, allowThirdPartyWorkbenches: false }
+      const state = service.snapshot()
+      if (!state.connected || !state.connectionKey) return closed
+      try {
+        const result = await service.marketRequest({
+          path: '/api/v1/dsh/market/capabilities',
+          connectionKey: state.connectionKey
+        })
+        const envelope = JSON.parse(result.bytes.toString('utf8')) as { status_code?: unknown, data?: unknown }
+        return parseThirdPartyPolicy(envelope?.status_code === 200 ? envelope.data : undefined)
+      } catch {
+        return closed
+      }
+    },
     harnessEnvironment: () => broker?.environment() ?? {},
     rotateCapability() {
       broker?.rotateCapability()

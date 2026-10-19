@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { forgetPlugin, recordPluginSwitch } from '../plugin-state.mjs'
+import { detachWorkbenchPackage } from '../../dsh-desktop-workbenches/market-install.mjs'
 import { installGeneration, verifyGenerationPeers } from './installer.mjs'
 import {
   SHARED_TREE_ONLY,
@@ -129,6 +130,10 @@ export function createGenerationPackageBackend(options) {
           }
           expectedPluginName ??= await localPackageName(path)
           sourceDirectory = path
+          sourceSpec = request.spec
+        } else if (request.kind === 'tarball' && typeof request.path === 'string' && isAbsolute(request.path)) {
+          // A local archive is not a directory to copy. Record the absolute spec
+          // so a later enable can tell it from a registry or remote tarball.
           sourceSpec = request.spec
         }
         if (expectedPluginName !== undefined && SHARED_TREE_ONLY.has(expectedPluginName)) {
@@ -305,6 +310,9 @@ export function createGenerationPackageBackend(options) {
             throw error
           }
           await emit(`generation-remove: staged ${request.name} for removal on restart\n`)
+          await detachWorkbenchPackage(join(dshHome, 'desktop-workbenches'), request.name).catch((error) =>
+            emit(`generation-remove: workbench record kept: ${errorText(error)}\n`, 'stderr')
+          )
           return true
         })
         const captured = await log.close()

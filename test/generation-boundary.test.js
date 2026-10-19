@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDesktopPnpmService } from '../packages/dsh-desktop-market-installer/index.js'
+import { createGenerationPackageBackend } from '../packages/dsh-desktop-market-installer/generations/package-backend.mjs'
 import { installGeneration } from '../packages/dsh-desktop-market-installer/generations/installer.mjs'
 import { projectGenerations, publishInstalledGeneration } from '../packages/dsh-desktop-market-installer/generations/projection.mjs'
 import {
@@ -152,11 +153,16 @@ describe('the market install boundary', () => {
       }
     })
 
-    expect(() => svc.runExternalMarketPluginInstall(['add', 'demo-plugin@1.2.4'], profile)).toThrow('POLICY_DISABLED')
-    expect(() => svc.runExternalMarketPluginInstall(['add', 'dshmarket@1.45.1'], profile)).toThrow('POLICY_DISABLED')
-    expect(() => svc.runPlugin(['add', 'demo-plugin@1.2.4'], profile)).toThrow('POLICY_DISABLED')
-    expect(() => svc.runPlugin(['update', 'demo-plugin'], profile)).toThrow('POLICY_DISABLED')
-    expect(() => svc.runPlugin(['upgrade', 'demo-plugin'], profile)).toThrow('POLICY_DISABLED')
+    const operations = [
+      () => svc.runExternalMarketPluginInstall(['add', 'demo-plugin@1.2.4'], profile),
+      () => svc.runExternalMarketPluginInstall(['add', 'dshmarket@1.45.1'], profile),
+      () => svc.runPlugin(['add', 'demo-plugin@1.2.4'], profile),
+      () => svc.runPlugin(['update', 'demo-plugin'], profile),
+      () => svc.runPlugin(['upgrade', 'demo-plugin'], profile)
+    ]
+    for (const operation of operations) {
+      await expect(operation().done).resolves.toMatchObject({ exitCode: 1 })
+    }
     expect(calls).toEqual([])
     expect(await readFile(join(profile, 'package.json'), 'utf8')).toBe(before)
     expect(await readDesired(home)).toEqual([])
@@ -214,6 +220,29 @@ describe('the market install boundary', () => {
     expect(await readFile(join(profile, 'package.json'), 'utf8')).toBe(before)
     await publishInstalledGeneration(home, 'widget', 'web', { allowRealDirectory: true, syncBundles: true })
     expect(readInstalledVersion('web', 'widget', profile)).toBe('1.45.1')
+  })
+
+  it('records an absolute source spec for a local tarball', async () => {
+    const home = await freshHome()
+    const archive = join(home, 'local-plugin.tgz')
+    const backend = createGenerationPackageBackend({
+      dshHome: home,
+      nodeExecutablePath: process.execPath,
+      pnpmEntryPath: 'unused',
+      runInstall: stubGenerationInstall('local-plugin', '1.0.0')
+    })
+    const mutation = await backend.install({
+      kind: 'tarball',
+      path: archive,
+      spec: archive,
+      expectedName: 'local-plugin',
+      signal: new AbortController().signal,
+      onOutput() {}
+    })
+    expect(mutation?.bundle).toBe('local-plugin')
+    expect(await listGenerations(home)).toEqual([
+      expect.objectContaining({ pluginName: 'local-plugin', sourceSpec: archive })
+    ])
   })
 
   it('stages an exact copy of an installed external source and records its provenance', async () => {

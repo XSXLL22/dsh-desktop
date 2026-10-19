@@ -337,12 +337,38 @@ describe('desktop plugin market installer', () => {
       fetchImpl: async () => { calls.push('fetch'); throw new Error('must not fetch') },
       runGenerationInstall: async () => { calls.push('install'); throw new Error('must not install') }
     })
-    expect(() => service.installWorkbenchGeneration({
+    const handle = service.installWorkbenchGeneration({
       pluginSpec: 'demo-workbench@1.0.0', expectedPluginName: 'demo-workbench',
       expectedVersion: '1.0.0', npmIntegrity: 'sha512-demo'
-    }, join(home, 'desktop-workbenches'))).toThrow('POLICY_DISABLED')
+    }, join(home, 'desktop-workbenches'))
+    await expect(handle.done).resolves.toMatchObject({ exitCode: 1 })
     expect(calls).toEqual([])
     expect(await readDesired(home)).toEqual([])
+    await service.dispose()
+  })
+
+  it('installs an enterprise workbench from a local archive without the public market grant', async () => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-workbench-enterprise-')))
+    const calls = []
+    const service = createDesktopPnpmService({
+      binDirectory: join(home, '.desktop-bin'),
+      dshEntryPath: join(home, 'unused-dsh-entry.mjs'),
+      executablePath: process.execPath,
+      home,
+      fetchImpl: async () => { calls.push('fetch'); throw new Error('must not fetch') },
+      runGenerationInstall: async () => { calls.push('install'); return { code: 1, output: 'stop after the enterprise source is accepted' } }
+    })
+    const archive = join(home, 'enterprise-workbench.tgz')
+    await writeFile(archive, 'package')
+    const handle = service.installWorkbenchGeneration({
+      source: 'enterprise',
+      path: archive,
+      pluginSpec: archive,
+      expectedPluginName: 'demo-workbench',
+      expectedVersion: '1.0.0'
+    }, join(home, 'desktop-workbenches'))
+    await expect(handle.done).resolves.toMatchObject({ exitCode: 1 })
+    expect(calls).toEqual(['install'])
     await service.dispose()
   })
 

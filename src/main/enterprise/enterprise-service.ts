@@ -1,4 +1,5 @@
 import { parseMarketRequest } from './enterprise-market'
+import { discardWorkbenchArtifact, rememberWorkbenchArtifact, releaseWorkbenchArtifact as releaseRetainedWorkbenchArtifact, verifyWorkbenchArtifactResponse, WORKBENCH_ARTIFACT_LIMIT } from './workbench-artifact'
 import { createEnterpriseFetch } from './platform-fetch'
 import { resolveEnterpriseEndpoint } from './enterprise-request'
 import type { ServerResponse } from 'node:http'
@@ -800,6 +801,86 @@ export class EnterpriseService {
       return { bytes: Buffer.concat(chunks), binary: request.binary }
     }
     throw Object.assign(new Error('Enterprise login required.'), { status: 401 })
+  }
+
+  async verifyWorkbenchArtifact(input: unknown): Promise<{ ok: boolean, stage?: string, error?: string }> {
+    const result = await this.transferWorkbenchArtifact(input, false)
+    if (result.path) await discardWorkbenchArtifact(result.path)
+    return result.ok ? { ok: true } : { ok: false, stage: result.stage, error: result.error }
+  }
+
+  async materializeWorkbenchArtifact(input: unknown): Promise<{ ok: boolean, path?: string, ticket?: string, connectionKey?: string, stage?: string, error?: string }> {
+    const result = await this.transferWorkbenchArtifact(input, true)
+    if (!result.ok || !result.path) {
+      if (result.path) await discardWorkbenchArtifact(result.path)
+      return { ok: false, stage: result.stage, error: result.error }
+    }
+    const connectionKey = (input as { connectionKey?: unknown }).connectionKey
+    if (typeof connectionKey !== 'string' || this.connectionKey() !== connectionKey || !this.snapshot().connected) {
+      await discardWorkbenchArtifact(result.path)
+      return { ok: false, stage: 'account', error: 'Enterprise account changed.' }
+    }
+    return { ok: true, path: result.path, ticket: rememberWorkbenchArtifact(result.path, connectionKey), connectionKey }
+  }
+
+  async releaseWorkbenchArtifact(input: unknown): Promise<{ ok: true }> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: true }
+    const value = input as Record<string, unknown>
+    if (typeof value.ticket === 'string' && typeof value.connectionKey === 'string') {
+      await releaseRetainedWorkbenchArtifact(value.ticket, value.connectionKey)
+    }
+    return { ok: true }
+  }
+
+  private async transferWorkbenchArtifact(input: unknown, retain: boolean): Promise<{ ok: boolean, path?: string, stage?: string, error?: string }> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      return { ok: false, stage: 'detail', error: 'Workbench artifact metadata is not verifiable.' }
+    }
+    const value = input as Record<string, unknown>
+    const id = value.id
+    const versionId = value.versionId
+    const sha256 = value.sha256
+    const sizeBytes = value.sizeBytes
+    const connectionKey = value.connectionKey
+    if (typeof id !== 'string' || typeof versionId !== 'string' || typeof sha256 !== 'string' || typeof connectionKey !== 'string' ||
+        !/^[a-f0-9]{32}$/u.test(id) || !/^[a-f0-9]{32}$/u.test(versionId) || !/^[a-f0-9]{64}$/u.test(sha256) ||
+        !Number.isSafeInteger(sizeBytes) || (sizeBytes as number) <= 0 || (sizeBytes as number) > WORKBENCH_ARTIFACT_LIMIT) {
+      return { ok: false, stage: 'detail', error: 'Workbench artifact metadata is not verifiable.' }
+    }
+    const epoch = this.epoch
+    const assertConnection = () => {
+      if (!this.session?.base || !this.snapshot().connected || this.epoch !== epoch || this.connectionKey() !== connectionKey) {
+        throw Object.assign(new Error('Enterprise account changed.'), { status: 409 })
+      }
+    }
+    try {
+      assertConnection()
+      const accessToken = await this.ensureAccess(epoch)
+      assertConnection()
+      const base = this.session?.base
+      if (!base) throw Object.assign(new Error('Enterprise account changed.'), { status: 409 })
+      const path = `/api/v1/dsh/market/workbenches/${id}/versions/${versionId}/artifact`
+      const { endpoint } = await resolveEnterpriseEndpoint(base, path,
+        this.options.allowInsecureLoopback, this.platformRequestOptions().allowInsecurePrivateHttp)
+      const signal = AbortSignal.timeout(120_000)
+      const response = await createEnterpriseFetch(this.options.fetchImpl)(endpoint.toString(), {
+        method: 'GET',
+        signal,
+        headers: { authorization: `Bearer ${accessToken}` }
+      })
+      assertConnection()
+      return await verifyWorkbenchArtifactResponse(response, {
+        expectedSha256: sha256,
+        expectedSize: sizeBytes as number,
+        retain,
+        signal,
+        assertConnection
+      })
+    } catch (error) {
+      const status = Number((error as { status?: number }).status)
+      if (status === 409) return { ok: false, stage: 'account', error: 'Enterprise account changed.' }
+      return { ok: false, stage: 'download', error: error instanceof Error ? error.message : 'Workbench artifact verification failed.' }
+    }
   }
 
   private async ensureAccess(epoch: number): Promise<string> {

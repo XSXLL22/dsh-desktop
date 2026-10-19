@@ -47,6 +47,11 @@ export declare function createPkceTransaction(): {
   state: string
 }
 export declare function pkceChallenge(codeVerifier: string): string
+export declare function parseThirdPartyPolicy(value: unknown): {
+  allowThirdPartyPlugins: boolean
+  allowThirdPartyWorkbenches: boolean
+  syncSeconds: number
+}
 export declare function parseConfig(value: unknown): { enabled: false } | {
   enabled: true
   client_id: 'dsh-desktop'
