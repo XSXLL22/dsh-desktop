@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { SlidingWindowLimiter } from './enterprise-rate-limit'
 import type { EnterpriseService } from './enterprise-service'
+import { createEnterpriseAuthBroker } from './enterprise-auth-broker'
 
 export const ENTERPRISE_BROKER_HOST = '127.0.0.1'
 export const ENTERPRISE_BROKER_JSON_LIMIT = 256 * 1024
@@ -37,6 +38,7 @@ export async function startEnterpriseCredentialBroker(
   options: { allowInsecureLoopback: boolean } = { allowInsecureLoopback: false }
 ): Promise<EnterpriseCredentialBroker> {
   let capability = createCapability()
+  const authBroker = createEnterpriseAuthBroker(service, readJsonBody, sendJson)
   const loginLimit = new SlidingWindowLimiter(10, 60_000)
   const refreshLimit = new SlidingWindowLimiter(30, 60_000)
   const logoutLimit = new SlidingWindowLimiter(20, 60_000)
@@ -71,6 +73,10 @@ export async function startEnterpriseCredentialBroker(
       path = new URL(request.url ?? '/', url).pathname
     } catch {
       sendJson(response, 400, { error: 'Invalid request.' })
+      return
+    }
+    if (path.startsWith('/v1/auth/')) {
+      await authBroker.handle(request, response, path, authorize(request, capability))
       return
     }
     const allowedMethod = JSON_ROUTES.get(path)
@@ -220,9 +226,11 @@ export async function startEnterpriseCredentialBroker(
       }
     },
     rotateCapability() {
+      authBroker.revokeAll()
       capability = createCapability()
     },
     async stop() {
+      authBroker.revokeAll()
       capability = createCapability()
       if (!server.listening) return
       await new Promise<void>((resolve) => server.close(() => resolve()))

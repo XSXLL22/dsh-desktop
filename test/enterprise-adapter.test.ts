@@ -29,6 +29,7 @@ function createPluginContext(
 ) {
   const routes: RegisteredRoute[] = []
   applyEnterprise({
+    provide() {},
     effect(callback: () => (() => unknown) | undefined) {
       const dispose = callback()
       if (dispose) adapterCleanups.push(async () => { await dispose() })
@@ -178,6 +179,43 @@ describe('enterprise adapter without a Broker', () => {
 })
 
 describe('enterprise adapter with a Broker', () => {
+  it('keeps workbench verification authorized after consuming the owner capability', async () => {
+    const id = '0123456789abcdef0123456789abcdef'
+    const versionId = 'fedcba9876543210fedcba9876543210'
+    const capability = 'fixture-owner-capability'
+    const calls: Array<{ path: string, authorization: string | undefined }> = []
+    const server = createServer((request, response) => {
+      calls.push({ path: request.url ?? '', authorization: request.headers.authorization })
+      request.resume()
+      const payload = request.url === '/v1/state'
+        ? { connected: true, connectionKey: 'account-a', phase: 'connected', models: [] }
+        : request.url === '/v1/market'
+          ? { status_code: 200, data: {
+            id, identity_kind: 'repository', workbench_key: 'company/workbench', legacy_id: null,
+            package_name: 'company-workbench', display_name: 'Workbench', description: '',
+            current_version: { id: versionId, version: '1.0.0', sha256: 'a'.repeat(64), size_bytes: 12,
+              artifact_url: '/api/v1/dsh/market/workbenches/' + id + '/versions/' + versionId + '/artifact' }
+          } }
+          : { ok: true }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(payload))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    adapterCleanups.push(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Test broker did not bind.')
+    process.env.DSH_DESKTOP_ENTERPRISE_BROKER_URL = 'http://127.0.0.1:' + address.port
+    process.env.DSH_DESKTOP_ENTERPRISE_BROKER_CAPABILITY = capability
+    const routes = createPluginContext()
+    expect(process.env.DSH_DESKTOP_ENTERPRISE_BROKER_CAPABILITY).toBeUndefined()
+    const verified = await invoke(routes, '/api/enterprise.workbenches/verify', 'POST', { id })
+    expect(verified.status).toBe(200)
+    await expect(verified.json()).resolves.toEqual({ ok: true })
+    expect(calls.some(call => call.path === '/v1/state')).toBe(true)
+    expect(calls.map(call => call.path).filter(path => path !== '/v1/state')).toEqual(['/v1/market', '/v1/workbench/verify'])
+    expect(calls.every(call => call.authorization === 'Bearer ' + capability)).toBe(true)
+  })
+
   it('reads the restricted Broker state instead of a local fallback', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'enterprise-adapter-'))
     const vault = new SecureEnterpriseCredentialVault(join(directory, ENTERPRISE_VAULT_FILENAME), memorySafeStorage())

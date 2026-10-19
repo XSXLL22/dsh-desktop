@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { MarketRuntimeFiber } from './market-runtime.js'
+import type { EnterpriseAuthHost } from './enterprise-auth.js'
 export interface InstalledMarketPlugin {
   name: string; version: string; digest: string; directory: string; generation_id: string; plugin_id: string;
   version_id: string; revision: number; enabled: boolean; status: string; display_name: string; error?: string; config?: Record<string, unknown>; description?: string
@@ -22,13 +23,13 @@ export declare function createMarketController(ctx: Context, account: {
   state(): MarketAccount
   marketRequest(path: string, body?: unknown, binary?: boolean): Promise<unknown>
 }, options?: { home?: string; target?: string; publicKey?: string; desktopVersion?: string; dshEntryPath?: string;
-  load?: (record: InstalledMarketPlugin) => Promise<MarketRuntimeFiber> }): MarketController
+  auth?: EnterpriseAuthHost; load?: (record: InstalledMarketPlugin) => Promise<MarketRuntimeFiber> }): MarketController
 
 export declare function applyEnterpriseMarket(ctx: Context, account: {
   state(): MarketAccount
   refreshState?(): Promise<unknown>
   refreshProfile?(): Promise<unknown>
   marketRequest(path: string, body?: unknown, binary?: boolean): Promise<unknown>
-}): MarketController
+}, options?: { auth?: EnterpriseAuthHost }): MarketController
 
 export declare function isMarketVersionCompatible(version: string, minimum: string): boolean
