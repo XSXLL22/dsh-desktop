@@ -324,12 +324,16 @@ describe('review regressions', () => {
     const root = await home()
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = root
-    const registrations = new Map()
-    let dispose = () => undefined
-    const ctx = {
-      connection: { fetch: { register: config => { registrations.set(config.path, config.fetch) } } },
-      effect: callback => { dispose = callback() }
-    }
+    const ctx = new Context()
+    const registrations = new Map<string, (request: { url: string }) => Promise<Response>>()
+    ctx.provide('connection', {
+      fetch: {
+        register(config: { path: string; fetch: (request: { url: string }) => Promise<Response> }) {
+          registrations.set(config.path, config.fetch)
+          return () => undefined
+        }
+      }
+    })
     const accountController = {
       state: () => account,
       refreshState: async () => {},
@@ -337,11 +341,13 @@ describe('review regressions', () => {
     }
     try {
       applyEnterpriseMarket(ctx, accountController)
-      const response = await registrations.get('/api/enterprise.market.catalog')({ url: 'http://127.0.0.1/api/enterprise.market.catalog?page=1' })
+      const fetchCatalog = registrations.get('/api/enterprise.market.catalog')
+      if (!fetchCatalog) throw new Error('Catalog route was not registered.')
+      const response = await fetchCatalog({ url: 'http://127.0.0.1/api/enterprise.market.catalog?page=1' })
       expect(response.status).toBe(400)
       await expect(response.json()).resolves.toEqual({ error: 'The seat was revoked.', errorCode: 'seat_revoked' })
     } finally {
-      await dispose()
+      await ctx.fiber.dispose()
       if (previousHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = previousHome
     }

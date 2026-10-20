@@ -1,4 +1,3 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,8 +15,6 @@ const cleanups: Array<() => Promise<unknown>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 const target = process.platform + '-' + process.arch
 const pluginId = 'a'.repeat(32), versionId = 'b'.repeat(32)
-const { privateKey, publicKey } = generateKeyPairSync('ed25519')
-const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
 // Provider selection is business-plugin code, not market/host behavior.
 const source = `export const inject = ['enterpriseAuth', 'loader']
 export async function apply(ctx, config) {
@@ -84,11 +81,10 @@ async function fixture(options: { bridge?: boolean; disabledWeb?: boolean } = {}
   const selected = { id: pluginId, ...plugin, revision: 1, current_version_id: versionId, versions: [{ id: versionId, version: plugin.version, digest: sha256(bytes), manifest }] }
   const request = vi.fn(async (path: string) => {
     if (path.endsWith('/artifact')) return bytes
-    if (path.endsWith('/capabilities')) return { status_code: 200, data: { enabled: true, contract_version: 1, tenant_id: '2', public_key: pem } }
+    if (path.endsWith('/capabilities')) return { status_code: 200, data: { enabled: true, contract_version: 2, tenant_id: '2', sync_seconds: 60 } }
     if (path.includes('/catalog?')) return { status_code: 200, data: { data: [selected], total: 1 } }
     if (path.endsWith('/sync')) {
-      const payload = Buffer.from(JSON.stringify({ tenant_id: '2', user_id: '20', device_id: marketDevice, issued_at: Math.floor(Date.now() / 1000), expires_at: Math.floor(Date.now() / 1000) + 3600, policies: [{ plugin_id: pluginId, name: 'bs-web-search', revision: 1, disabled: false, current_version_id: versionId, versions: [{ id: versionId, digest: sha256(bytes) }] }] }))
-      return { status_code: 200, data: { payload: payload.toString('base64url'), signature: sign(null, payload, privateKey).toString('base64url') } }
+      return { status_code: 200, data: { tenant_id: '2', user_id: '20', device_id: marketDevice, synced_at: Math.floor(Date.now() / 1000), policies: [{ plugin_id: pluginId, name: 'bs-web-search', revision: 1, disabled: false, current_version_id: versionId, versions: [{ id: versionId, digest: sha256(bytes) }] }] } }
     }
     throw new Error('Unexpected market request: ' + path)
   })

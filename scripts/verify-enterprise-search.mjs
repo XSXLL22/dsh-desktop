@@ -1,12 +1,12 @@
 /**
- * Run with packaged Electron in Node mode; broker responses are local signed fixtures.
+ * Run with packaged Electron in Node mode; broker responses are local fixtures.
  * Requires a rebuilt package and search ZIP using enterpriseAuth.request(path, init),
  * parsing Response.json(), and owning provider selection/restoration itself. Old
  * enterpriseSearch-service bundles are intentionally incompatible with this verifier.
  */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -27,7 +27,6 @@ const manifest = JSON.parse(readBundleZip(bytes).get('manifest.json').data.toStr
 assert.equal(manifest.plugin.name, 'bs-web-search')
 const home = await mkdtemp(join(tmpdir(), 'packaged-bs-search-'))
 process.env.DSH_HOME = home
-const { privateKey, publicKey } = generateKeyPairSync('ed25519')
 const capability = randomUUID(), pluginId = 'a'.repeat(32), versionId = 'b'.repeat(32)
 const digest = sha256(bytes)
 let downloads = 0, searches = 0
@@ -65,10 +64,9 @@ const server = createServer(async (req, res) => {
     } else if (req.url === '/v1/market') {
       if (input.path.endsWith('/artifact')) { downloads++; res.end(bytes); return }
       let payload
-      if (input.path.endsWith('/capabilities')) payload = { enabled: true, contract_version: 1, tenant_id: '2', public_key: publicKey.export({ type: 'spki', format: 'pem' }).toString() }
+      if (input.path.endsWith('/capabilities')) payload = { enabled: true, contract_version: 2, tenant_id: '2', sync_seconds: 60 }
       else if (input.path.endsWith('/sync')) {
-        const value = Buffer.from(JSON.stringify({ tenant_id: '2', user_id: '20', device_id: input.body.device_id, issued_at: Math.floor(Date.now() / 1000), expires_at: Math.floor(Date.now() / 1000) + 3600, policies: [{ plugin_id: pluginId, name: 'bs-web-search', revision: 1, disabled: false, current_version_id: versionId, versions: [{ id: versionId, digest }] }] }))
-        payload = { payload: value.toString('base64url'), signature: sign(null, value, privateKey).toString('base64url') }
+        payload = { tenant_id: '2', user_id: '20', device_id: input.body.device_id, synced_at: Math.floor(Date.now() / 1000), policies: [{ plugin_id: pluginId, name: 'bs-web-search', revision: 1, disabled: false, current_version_id: versionId, versions: [{ id: versionId, digest }] }] }
       } else if (input.path.includes('/catalog?')) payload = { data: [{ id: pluginId, name: 'bs-web-search', display_name: 'Search', revision: 1, current_version_id: versionId, versions: [{ id: versionId, version: manifest.plugin.version, digest, manifest }] }], total: 1 }
       else throw new Error('Unexpected market path')
       data = { status_code: 200, data: payload }
