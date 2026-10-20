@@ -2,6 +2,7 @@ import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
 import { applyEnterpriseWorkbenchMarket } from './workbench-market.js'
 import { parseThirdPartyPolicy } from './contract.js'
+import { createAuditTitleSync } from './audit-title.js'
 import {
   isInsecurePrivateHttpOrigin,
   normalizeEnterpriseServerUrl,
@@ -368,9 +369,40 @@ function startEnterpriseLlm(ctx, llm) {
   let registration
   let timer
   let stopped = false
+  const titles = createAuditTitleSync({
+    ctx,
+    async send(body, signal) {
+      const broker = brokerConfig()
+      if (!broker) throw new Error('Enterprise broker unavailable.')
+      const response = await fetch(new URL('/v1/audit/conversations/title', broker.origin), {
+        method: 'POST', redirect: 'error', signal,
+        headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      if (!response.ok) {
+        await response.body?.cancel()
+        throw Object.assign(new Error('Audit title synchronization failed.'), { status: response.status })
+      }
+      return response.json()
+    },
+    note: (reason) => console.warn('[enterprise-audit-title]', reason)
+  })
   const adapter = new EnterpriseLlmAdapter({
     providerName: () => latest.tenant?.name || latest.user?.display_name || 'BiSheng Enterprise',
     models: () => modelsAvailable ? models : [],
+    auditFields: () => latest.connected ? latest.audit_context?.fields ?? [] : [],
+    resolveAuditSession: (id) => {
+      titles.track(id)
+      try {
+        const header = ctx.get?.('sessions')?.get(id)?.header
+        if (!header || header.id !== id) return undefined
+        if (header.origin === 'subagent') return { session_origin: 'subagent', parent_conversation_id: header.parentSession }
+        return header.origin === undefined ? { session_origin: 'main' } : undefined
+      } catch {
+        // Sessions are optional; unavailable provenance never blocks model generation.
+        return undefined
+      }
+    },
     request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
       ...requestImageDimensions(ref.width, ref.height, 4_194_304),
@@ -380,6 +412,7 @@ function startEnterpriseLlm(ctx, llm) {
 
   const ingest = (state) => {
     latest = state
+    titles.ingest(state)
     if (state.revision === revision) return
     const nextRevision = Number.isSafeInteger(state.revision) ? state.revision : revision
     models = Array.isArray(state.models) ? state.models : []
@@ -420,6 +453,7 @@ function startEnterpriseLlm(ctx, llm) {
     },
     dispose() {
       stopped = true
+      titles.dispose()
       if (timer) clearTimeout(timer)
       registration?.()
     }

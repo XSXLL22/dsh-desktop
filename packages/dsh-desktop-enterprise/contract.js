@@ -1,10 +1,19 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { normalizeEnterpriseServerUrl } from './deep-link.js'
+export { normalizeAuditContext } from './audit-context.js'
+export { parseAuditTitleUpdate } from './audit-title.js'
 
 export const CONTRACT_VERSION = '0.5.0'
 export const CLIENT_ID = 'dsh-desktop'
 export const CALLBACK_PATH = '/dsh/callback'
 export const ACCESS_REFRESH_SKEW_MS = 60_000
+export const AUDIT_CONTEXT_FIELDS = Object.freeze(['conversation_id', 'request_kind', 'session_origin', 'parent_conversation_id', 'message_sources'])
+
+export function parseAuditContextFields(value) {
+  if (!isObject(value) || !Array.isArray(value.fields) || value.fields.some((field) => typeof field !== 'string')) return []
+  return AUDIT_CONTEXT_FIELDS.filter((field) => value.fields.includes(field))
+}
+
 export const COMPATIBLE_CONTRACT_VERSIONS = Object.freeze(['0.4.0', CONTRACT_VERSION])
 export const API_PATHS = Object.freeze({
   config: '/api/v1/dsh/config',
@@ -13,6 +22,7 @@ export const API_PATHS = Object.freeze({
   logout: '/api/dsh/logout',
   models: '/api/v1/dsh/models',
   chat: '/api/v1/dsh/chat/completions',
+  auditTitle: '/api/v1/dsh/audit/conversations/title',
   usage: '/api/v1/dsh/usage'
 })
 
@@ -108,7 +118,11 @@ export function parseConfig(value) {
   if (value.client_id !== CLIENT_ID || !COMPATIBLE_CONTRACT_VERSIONS.includes(contractVersion)) {
     throw new Error('BiSheng DSH contract version is incompatible with this Desktop build.')
   }
-  return { enabled: true, client_id: CLIENT_ID, contract_version: contractVersion }
+  const fields = parseAuditContextFields(value.audit_context)
+  return { enabled: true, client_id: CLIENT_ID, contract_version: contractVersion,
+    ...(fields.length ? { audit_context: { fields } } : {}),
+    ...(isObject(value.audit_conversation_title) && value.audit_conversation_title.version === 1
+      ? { audit_conversation_title: { version: 1 } } : {}) }
 }
 
 export function parseAuthorization(value, base) {

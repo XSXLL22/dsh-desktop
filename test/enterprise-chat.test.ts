@@ -14,6 +14,19 @@ const validRequest = {
 }
 
 describe('enterprise chat payload validation', () => {
+  it('soft filters optional audit context by trusted connection capability', () => {
+    const value = { request: { ...validRequest, audit_context: {
+      conversation_id: 'session-a', request_kind: 'chat', user_id: 'forged', version: 1
+    } } }
+    expect(parseEnterpriseChatPayload(value).request).not.toHaveProperty('audit_context')
+    expect(parseEnterpriseChatPayload(value, ['conversation_id']).request.audit_context)
+      .toEqual({ conversation_id: 'session-a' })
+    for (const audit_context of [null, [], { conversation_id: 1 }, { request_kind: 'unknown' }]) {
+      expect(parseEnterpriseChatPayload({ request: { ...validRequest, audit_context } },
+        ['conversation_id', 'request_kind']).request).not.toHaveProperty('audit_context')
+    }
+    expect(value.request.audit_context.user_id).toBe('forged')
+  })
   it('accepts a streaming request and keeps only attribution user-agent', () => {
     expect(ALLOWED_ATTRIBUTION_HEADERS).toEqual(['user-agent'])
     const parsed = parseEnterpriseChatPayload({
