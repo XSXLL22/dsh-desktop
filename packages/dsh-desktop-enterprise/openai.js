@@ -275,6 +275,10 @@ const LOCAL_CHAT_FAILURES = Object.freeze({
   'Enterprise session changed.': {
     zh: '企业会话已变更。',
     en: 'Enterprise session changed.'
+  },
+  'Enterprise model response timed out.': {
+    zh: '模型响应超时，请稍后手动重试。',
+    en: 'The model response timed out. Try again manually later.'
   }
 })
 
@@ -391,6 +395,10 @@ function formatEnterpriseChatFailure(status, payload, language) {
 }
 
 function platformChatCode(payload) {
+  const carried = payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.errorCode === 'string'
+    ? payload.errorCode.trim()
+    : ''
+  if (carried && carried !== 'request_failed' && CHAT_PLATFORM_CODES.has(carried)) return carried
   const code = payloadError(payload)?.code
   if (typeof code === 'string' && code.trim() && code.trim() !== 'request_failed') return code.trim()
   const phrase = normalizeChatPhrase(rawChatMessage(payload))

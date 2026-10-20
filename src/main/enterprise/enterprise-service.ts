@@ -12,6 +12,9 @@ import {
   CHAT_IDLE_TIMEOUT_MS,
   CHAT_MAX_CONCURRENT,
   CHAT_TOTAL_TIMEOUT_MS,
+  desktopChatAbortError,
+  enterpriseHeaderTimeoutAbortReason,
+  enterpriseSessionChangedAbortReason,
   isSseContentType,
   parseEnterpriseChatPayload
 } from './enterprise-chat'
@@ -452,14 +455,13 @@ export class EnterpriseService {
       throw Object.assign(new Error('Too many enterprise chats.'), { status: 429 })
     }
     const epoch = this.epoch
-    const controller = new AbortController()
-    const combined = AbortSignal.any([signal, controller.signal])
-    this.chatControllers.add(controller)
+    const sessionController = new AbortController()
+    this.chatControllers.add(sessionController)
     this.chatInFlight += 1
     try {
-      await this.runChat(parsed, response, combined, epoch, false)
+      await this.runChat(parsed, response, signal, sessionController.signal, epoch, false)
     } finally {
-      this.chatControllers.delete(controller)
+      this.chatControllers.delete(sessionController)
       this.chatInFlight -= 1
     }
   }
@@ -470,7 +472,7 @@ export class EnterpriseService {
     await this.cancelPendingLogin()
     this.clearModelsTimer()
     this.epoch += 1
-    for (const controller of this.chatControllers) controller.abort()
+    for (const controller of this.chatControllers) controller.abort(enterpriseSessionChangedAbortReason())
     this.chatControllers.clear()
   }
 
@@ -743,18 +745,19 @@ export class EnterpriseService {
   private async runChat(
     parsed: ReturnType<typeof parseEnterpriseChatPayload> | ReturnType<typeof parseEnterpriseResponsesPayload>,
     response: ServerResponse,
-    signal: AbortSignal,
+    callerSignal: AbortSignal,
+    sessionSignal: AbortSignal,
     epoch: number,
     retried: boolean
   ): Promise<void> {
-    if (this.epoch !== epoch) {
-      throw Object.assign(new Error('Enterprise session changed.'), { status: 409 })
-    }
+    if (this.epoch !== epoch) throw enterpriseSessionChangedAbortReason()
     const accessToken = await this.ensureAccess(epoch)
     const contract = await loadEnterpriseContract()
     const totalTimeout = AbortSignal.timeout(CHAT_TOTAL_TIMEOUT_MS)
     const headerController = new AbortController()
-    const headerTimer = setTimeout(() => headerController.abort(), CHAT_HEADER_TIMEOUT_MS)
+    const headerTimer = setTimeout(() => headerController.abort(enterpriseHeaderTimeoutAbortReason()), CHAT_HEADER_TIMEOUT_MS)
+    const lifetime = AbortSignal.any([callerSignal, sessionSignal])
+    const upstreamSignal = AbortSignal.any([lifetime, headerController.signal, totalTimeout])
     let upstream: Response
     try {
       upstream = await requestEnterpriseStream(
@@ -764,13 +767,14 @@ export class EnterpriseService {
         {
           body: parsed.request,
           accessToken,
-          signal: AbortSignal.any([signal, totalTimeout, headerController.signal]),
+          signal: upstreamSignal,
           ...this.platformRequestOptions(),
           attribution: parsed.attribution
         }
       )
     } catch (error) {
-      if (signal.aborted) throw error
+      const classified = desktopChatAbortError(upstreamSignal.reason)
+      if (classified !== undefined) throw classified
       throw error
     } finally {
       clearTimeout(headerTimer)
@@ -778,10 +782,8 @@ export class EnterpriseService {
     if (upstream.status === 401 && !retried && !response.headersSent) {
       await upstream.body?.cancel().catch(() => undefined)
       await this.refresh()
-      if (this.epoch !== epoch) {
-        throw Object.assign(new Error('Enterprise session changed.'), { status: 409 })
-      }
-      await this.runChat(parsed, response, signal, epoch, true)
+      if (this.epoch !== epoch) throw enterpriseSessionChangedAbortReason()
+      await this.runChat(parsed, response, callerSignal, sessionSignal, epoch, true)
       return
     }
     const contentType = upstream.headers.get('content-type')
@@ -791,7 +793,7 @@ export class EnterpriseService {
       this.writeForwarded(response, upstream, text)
       return
     }
-    await this.pipeSse(upstream, response, signal, 'protocol' in parsed)
+    await this.pipeSse(upstream, response, lifetime, 'protocol' in parsed)
     if (this.epoch === epoch) void this.syncUsage(epoch, parsed.model)
   }
 
@@ -1226,7 +1228,7 @@ export class EnterpriseService {
     this.auditFields = []
     this.epoch += 1
     this.clearModelsTimer()
-    for (const controller of this.chatControllers) controller.abort()
+    for (const controller of this.chatControllers) controller.abort(enterpriseSessionChangedAbortReason())
     await this.cancelPendingLogin()
     this.session = null
     this.allowPrivateHttpForSession = false
