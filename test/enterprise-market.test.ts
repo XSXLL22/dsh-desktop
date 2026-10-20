@@ -304,12 +304,11 @@ describe('review regressions', () => {
     const root = await home()
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = root
-    const registrations = new Map()
-    let dispose = () => undefined
-    const ctx = {
-      connection: { fetch: { register: config => { registrations.set(config.path, config.fetch) } } },
-      effect: callback => { dispose = callback() }
-    }
+    const registrations = new Map<string, (request: Request) => Promise<Response>>()
+    const ctx = new Context()
+    ctx.provide('connection', { fetch: { register: (config: { path: string; fetch: (request: Request) => Promise<Response> }) => {
+      registrations.set(config.path, config.fetch)
+    } } })
     const accountController = {
       state: () => account,
       refreshState: async () => {},
@@ -317,11 +316,11 @@ describe('review regressions', () => {
     }
     try {
       applyEnterpriseMarket(ctx, accountController)
-      const response = await registrations.get('/api/enterprise.market.catalog')({ url: 'http://127.0.0.1/api/enterprise.market.catalog?page=1' })
+      const response = await registrations.get('/api/enterprise.market.catalog')!(new Request('http://127.0.0.1/api/enterprise.market.catalog?page=1'))
       expect(response.status).toBe(400)
       await expect(response.json()).resolves.toEqual({ error: 'The seat was revoked.', errorCode: 'seat_revoked' })
     } finally {
-      await dispose()
+      await ctx.fiber.dispose()
       if (previousHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = previousHome
     }
