@@ -208,7 +208,9 @@ export function apply(ctx) {
     })
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}))
-      throw new Error(payload.error || `Enterprise market request failed (${response.status}).`)
+      const failure = new Error(payload.error || `Enterprise market request failed (${response.status}).`)
+      if (typeof payload.errorCode === 'string' && payload.errorCode) failure.code = payload.errorCode
+      throw failure
     }
     return binary ? Buffer.from(await response.arrayBuffer()) : response.json()
   }

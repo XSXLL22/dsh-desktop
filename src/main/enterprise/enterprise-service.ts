@@ -771,10 +771,13 @@ export class EnterpriseService {
         continue
       }
       if (!response.ok) {
-        await response.body?.cancel()
-        throw Object.assign(new Error(`Enterprise market request failed (${response.status}).`), { status: response.status })
+        const code = await readMarketErrorCode(response)
+        throw Object.assign(new Error(`Enterprise market request failed (${response.status}).`), {
+          status: response.status,
+          ...(code ? { code } : {})
+        })
       }
-      const limit = request.binary ? 256 * 1024 * 1024 : 16 * 1024 * 1024
+      const limit = request.binary ? 512 * 1024 * 1024 : 16 * 1024 * 1024
       const chunks: Uint8Array[] = []
       let length = 0
       if (response.body) for await (const chunk of response.body) {
@@ -1178,6 +1181,31 @@ export class EnterpriseService {
 
   private now(): number {
     return this.options.now?.() ?? Date.now()
+  }
+}
+
+async function readMarketErrorCode(response: Response): Promise<string | undefined> {
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    if (response.body) {
+      for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+        length += chunk.byteLength
+        if (length > 4096) break
+        chunks.push(chunk)
+      }
+    }
+  } catch {
+    return undefined
+  } finally {
+    await response.body?.cancel().catch(() => undefined)
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { data?: { code?: unknown }, detail?: { code?: unknown } }
+    const candidate = parsed.data?.code ?? parsed.detail?.code
+    return typeof candidate === 'string' && /^[a-z0-9_]{1,64}$/u.test(candidate) ? candidate : undefined
+  } catch {
+    return undefined
   }
 }
 
