@@ -1,6 +1,7 @@
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { applyEnterpriseMarket } from './market.js'
 import { applyEnterpriseWorkbenchMarket } from './workbench-market.js'
+import { applyEnterpriseAuth, createEnterpriseAuthTransport } from './enterprise-auth.js'
 import { parseThirdPartyPolicy } from './contract.js'
 import { createAuditTitleSync } from './audit-title.js'
 import {
@@ -10,8 +11,10 @@ import {
 } from './deep-link.js'
 import { EnterpriseLlmAdapter, pickAttributionHeaders } from './openai.js'
 
+export { EnterpriseAuthError } from './enterprise-auth.js'
+
 export const name = 'dsh-desktop-enterprise'
-export const inject = ['connection', 'llm']
+export const inject = ['connection', 'llm', 'loader']
 export const BISHENG_PROVIDER_ROUTE = 'bisheng-enterprise'
 
 const LOCAL_PATHS = Object.freeze({
@@ -64,6 +67,8 @@ function inspectedBase(base) {
 function brokerConfig() {
   const urlValue = process.env.DSH_DESKTOP_ENTERPRISE_BROKER_URL
   const capability = process.env.DSH_DESKTOP_ENTERPRISE_BROKER_CAPABILITY
+  // Consume the owner secret before any market plugin is imported. This is not a Node sandbox.
+  delete process.env.DSH_DESKTOP_ENTERPRISE_BROKER_CAPABILITY
   if (!urlValue || !capability) return undefined
   let url
   try {
@@ -122,12 +127,11 @@ function unavailable() {
   throw Object.assign(new Error('Enterprise login is not available yet.'), { status: 503 })
 }
 
-async function brokerChat(body, signal, attribution) {
-  const broker = brokerConfig()
+async function brokerChat(broker, body, signal, attribution, connectionKey) {
   if (!broker) unavailable()
   let response
   try {
-    response = await fetch(new URL('/v1/chat', `${broker.origin}/`), {
+    response = await fetch(new URL(connectionKey === undefined ? '/v1/chat' : '/v1/responses', `${broker.origin}/`), {
       method: 'POST',
       redirect: 'error',
       signal,
@@ -135,7 +139,7 @@ async function brokerChat(body, signal, attribution) {
         authorization: `Bearer ${broker.capability}`,
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ request: body, attribution })
+      body: JSON.stringify({ request: body, attribution, ...(connectionKey === undefined ? {} : { connectionKey }) })
     })
   } catch (error) {
     if (signal?.aborted) throw error
@@ -144,12 +148,12 @@ async function brokerChat(body, signal, attribution) {
   return response
 }
 
-async function brokerJson(path, body) {
-  const broker = brokerConfig()
+async function requestBrokerJson(broker, path, body, signal) {
   if (!broker) unavailable()
   let response
   try {
     response = await fetch(new URL(path, `${broker.origin}/`), {
+      ...(signal ? { signal } : {}),
       method: body === undefined ? 'GET' : 'POST',
       redirect: 'error',
       headers: {
@@ -159,6 +163,7 @@ async function brokerJson(path, body) {
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     })
   } catch {
+    signal?.throwIfAborted()
     unavailable()
   }
   const payload = await response.json().catch(() => ({}))
@@ -172,6 +177,8 @@ async function brokerJson(path, body) {
 }
 
 export function apply(ctx) {
+  const broker = brokerConfig()
+  const brokerJson = (path, body, signal) => requestBrokerJson(broker, path, body, signal)
   const connection = Reflect.get(ctx, 'connection')
   let market
   let workbenches
@@ -187,7 +194,7 @@ export function apply(ctx) {
     }
   }
   const readBrokerState = async () => {
-    const state = brokerConfig() ? await brokerJson('/v1/state') : disabledState()
+    const state = broker ? await brokerJson('/v1/state') : disabledState()
     if (account.connectionKey !== state.connectionKey) {
       await market?.stop()
       await workbenches?.stop()
@@ -200,7 +207,6 @@ export function apply(ctx) {
     return { ...state, ...thirdPartyFlags() }
   }
   const marketRequest = async (path, body, binary = false) => {
-    const broker = brokerConfig()
     if (!broker) unavailable()
     const response = await fetch(new URL('/v1/market', broker.origin), {
       method: 'POST', redirect: 'error',
@@ -216,7 +222,6 @@ export function apply(ctx) {
     return binary ? Buffer.from(await response.arrayBuffer()) : response.json()
   }
   const verifyWorkbenchArtifact = async (input) => {
-    const broker = brokerConfig()
     if (!broker) unavailable()
     const response = await fetch(new URL('/v1/workbench/verify', broker.origin), {
       method: 'POST', redirect: 'error',
@@ -230,7 +235,6 @@ export function apply(ctx) {
     return payload
   }
   const materializeWorkbenchArtifact = async (input) => {
-    const broker = brokerConfig()
     if (!broker) unavailable()
     const response = await fetch(new URL('/v1/workbench/materialize', broker.origin), {
       method: 'POST', redirect: 'error',
@@ -244,13 +248,30 @@ export function apply(ctx) {
     return payload
   }
   const releaseWorkbenchArtifact = async (ticket, connectionKey) => {
-    const broker = brokerConfig()
     if (!broker || typeof ticket !== 'string' || typeof connectionKey !== 'string') return
     await fetch(new URL('/v1/workbench/release', broker.origin), {
       method: 'POST', redirect: 'error',
       headers: { authorization: `Bearer ${broker.capability}`, 'content-type': 'application/json' },
       body: JSON.stringify({ connectionKey, ticket })
     }).catch(() => undefined)
+  }
+  applyEnterpriseAuth(ctx)
+  const grants = new WeakMap()
+  const auth = {
+    async grant(identity) {
+      const value = await brokerJson('/v1/auth/grant', identity)
+      if (typeof value.capability !== 'string' || !value.capability) throw new Error('Invalid enterprise grant.')
+      const transport = createEnterpriseAuthTransport(broker.origin, value.capability)
+      grants.set(transport, value.capability)
+      return transport
+    },
+    async revoke(transport) {
+      const capability = grants.get(transport)
+      if (capability) {
+        await brokerJson('/v1/auth/revoke', { capability })
+        grants.delete(transport)
+      }
+    }
   }
   const accountController = {
     state: () => account,
@@ -261,7 +282,7 @@ export function apply(ctx) {
     materializeWorkbenchArtifact,
     releaseWorkbenchArtifact
   }
-  market = applyEnterpriseMarket(ctx, accountController)
+  market = applyEnterpriseMarket(ctx, accountController, { auth })
   workbenches = applyEnterpriseWorkbenchMarket(ctx, accountController)
   if (typeof ctx.provide === 'function') {
     ctx.provide('enterpriseWorkbenchPackages', {
@@ -335,14 +356,14 @@ export function apply(ctx) {
   })
   registerJsonRoute(connection, LOCAL_PATHS.refresh, ['POST'], async (request) => {
     await readJson(request)
-    if (!brokerConfig()) return disabledState()
+    if (!broker) return disabledState()
     const state = await brokerJson('/v1/refresh', {})
     ingestEnterpriseState(state)
     return state
   })
   registerJsonRoute(connection, LOCAL_PATHS.logout, ['POST'], async (request) => {
     await readJson(request)
-    if (!brokerConfig()) return disabledState()
+    if (!broker) return disabledState()
     const state = await brokerJson('/v1/logout', {})
     await market.stop()
     await workbenches?.stop()
@@ -352,8 +373,8 @@ export function apply(ctx) {
     return { ...state, allowThirdPartyPlugins: false, allowThirdPartyWorkbenches: false }
   })
   const llm = ctx.llm
-  if (llm && brokerConfig()) {
-    const handle = startEnterpriseLlm(ctx, llm)
+  if (llm && broker) {
+    const handle = startEnterpriseLlm(ctx, llm, broker)
     ingestEnterpriseState = handle.ingest
     if (typeof ctx.effect === 'function') {
       ctx.effect(() => handle.dispose, 'dsh-desktop-enterprise: poll broker state')
@@ -361,7 +382,7 @@ export function apply(ctx) {
   }
 }
 
-function startEnterpriseLlm(ctx, llm) {
+function startEnterpriseLlm(ctx, llm, broker) {
   let latest = disabledState()
   let models = []
   let modelsAvailable = false
@@ -372,7 +393,6 @@ function startEnterpriseLlm(ctx, llm) {
   const titles = createAuditTitleSync({
     ctx,
     async send(body, signal) {
-      const broker = brokerConfig()
       if (!broker) throw new Error('Enterprise broker unavailable.')
       const response = await fetch(new URL('/v1/audit/conversations/title', broker.origin), {
         method: 'POST', redirect: 'error', signal,
@@ -403,7 +423,10 @@ function startEnterpriseLlm(ctx, llm) {
         return undefined
       }
     },
-    request: (body, signal, headers) => brokerChat(body, signal, pickAttributionHeaders(headers)),
+    request: (body, signal, headers) => brokerChat(broker, body, signal, pickAttributionHeaders(headers)),
+    requestResponses: (body, signal, headers, connectionKey) => brokerChat(broker, body, signal, pickAttributionHeaders(headers), connectionKey),
+    connectionKey: () => latest.connectionKey,
+    onReplayDegrade: (reason) => ctx.logger?.info?.(`Enterprise Responses replay degraded: ${reason}`),
     readImage: (ref, signal) => ctx.get?.('attachments')?.readImageRequest?.(ref, {
       ...requestImageDimensions(ref.width, ref.height, 4_194_304),
       maxBytes: 5 * 1024 * 1024
@@ -429,7 +452,7 @@ function startEnterpriseLlm(ctx, llm) {
   const poll = async () => {
     if (stopped) return
     try {
-      ingest(brokerConfig() ? await brokerJson('/v1/state') : disabledState())
+      ingest(broker ? await requestBrokerJson(broker, '/v1/state') : disabledState())
     } catch {
       // Keep the last published catalog until the next local snapshot.
     }

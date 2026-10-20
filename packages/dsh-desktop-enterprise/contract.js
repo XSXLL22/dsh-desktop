@@ -22,6 +22,7 @@ export const API_PATHS = Object.freeze({
   logout: '/api/v1/dsh/logout',
   models: '/api/v1/dsh/models',
   chat: '/api/v1/dsh/chat/completions',
+  responses: '/api/v1/dsh/responses',
   auditTitle: '/api/v1/dsh/audit/conversations/title',
   usage: '/api/v1/dsh/usage'
 })
@@ -158,6 +159,25 @@ export function parseToken(value, base, receivedAt = Date.now()) {
   }
 }
 
+function parseModelReasoning(value) {
+  if (!isObject(value) || !Array.isArray(value.efforts) || value.efforts.length === 0 || value.efforts.length > 32) {
+    throw new Error('BiSheng model reasoning metadata is invalid.')
+  }
+  const ids = new Set()
+  const efforts = value.efforts.map((effort) => {
+    if (!isObject(effort) || typeof effort.id !== 'string' || !effort.id.trim() || effort.id.length > 128 || ids.has(effort.id)
+      || typeof effort.name !== 'string' || !effort.name.trim() || effort.name.length > 256) {
+      throw new Error('BiSheng model reasoning effort is invalid.')
+    }
+    ids.add(effort.id)
+    return { id: effort.id, name: effort.name }
+  })
+  if (value.defaultEffort !== undefined && !ids.has(value.defaultEffort)) {
+    throw new Error('BiSheng model default reasoning effort is invalid.')
+  }
+  return { efforts, ...(value.defaultEffort === undefined ? {} : { defaultEffort: value.defaultEffort }) }
+}
+
 function parseModelEntry(entry, seen) {
   if (!isObject(entry) || !isObject(entry.capabilities)) return undefined
   if (typeof entry.id !== 'string' || entry.id.length === 0 || entry.id.length > 512) return undefined
@@ -166,9 +186,19 @@ function parseModelEntry(entry, seen) {
     typeof entry.capabilities.streaming !== 'boolean' ||
     typeof entry.capabilities.tools !== 'boolean' ||
     typeof entry.capabilities.reasoning_content !== 'boolean' ||
-    (entry.capabilities.vision !== undefined && typeof entry.capabilities.vision !== 'boolean')
+    (entry.capabilities.vision !== undefined && typeof entry.capabilities.vision !== 'boolean') ||
+    (entry.capabilities.responses !== undefined && typeof entry.capabilities.responses !== 'boolean')
   ) {
     return undefined
+  }
+  let reasoning
+  if (entry.reasoning !== undefined) {
+    try {
+      reasoning = parseModelReasoning(entry.reasoning)
+    } catch {
+      // Invalid capability metadata makes only this model unavailable.
+      return undefined
+    }
   }
   seen.add(entry.id)
   const usage = isObject(entry.usage) ? parseUsageLenient(entry.usage) : undefined
@@ -178,11 +208,13 @@ function parseModelEntry(entry, seen) {
     created: Number.isSafeInteger(entry.created) ? entry.created : 0,
     owned_by: typeof entry.owned_by === 'string' && entry.owned_by.length > 0 ? entry.owned_by : 'bisheng',
     display_name: typeof entry.display_name === 'string' && entry.display_name.length > 0 ? entry.display_name : entry.id,
+    ...(reasoning === undefined ? {} : { reasoning }),
     capabilities: {
       streaming: entry.capabilities.streaming,
       tools: entry.capabilities.tools,
       vision: entry.capabilities.vision ?? false,
-      reasoning_content: entry.capabilities.reasoning_content
+      reasoning_content: entry.capabilities.reasoning_content,
+      ...(entry.capabilities.responses === undefined ? {} : { responses: entry.capabilities.responses })
     },
     ...(usage && usage.source !== 'unavailable' ? { usage } : {})
   }

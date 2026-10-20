@@ -362,13 +362,17 @@ describe('Harness launch contract', () => {
     expect(bash.stdout).toContain('ok')
 
     if (process.platform === 'darwin') {
-      const sandbox = spawnSync('sandbox-exec', ['-n', 'no-network', 'true'], {
+      // PATH resolution is the contract. Applying the deprecated no-network
+      // profile is not: the release runner signal-kills that process, so
+      // status is null even though /usr/bin/sandbox-exec was found.
+      const resolved = spawnSync('bash', ['-c', 'command -v sandbox-exec'], {
         cwd: tmpdir(),
         env: options.env,
         encoding: 'utf8'
       })
-      expect(sandbox.error).toBeUndefined()
-      expect(sandbox.status).toBe(0)
+      expect(resolved.error).toBeUndefined()
+      expect(resolved.status).toBe(0)
+      expect(resolved.stdout.trim()).toBe('/usr/bin/sandbox-exec')
     }
   })
 

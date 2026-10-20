@@ -55,7 +55,7 @@ export function createMarketController(ctx, accountController, options = {}) {
   const home = options.home ?? process.env.DSH_HOME
   const target = options.target ?? `${process.platform}-${process.arch}`
   const desktopVersion = () => options.desktopVersion ?? accountController.state().desktopVersion ?? ''
-  const load = options.load ?? createMarketRuntime(ctx)
+  const load = options.load ?? createMarketRuntime(ctx, options.auth)
   let key, document = rememberedInstall(null)
   let account, capability, policy, lastError, failureCode, queue = Promise.resolve(), epoch = 0
   let online = false, cancellation = 0, operationGeneration = 0, cleaning = false
@@ -322,8 +322,8 @@ export function createMarketController(ctx, accountController, options = {}) {
   }
 }
 
-export function applyEnterpriseMarket(ctx, accountController) {
-  const market = createMarketController(ctx, accountController)
+export function applyEnterpriseMarket(ctx, accountController, options = {}) {
+  const market = createMarketController(ctx, accountController, options)
   const register = (path, methods, handler) => ctx.connection.fetch.register({ path, methods, requestBody: 'buffered', fetch: async request => {
     try {
       await accountController.refreshState?.()

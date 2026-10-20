@@ -1,5 +1,8 @@
 import { parseMarketRequest } from './enterprise-market'
+import { parseEnterpriseResponsesPayload } from './enterprise-responses'
 import { discardWorkbenchArtifact, rememberWorkbenchArtifact, releaseWorkbenchArtifact as releaseRetainedWorkbenchArtifact, verifyWorkbenchArtifactResponse, WORKBENCH_ARTIFACT_LIMIT } from './workbench-artifact'
+import { randomUUID } from 'node:crypto'
+import { EnterpriseAuthError, EnterpriseAuthTransport, type EnterpriseAuthState } from './enterprise-auth'
 import { createEnterpriseFetch } from './platform-fetch'
 import { resolveEnterpriseEndpoint } from './enterprise-request'
 import type { ServerResponse } from 'node:http'
@@ -67,11 +70,13 @@ export interface EnterprisePublicUsage {
 export interface EnterprisePublicModel {
   id: string
   display_name: string
+  reasoning?: { efforts: Array<{ id: string; name: string }>; defaultEffort?: string }
   capabilities: {
     streaming: boolean
     tools: boolean
     reasoning_content: boolean
     vision?: boolean
+    responses?: boolean
   }
 }
 
@@ -110,6 +115,9 @@ export interface EnterpriseServiceNote {
   status?: number
   requestId?: string
   originHash?: string
+  pluginId?: string
+  path?: string
+  duration?: number
 }
 
 export interface EnterpriseServiceOptions {
@@ -125,6 +133,7 @@ export interface EnterpriseServiceOptions {
 
 interface PendingLogin {
   epoch: number
+  authEpoch: number
   base: string
   codeVerifier: string
   state: string
@@ -161,6 +170,10 @@ export class EnterpriseService {
   private chatInFlight = 0
   private readonly chatControllers = new Set<AbortController>()
   private allowPrivateHttpForSession = false
+  private readonly authTransport = new EnterpriseAuthTransport()
+  private readonly authVersionPrefix = randomUUID()
+  private authEpoch = 0
+  private authEnabled = false
   private auditFields: AuditContextField[] = []
   private auditRefreshGeneration = 0
   private auditTitleAvailable = false
@@ -193,6 +206,7 @@ export class EnterpriseService {
       models: this.models.map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: structuredClone(model.reasoning) }),
         capabilities: { ...model.capabilities }
       })),
       modelsAvailable: this.modelsAvailable && (this.phase === 'connected' || this.phase === 'refreshing'),
@@ -217,6 +231,7 @@ export class EnterpriseService {
       this.vaultGeneration = stored.generation
       if (!stored.session) return
       this.session = stored.session
+      this.authEnabled = true
       const { isInsecurePrivateHttpOrigin } = await import('dsh-desktop-enterprise/deep-link')
       this.allowPrivateHttpForSession = isInsecurePrivateHttpOrigin(stored.session.base ?? '')
       this.phase = 'connected'
@@ -254,6 +269,8 @@ export class EnterpriseService {
     baseValue: string,
     options: { confirmInsecurePrivateHttp?: boolean } = {}
   ): Promise<EnterpriseLoginStartResult> {
+    this.invalidateAuthSession()
+    const authEpoch = this.authEpoch
     return this.enqueueMutation(async () => {
       if (!this.options.vault.available) {
         throw Object.assign(new Error(this.options.vault.unavailableReason ?? 'Secure storage is unavailable.'), {
@@ -324,6 +341,7 @@ export class EnterpriseService {
         callback.alignTimeout(lifetimeMs)
         this.pendingLogin = {
           epoch: loginEpoch,
+          authEpoch,
           base,
           codeVerifier: pkce.codeVerifier,
           state: pkce.state,
@@ -382,6 +400,7 @@ export class EnterpriseService {
   }
 
   async logout(): Promise<EnterprisePublicState> {
+    this.invalidateAuthSession()
     return this.enqueueMutation(async () => {
       const current = this.session
       await this.cancelPendingLogin()
@@ -408,6 +427,21 @@ export class EnterpriseService {
 
   async proxyChat(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
     const parsed = parseEnterpriseChatPayload(payload, this.auditFields)
+    await this.proxyModel(parsed, response, signal)
+  }
+
+  async proxyResponses(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
+    const parsed = parseEnterpriseResponsesPayload(payload)
+    if (parsed.connectionKey !== this.connectionKey()) {
+      throw Object.assign(new Error('Enterprise session changed.'), { status: 409 })
+    }
+    if (!this.models.some((model) => model.id === parsed.model && model.capabilities.responses === true)) {
+      throw Object.assign(new Error('Native Responses is unavailable for this model.'), { status: 403 })
+    }
+    await this.proxyModel(parsed, response, signal)
+  }
+
+  private async proxyModel(parsed: ReturnType<typeof parseEnterpriseChatPayload> | ReturnType<typeof parseEnterpriseResponsesPayload>, response: ServerResponse, signal: AbortSignal): Promise<void> {
     if (!this.session?.base || !this.session.access_token || !this.modelsAvailable) {
       throw Object.assign(new Error('Enterprise models are unavailable.'), { status: 409 })
     }
@@ -431,6 +465,7 @@ export class EnterpriseService {
   }
 
   async stop(): Promise<void> {
+    this.invalidateAuthSession()
     this.auditFields = []
     await this.cancelPendingLogin()
     this.clearModelsTimer()
@@ -490,6 +525,7 @@ export class EnterpriseService {
       )
       if (this.epoch !== expectedEpoch) return
       await this.commitSession(token as EnterpriseCredentialSession, expectedEpoch)
+      if (this.authEpoch === pending.authEpoch && this.session?.access_token) this.authEnabled = true
       await this.syncCatalog(expectedEpoch, { includeUsage: true })
       this.note('login_committed', { originHash: hashEnterpriseOrigin(pending.base) })
       try {
@@ -578,6 +614,7 @@ export class EnterpriseService {
       this.modelsAttempt = 0
       // Leave phase as refreshing; syncCatalog flips to connected after usage.
     } catch {
+      this.invalidateAuthSession()
       this.session = null
       this.auditFields = []
       this.allowPrivateHttpForSession = false
@@ -619,6 +656,7 @@ export class EnterpriseService {
       this.models = parsedModels.map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         capabilities: model.capabilities
       }))
       this.modelsAvailable = this.models.length > 0
@@ -668,6 +706,7 @@ export class EnterpriseService {
       this.models = contract.parseModelsLenient(modelsResult.body).map((model) => ({
         id: model.id,
         display_name: model.display_name,
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
         capabilities: model.capabilities
       }))
       this.modelsAvailable = this.models.length > 0
@@ -702,7 +741,7 @@ export class EnterpriseService {
   }
 
   private async runChat(
-    parsed: ReturnType<typeof parseEnterpriseChatPayload>,
+    parsed: ReturnType<typeof parseEnterpriseChatPayload> | ReturnType<typeof parseEnterpriseResponsesPayload>,
     response: ServerResponse,
     signal: AbortSignal,
     epoch: number,
@@ -721,7 +760,7 @@ export class EnterpriseService {
       upstream = await requestEnterpriseStream(
         this.options.fetchImpl,
         this.session!.base!,
-        contract.API_PATHS.chat,
+        'protocol' in parsed ? contract.API_PATHS.responses : contract.API_PATHS.chat,
         {
           body: parsed.request,
           accessToken,
@@ -747,17 +786,60 @@ export class EnterpriseService {
     }
     const contentType = upstream.headers.get('content-type')
     if (!upstream.ok || !isSseContentType(contentType)) {
-      const text = await upstream.text()
+      const text = await this.boundedResponseText(upstream)
       this.handleChatStatus(upstream.status, text, parsed.model, epoch)
       this.writeForwarded(response, upstream, text)
       return
     }
-    await this.pipeSse(upstream, response, signal)
+    await this.pipeSse(upstream, response, signal, 'protocol' in parsed)
     if (this.epoch === epoch) void this.syncUsage(epoch, parsed.model)
   }
 
   private connectionKey(): string {
     return hashEnterpriseOrigin(JSON.stringify([this.session?.base, this.session?.tenant?.id, this.session?.user?.id]))
+  }
+
+  authState(): EnterpriseAuthState {
+    const connected = this.authEnabled && Boolean(this.session?.base && this.session.access_token) &&
+      ['connected', 'degraded', 'refreshing'].includes(this.phase) &&
+      (this.session?.session_expires_at === undefined || Date.parse(this.session.session_expires_at) > this.now())
+    return {
+      connected,
+      sessionVersion: this.authVersionPrefix + ':' + this.authEpoch,
+      ...(connected && this.session?.tenant?.id ? { enterpriseId: this.session.tenant.id } : {}),
+      ...(connected && this.session?.user?.id ? { userId: this.session.user.id } : {})
+    }
+  }
+
+  private invalidateAuthSession(): void {
+    this.authEpoch += 1
+    this.authEnabled = false
+    this.authTransport.invalidate()
+  }
+
+  async authRequest(plugin: { pluginId: string; instanceId: string }, input: unknown, signal: AbortSignal): Promise<Response> {
+    const epoch = this.epoch
+    const assertSession = (version: string) => {
+      const state = this.authState()
+      if (state.sessionVersion !== version) throw new EnterpriseAuthError('session_changed', 409)
+      if (!state.connected) throw new EnterpriseAuthError('not_connected', 401)
+    }
+    return this.authTransport.request(plugin, input, signal, {
+      assertSession,
+      access: async request => {
+        const accessToken = await this.ensureAccess(epoch)
+        assertSession(request.sessionVersion)
+        const base = this.session?.base
+        if (!base) throw new EnterpriseAuthError('not_connected', 401)
+        const { endpoint } = await resolveEnterpriseEndpoint(base, request.path,
+          this.options.allowInsecureLoopback, this.platformRequestOptions().allowInsecurePrivateHttp)
+        assertSession(request.sessionVersion)
+        if (endpoint.origin !== new URL(base).origin) throw new EnterpriseAuthError('invalid_request', 400)
+        return { endpoint: endpoint.toString(), accessToken }
+      },
+      fetch: this.options.fetchImpl,
+      audit: entry => this.note('auth_request', entry)
+    })
   }
 
   async reportAuditTitle(input: unknown, signal?: AbortSignal): Promise<unknown> {
@@ -1059,7 +1141,27 @@ export class EnterpriseService {
     response.end(text)
   }
 
-  private async pipeSse(upstream: Response, response: ServerResponse, signal: AbortSignal): Promise<void> {
+  private async boundedResponseText(upstream: Response): Promise<string> {
+    if (!upstream.body) return ''
+    const reader = upstream.body.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > 2 * 1024 * 1024) throw new Error('Enterprise error response is too large.')
+        chunks.push(value)
+      }
+      return Buffer.concat(chunks).toString('utf8')
+    } finally {
+      await reader.cancel().catch(() => undefined)
+      reader.releaseLock()
+    }
+  }
+
+  private async pipeSse(upstream: Response, response: ServerResponse, signal: AbortSignal, native = false): Promise<void> {
     if (response.headersSent) return
     const requestId = sanitizeRequestId(upstream.headers.get('x-request-id') ?? undefined)
     const contentType = upstream.headers.get('content-type') ?? 'text/event-stream'
@@ -1073,6 +1175,7 @@ export class EnterpriseService {
       return
     }
     const reader = upstream.body.getReader()
+    let totalBytes = 0
     let idle = setTimeout(() => response.destroy(), CHAT_IDLE_TIMEOUT_MS)
     const resetIdle = () => {
       clearTimeout(idle)
@@ -1090,6 +1193,8 @@ export class EnterpriseService {
         if (done) break
         resetIdle()
         const chunk = Buffer.from(value)
+        totalBytes += chunk.byteLength
+        if (native && totalBytes > 32 * 1024 * 1024) throw new Error('Enterprise response is too large.')
         if (!response.write(chunk)) {
           await waitForDrain(response, signal)
         }
@@ -1098,6 +1203,7 @@ export class EnterpriseService {
     } finally {
       clearTimeout(idle)
       signal.removeEventListener('abort', onAbort)
+      await reader.cancel().catch(() => undefined)
       reader.releaseLock()
     }
   }
@@ -1116,6 +1222,7 @@ export class EnterpriseService {
   }
 
   private async clearLocalSession(phase: EnterprisePhase): Promise<void> {
+    this.invalidateAuthSession()
     this.auditFields = []
     this.epoch += 1
     this.clearModelsTimer()
@@ -1279,7 +1386,10 @@ export class EnterpriseService {
       event,
       ...(details.status ? { status: details.status } : {}),
       ...(sanitizeRequestId(details.requestId) ? { requestId: sanitizeRequestId(details.requestId) } : {}),
-      ...(details.originHash ? { originHash: details.originHash } : {})
+      ...(details.originHash ? { originHash: details.originHash } : {}),
+      ...(details.pluginId ? { pluginId: details.pluginId } : {}),
+      ...(details.path ? { path: details.path } : {}),
+      ...(details.duration !== undefined ? { duration: details.duration } : {})
     })
   }
 

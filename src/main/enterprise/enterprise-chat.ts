@@ -1,6 +1,6 @@
 import { normalizeAuditContext } from 'dsh-desktop-enterprise/contract'
 
-export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent'])
+export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent', 'x-dsh-conversation-id', 'x-dsh-request-purpose'])
 export const REJECTED_CHAT_HEADERS = Object.freeze([
   'host',
   'cookie',
@@ -18,6 +18,7 @@ export const CHAT_REQUEST_KEYS = Object.freeze([
   'tools',
   'tool_choice',
   'temperature',
+  'reasoning_effort',
   'max_completion_tokens',
   'stop',
   'n',
@@ -47,10 +48,16 @@ export function pickAttributionHeaders(value: unknown): Record<string, string> {
     if (REJECTED_CHAT_HEADERS.includes(key) || !ALLOWED_ATTRIBUTION_HEADERS.includes(key)) {
       throw Object.assign(new Error('Chat request includes a forbidden header.'), { status: 400 })
     }
-    if (typeof rawValue !== 'string' || rawValue.length === 0 || rawValue.length > 512) {
+    if (picked[key] !== undefined || typeof rawValue !== 'string' || rawValue.length === 0 || rawValue.length > 512 || /[\r\n\x00-\x1f\x7f]/.test(rawValue)) {
       throw Object.assign(new Error('Chat attribution is invalid.'), { status: 400 })
     }
     picked[key] = rawValue
+  }
+  const conversation = picked['x-dsh-conversation-id']
+  const purpose = picked['x-dsh-request-purpose']
+  if ((conversation !== undefined && (conversation.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(conversation))) ||
+    (purpose !== undefined && (!conversation || !['chat', 'compaction', 'session-title'].includes(purpose)))) {
+    throw Object.assign(new Error('Chat conversation attribution is invalid.'), { status: 400 })
   }
   return picked
 }
@@ -73,6 +80,13 @@ export function parseEnterpriseChatPayload(value: unknown, trustedAuditFields: r
   }
   if (!Array.isArray(request.messages)) {
     throw Object.assign(new Error('Chat messages are required.'), { status: 400 })
+  }
+  if (request.reasoning_effort !== undefined && (
+    typeof request.reasoning_effort !== 'string' ||
+    request.reasoning_effort.length > 128 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(request.reasoning_effort)
+  )) {
+    throw Object.assign(new Error('Chat reasoning effort is invalid.'), { status: 400 })
   }
   if (request.stream !== true) {
     throw Object.assign(new Error('Enterprise chat requires streaming.'), { status: 400 })

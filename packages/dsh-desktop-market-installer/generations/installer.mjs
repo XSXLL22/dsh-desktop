@@ -697,6 +697,11 @@ export async function verifyGenerationPeers(dshHome, generation, options = {}) {
       } catch {
         resolved = await resolveNonRootPackage(requireFromPackage, dependency)
       }
+      // Offline enterprise generations need not have legacy Profile links yet.
+      // Match the runtime's explicit host namespace fallback, never arbitrary dependencies.
+      if (resolved === undefined && dependency.startsWith('@deepseek-ai/')) {
+        resolved = await hostEntry(dependency)
+      }
       const requiredDependency =
         Object.hasOwn(dependencies, dependency) && !Object.hasOwn(optionalDependencies, dependency)
       const requiredPeer =

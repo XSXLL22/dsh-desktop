@@ -302,6 +302,20 @@ describe('BiSheng compatible client API mock', () => {
     expect(response.status).toBe(400)
   })
 
+  it('preserves reasoning capabilities and rejects malformed declarations per model', () => {
+    const base = { id: 'reasoner', capabilities: { streaming: true, tools: true, reasoning_content: false } }
+    const reasoning = { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' }
+    expect(parseModels({ object: 'list', data: [{ ...base, reasoning }] })[0]?.reasoning).toEqual(reasoning)
+    for (const invalid of [null, {}, { efforts: [] }, { efforts: [null] },
+      { efforts: [{ id: '', name: 'Empty' }] },
+      { efforts: [{ id: 'high', name: 'High' }, { id: 'high', name: 'Duplicate' }] },
+      { ...reasoning, defaultEffort: 'unknown' }]) {
+      const response = { object: 'list', data: [{ ...base, reasoning: invalid }, { ...base, id: 'legacy' }] }
+      expect(parseModelsLenient(response).map((model) => model.id)).toEqual(['legacy'])
+      expect(() => parseModels(response)).toThrow('invalid model')
+    }
+  })
+
   it('skips invalid models without failing the whole list', () => {
     expect(parseModelsLenient({
       object: 'list',

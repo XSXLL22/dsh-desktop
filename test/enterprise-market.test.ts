@@ -86,7 +86,7 @@ describe('offline bundles', () => {
     const ownerId = await context.loader.create({ name: 'cordis:enterpriseTest' })
     await context.loader.await()
     try {
-      const mounted = await runtime!({ ...generation, ...data.expected })
+      const mounted = await runtime!({ ...generation, ...data.expected, plugin_id: 'fixture-plugin' })
       expect([...context.loader.entries()].some(entry => entry.options.name.includes('company-demo/index.js'))).toBe(true)
       expect(mounted.state).toBe(2)
       await mounted.dispose()
@@ -124,6 +124,26 @@ describe('offline bundles', () => {
     const generation = await installOfflineBundle(root, data.bytes, data.expected, target, { dshEntryPath: entry })
     expect(generation.pluginName).toBe('company-ui')
     await expect(lstat(join(root, 'profiles/node_modules/react-dom'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('verifies absent Profile host peers from a separate current installation without accepting ordinary dependencies', async () => {
+    const root = await home(), installation = await home()
+    const entry = await installHost(installation)
+    const host = join(installation, 'node_modules/@deepseek-ai/test-peer')
+    await mkdir(host, { recursive: true })
+    await writeFile(join(host, 'package.json'), JSON.stringify({ name: '@deepseek-ai/test-peer', main: 'index.js' }))
+    await writeFile(join(host, 'index.js'), 'module.exports = {}')
+    const data = namedBundle('company-host-peer', { peerDependencies: { '@deepseek-ai/test-peer': '*' } })
+    await expect(installOfflineBundle(root, data.bytes, data.expected, target, { dshEntryPath: entry })).resolves.toHaveProperty('directory')
+    await expect(lstat(join(root, 'profiles/node_modules/@deepseek-ai/test-peer'))).rejects.toMatchObject({ code: 'ENOENT' })
+    const ordinary = join(installation, 'node_modules/ordinary-only-in-host')
+    await mkdir(ordinary, { recursive: true })
+    await writeFile(join(ordinary, 'package.json'), JSON.stringify({ name: 'ordinary-only-in-host', main: 'index.js' }))
+    await writeFile(join(ordinary, 'index.js'), 'module.exports = {}')
+    const missing = namedBundle('company-missing-dependency', { dependencies: { 'ordinary-only-in-host': '*' } })
+    await expect(installOfflineBundle(root, missing.bytes, missing.expected, target, { dshEntryPath: entry })).rejects.toThrow('ordinary-only-in-host')
+    const missingPeer = namedBundle('company-missing-host', { peerDependencies: { '@deepseek-ai/unavailable-peer': '*' } })
+    await expect(installOfflineBundle(root, missingPeer.bytes, missingPeer.expected, target, { dshEntryPath: entry })).rejects.toThrow('@deepseek-ai/unavailable-peer')
   })
 
   it('keeps the missing host entry path when installation cannot be anchored', async () => {
@@ -304,11 +324,16 @@ describe('review regressions', () => {
     const root = await home()
     const previousHome = process.env.DSH_HOME
     process.env.DSH_HOME = root
-    const registrations = new Map<string, (request: Request) => Promise<Response>>()
     const ctx = new Context()
-    ctx.provide('connection', { fetch: { register: (config: { path: string; fetch: (request: Request) => Promise<Response> }) => {
-      registrations.set(config.path, config.fetch)
-    } } })
+    const registrations = new Map<string, (request: { url: string }) => Promise<Response>>()
+    ctx.provide('connection', {
+      fetch: {
+        register(config: { path: string; fetch: (request: { url: string }) => Promise<Response> }) {
+          registrations.set(config.path, config.fetch)
+          return () => undefined
+        }
+      }
+    })
     const accountController = {
       state: () => account,
       refreshState: async () => {},
@@ -316,7 +341,9 @@ describe('review regressions', () => {
     }
     try {
       applyEnterpriseMarket(ctx, accountController)
-      const response = await registrations.get('/api/enterprise.market.catalog')!(new Request('http://127.0.0.1/api/enterprise.market.catalog?page=1'))
+      const fetchCatalog = registrations.get('/api/enterprise.market.catalog')
+      if (!fetchCatalog) throw new Error('Catalog route was not registered.')
+      const response = await fetchCatalog({ url: 'http://127.0.0.1/api/enterprise.market.catalog?page=1' })
       expect(response.status).toBe(400)
       await expect(response.json()).resolves.toEqual({ error: 'The seat was revoked.', errorCode: 'seat_revoked' })
     } finally {
