@@ -1,4 +1,5 @@
 export declare const CONTRACT_VERSION = "0.5.0"
+export { parseAuditTitleUpdate } from './audit-title.js'
 export declare const CLIENT_ID = "dsh-desktop"
 export declare const CALLBACK_PATH = "/dsh/callback"
 export declare const ACCESS_REFRESH_SKEW_MS = 60000
@@ -14,7 +15,7 @@ export declare const AUDIT_CONTEXT_FIELDS: readonly AuditContextField[]
 export declare function parseAuditContextFields(value: unknown): AuditContextField[]
 export declare function normalizeAuditContext(value: unknown, allowedFields?: readonly string[], messageCount?: number): EnterpriseAuditContext | undefined
 export declare const COMPATIBLE_CONTRACT_VERSIONS: readonly ['0.4.0', '0.5.0']
-export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'usage', string>>
+export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'usage' | 'auditTitle', string>>
 
 export interface EnterpriseModel {
   id: string
@@ -57,6 +58,7 @@ export declare function parseConfig(value: unknown): { enabled: false } | {
   client_id: 'dsh-desktop'
   contract_version: '0.4.0' | '0.5.0'
   audit_context?: { fields: AuditContextField[] }
+  audit_conversation_title?: { version: 1 }
 }
 export declare function parseAuthorization(value: unknown, base: string): {
   auth_id: string

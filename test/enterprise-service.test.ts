@@ -76,6 +76,45 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
 }
 
 describe('enterprise service login loop', () => {
+  it('AC-T05/AC-T07: title broker binds the current epoch, refreshes once, and never sends broker identity fields', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(() => platform.close())
+    const bodies: unknown[] = []
+    let first = true
+    const { service } = await createService(createEnterpriseFetch(async (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (path === '/api/v1/dsh/audit/conversations/title') {
+        bodies.push(JSON.parse(String(init?.body)))
+        if (first) {
+          first = false
+          return Response.json({ error: { message: 'Expired', type: 'authentication_error', code: 'invalid_access_token' } }, { status: 401 })
+        }
+        return Response.json({ status: 'UPDATED', title_event_seq: 12 })
+      }
+      const response = await fetch(input, init)
+      if (path === '/api/v1/dsh/config') return Response.json({ ...await response.json(), audit_conversation_title: { version: 1 } })
+      return response
+    }))
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    const state = service.snapshot()
+    const update = { conversation_id: 'e2e-title-main', title: 'e2e-title-main', title_event_seq: 12 }
+    const request = { connectionKey: state.connectionKey, auditTitleEpoch: state.auditTitleEpoch, update }
+    expect(await service.reportAuditTitle(request)).toEqual({ status: 'UPDATED', title_event_seq: 12 })
+    expect(bodies).toEqual([update, update])
+    expect(service.snapshot().usage).toMatchObject({ used: state.usage?.used, remaining: state.usage?.remaining, limit: state.usage?.limit })
+    await expect(service.reportAuditTitle({ ...request, auditTitleEpoch: Number(state.auditTitleEpoch) - 1 })).rejects.toMatchObject({ status: 409 })
+    await expect(service.reportAuditTitle({ ...request, update: { ...update, user_id: 1 } })).rejects.toMatchObject({ status: 400 })
+    await service.logout()
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    expect(service.snapshot().connectionKey).toBe(state.connectionKey)
+    expect(service.snapshot().auditTitleEpoch).not.toBe(state.auditTitleEpoch)
+    await expect(service.reportAuditTitle(request)).rejects.toMatchObject({ status: 409 })
+    expect(bodies).toHaveLength(2)
+  })
+
   it('refreshes optional capability independently and clears it across a BASE/account change', async () => {
     const first = createMockEnterpriseServer({ port: 0, auditContext: { fields: ['conversation_id', 'request_kind'] } })
     const second = createMockEnterpriseServer({ port: 0, auditContext: { fields: ['request_kind'] } })
