@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEnterpriseFetch, type EnterpriseFetch } from '../src/main/enterprise/platform-fetch'
-import { EnterpriseService, type EnterpriseServiceOptions } from '../src/main/enterprise/enterprise-service'
+import { EnterpriseService, type EnterpriseServiceNote, type EnterpriseServiceOptions } from '../src/main/enterprise/enterprise-service'
 import { startLoginCallbackServer } from '../src/main/enterprise/login-callback-server'
 import {
   ENTERPRISE_VAULT_FILENAME,
@@ -34,16 +34,17 @@ async function createService(
   const directory = await mkdtemp(join(tmpdir(), 'enterprise-service-'))
   const vault = new SecureEnterpriseCredentialVault(join(directory, ENTERPRISE_VAULT_FILENAME), memorySafeStorage())
   const notes: string[] = []
+  const entries: EnterpriseServiceNote[] = []
   const service = new EnterpriseService({
     ...options,
     vault,
     fetchImpl,
     allowInsecureLoopback: true,
-    note: (entry) => notes.push(entry.event)
+    note: (entry) => { notes.push(entry.event); entries.push(entry) }
   })
   await service.restore()
   cleanups.push(async () => service.stop())
-  return { service, vault, notes }
+  return { service, vault, notes, entries }
 }
 
 async function completeBrowserLogin(origin: string, authorizationUrl: string) {
@@ -76,6 +77,30 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
 }
 
 describe('enterprise service login loop', () => {
+  it('retains reasoning metadata through login, refresh and detached public snapshots', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    const reasoning = { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' }
+    const fetchImpl: EnterpriseFetch = async (input, init) => {
+      const response = await globalThis.fetch(input, init)
+      if (!String(input).endsWith('/api/v1/dsh/models')) return response
+      const body = await response.json()
+      body.data = body.data.map((model: Record<string, unknown>) => ({ ...model, reasoning }))
+      return Response.json(body)
+    }
+    const { service } = await createService(createEnterpriseFetch(fetchImpl))
+    const started = await service.startLogin(origin)
+    await completeBrowserLogin(origin, started.authorizationUrl)
+    await waitFor(() => service.snapshot().modelsAvailable)
+    const snapshot = service.snapshot()
+    expect(snapshot.models[0]?.reasoning).toEqual(reasoning)
+    snapshot.models[0]?.reasoning?.efforts.splice(0)
+    expect(service.snapshot().models[0]?.reasoning).toEqual(reasoning)
+    await service.refresh()
+    expect(service.snapshot().models[0]?.reasoning).toEqual(reasoning)
+  })
+
   it('AC-T05/AC-T07: title broker binds the current epoch, refreshes once, and never sends broker identity fields', async () => {
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()
@@ -188,6 +213,7 @@ describe('enterprise service login loop', () => {
     await old
     expect(service.snapshot().audit_context?.fields).toEqual(['request_kind'])
   })
+
   it.each([false, true])('reports the app version and commits login even when activation fails: %s', async (failActivation) => {
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()
@@ -559,6 +585,50 @@ describe('enterprise service login loop', () => {
 })
 
 describe('enterprise market credential boundary', () => {
+  it('uses generic host auth without replaying 401 and preserves versions across refresh', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(async () => platform.close())
+    const requests: RequestInit[] = []
+    let now = Date.now()
+    const { service, vault, entries } = await createService(async (url, init) => {
+      if (new URL(url).pathname === '/business/stream') return new Response(new ReadableStream({}, { highWaterMark: 0 }))
+      if (new URL(url).pathname !== '/business/action') return fetch(url, init)
+      requests.push(init ?? {})
+      return Response.json({ denied: true }, { status: 401 })
+    }, { now: () => now })
+    const plugin = { pluginId: 'example-plugin', instanceId: 'instance-1' }
+    const initialVersion = service.authState().sessionVersion
+    const started = await service.startLogin(origin)
+    expect(service.authState().sessionVersion).not.toBe(initialVersion)
+    await completeBrowserLogin(origin, started.authorizationUrl)
+    await waitFor(() => service.snapshot().modelsAvailable)
+    const state = service.authState()
+    expect(state).toMatchObject({ connected: true, enterpriseId: expect.any(String), userId: expect.any(String) })
+    const before = (await vault.read()).session
+    now = Date.parse(before?.access_expires_at ?? '') + 1
+    const response = await service.authRequest(plugin, { path: '/business/action?private=query', method: 'POST', body: 'business', sessionVersion: state.sessionVersion }, new AbortController().signal)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ denied: true })
+    expect(requests).toHaveLength(1)
+    expect(new Headers(requests[0]?.headers).get('authorization')).toMatch(/^Bearer /)
+    expect(new Headers(requests[0]?.headers).get('authorization')).not.toBe('Bearer ' + before?.access_token)
+    expect(entries.find(entry => entry.event === 'auth_request')).toMatchObject({ pluginId: plugin.pluginId, path: '/business/action', status: 401, duration: expect.any(Number) })
+    expect(requests[0]).toMatchObject({ redirect: 'error', credentials: 'omit' })
+    await service.refresh()
+    expect(service.authState().sessionVersion).toBe(state.sessionVersion)
+    expect(service.snapshot().revision).toBeGreaterThan(0)
+    const stream = await service.authRequest(plugin, { path: '/business/stream', sessionVersion: state.sessionVersion }, new AbortController().signal)
+    const late = expect(stream.text()).rejects.toMatchObject({ code: 'session_changed', status: 409 })
+    const logout = service.logout()
+    await late
+    expect(service.authState().connected).toBe(false)
+    expect(service.authState().sessionVersion).not.toBe(state.sessionVersion)
+    await expect(service.authRequest(plugin, { path: '/business/action', sessionVersion: state.sessionVersion }, new AbortController().signal)).rejects.toMatchObject({ code: 'session_changed', status: 409 })
+    await logout
+    expect(requests).toHaveLength(1)
+  })
+
   it('serves catalog and artifact through the broker with refreshed host credentials and rejects stale account requests', async () => {
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()

@@ -15,7 +15,12 @@ export declare const AUDIT_CONTEXT_FIELDS: readonly AuditContextField[]
 export declare function parseAuditContextFields(value: unknown): AuditContextField[]
 export declare function normalizeAuditContext(value: unknown, allowedFields?: readonly string[], messageCount?: number): EnterpriseAuditContext | undefined
 export declare const COMPATIBLE_CONTRACT_VERSIONS: readonly ['0.4.0', '0.5.0']
-export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'usage' | 'auditTitle', string>>
+export declare const API_PATHS: Readonly<Record<'config' | 'authorizations' | 'token' | 'logout' | 'models' | 'chat' | 'responses' | 'usage' | 'auditTitle', string>>
+
+export interface EnterpriseModelReasoning {
+  efforts: Array<{ id: string; name: string }>
+  defaultEffort?: string
+}
 
 export interface EnterpriseModel {
   id: string
@@ -23,7 +28,8 @@ export interface EnterpriseModel {
   created: number
   owned_by: string
   display_name: string
-  capabilities: { streaming: boolean; tools: boolean; reasoning_content: boolean; vision?: boolean }
+  reasoning?: EnterpriseModelReasoning
+  capabilities: { streaming: boolean; tools: boolean; reasoning_content: boolean; vision?: boolean; responses?: boolean }
   usage?: {
     source: 'live' | 'persisted' | 'unavailable'
     quota_state: 'available' | 'exhausted' | 'unavailable'

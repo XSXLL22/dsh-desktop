@@ -64,6 +64,7 @@ async function plugin(service: EnterpriseService) {
   const routes: Route[] = []
   let adapter: Adapter | undefined
   applyEnterprise({
+    provide() {},
     connection: { fetch: { register: (route: Route) => { routes.push(route); return () => undefined } } },
     llm: { registerAdapter: (_providers: string[], value: Adapter) => {
       adapter = value

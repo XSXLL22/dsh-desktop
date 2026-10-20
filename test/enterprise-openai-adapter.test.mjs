@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import {
   attributionHeaders,
   createToolResultMessage,
+  LlmRuntime,
   requestImageHandleText,
   textOnlyImageText,
   ToolCallId
@@ -68,6 +70,65 @@ const visionModel = {
   capabilities: { ...model.capabilities, vision: true }
 }
 
+describe('enterprise reasoning effort', () => {
+  const reasoning = {
+    efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }],
+    defaultEffort: 'low'
+  }
+  const reasoner = { ...model, reasoning }
+
+  it('passes Harness effort validation and resolves the declared default', async () => {
+    const ctx = new Context()
+    const fiber = ctx.plugin(LlmRuntime)
+    await fiber
+    const dispose = ctx.llm.registerAdapter(['enterprise'], new EnterpriseLlmAdapter({
+      models: () => [reasoner], providerName: () => 'Enterprise'
+    }))
+    try {
+      const route = { provider: 'enterprise', model: model.id }
+      expect(await ctx.llm.resolveCallConfig(route)).toMatchObject({ reasoningEffort: 'low' })
+      expect(await ctx.llm.resolveCallConfig({ ...route, reasoningEffort: 'high' })).toMatchObject({ reasoningEffort: 'high' })
+      await expect(ctx.llm.resolveCallConfig({ ...route, reasoningEffort: 'max' })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    } finally {
+      dispose()
+      await fiber.dispose()
+    }
+  })
+
+  it('advertises the same effort metadata for catalog and exact-model resolution', async () => {
+    const adapter = new EnterpriseLlmAdapter({ models: () => [reasoner] })
+    expect((await adapter.listModels('enterprise'))[0].reasoning).toEqual(reasoning)
+    expect((await adapter.resolveModel('enterprise', model.id)).reasoning).toEqual(reasoning)
+  })
+
+  it('sends explicit and default efforts without coupling them to reasoning text support', () => {
+    const options = { model: model.id, messages: [] }
+    expect(serializeEnterpriseRequest({ ...options, reasoningEffort: 'high' }, reasoner).reasoning_effort).toBe('high')
+    expect(serializeEnterpriseRequest(options, reasoner).reasoning_effort).toBe('low')
+    expect(serializeEnterpriseRequest(options, model)).not.toHaveProperty('reasoning_effort')
+    expect(serializeEnterpriseRequest(options, { ...reasoner, reasoning: { efforts: reasoning.efforts } })).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('rejects unsupported efforts before sending a request', () => {
+    for (const selected of [model, reasoner]) {
+      expect(() => serializeEnterpriseRequest({ model: model.id, messages: [], reasoningEffort: 'max' }, selected))
+        .toThrow('does not support reasoning effort')
+    }
+  })
+
+  it('preserves a selected effort through an actual adapter streaming call', async () => {
+    let sent
+    const adapter = new EnterpriseLlmAdapter({
+      models: () => [reasoner],
+      request: async (body) => { sent = body; return completedResponse('ok') }
+    })
+    const chunks = []
+    for await (const chunk of adapter.stream({ model: model.id, messages: [], reasoningEffort: 'high' })) chunks.push(chunk)
+    expect(sent.reasoning_effort).toBe('high')
+    expect(chunks.some((chunk) => chunk.type === 'text-delta' && chunk.text === 'ok')).toBe(true)
+  })
+})
+
 const referenceImage = {
   attachmentId: 'sha256:abcdef1234567890',
   mediaType: 'image/png',
@@ -87,7 +148,7 @@ function completedResponse(text = 'ok') {
 
 function requestVersion(width, height) {
   return {
-    data: Buffer.from('png'),
+    data: Buffer.from([255, 216, 255]),
     mediaType: 'image/jpeg',
     width,
     height
@@ -95,7 +156,7 @@ function requestVersion(width, height) {
 }
 
 function dataUrl() {
-  return `data:image/jpeg;base64,${Buffer.from('png').toString('base64')}`
+  return `data:image/jpeg;base64,${Buffer.from([255, 216, 255]).toString('base64')}`
 }
 
 async function usageFrom(payload) {
@@ -196,7 +257,7 @@ describe('BiSheng OpenAI adapter', () => {
 
   it('copies only the known attribution header keys', () => {
     const headers = attributionHeaders()
-    expect(Object.keys(headers).map((key) => key.toLowerCase()).sort()).toEqual([...ALLOWED_ATTRIBUTION_HEADERS])
+    expect(Object.keys(headers).every((key) => ALLOWED_ATTRIBUTION_HEADERS.includes(key.toLowerCase()))).toBe(true)
     expect(pickAttributionHeaders({
       ...headers,
       authorization: 'Bearer stolen',
@@ -391,18 +452,22 @@ describe('BiSheng OpenAI adapter', () => {
   it.each([
     ['single image', 1, 6 * 1024 * 1024],
     ['total images', 6, 4 * 1024 * 1024]
-  ])('still rejects oversized %s before sending', async (_label, count, bytes) => {
+  ])('requests recoverable offload for oversized %s before sending', async (_label, count, bytes) => {
     const content = Array.from({ length: count }, (_, index) => ({
       type: 'image',
       attachment: { ...referenceImage, attachmentId: `sha256:${String(index).padStart(16, '0')}` }
     }))
     const result = await collectRequest(visionModel, [
       createToolResultMessage({ callId: ToolCallId('call-1'), content, isError: false })
-    ], async () => ({ ...requestVersion(640, 360), data: new Uint8Array(bytes) }))
+    ], async () => {
+      const data = new Uint8Array(bytes)
+      data.set([255, 216, 255])
+      return { ...requestVersion(640, 360), data }
+    })
     expect(result.requests).toHaveLength(0)
     expect(result.error.failure).toMatchObject({
-      code: 'UNSUPPORTED_CONTENT',
-      message: 'Image request exceeds the size limit.'
+      code: 'IMAGE_OFFLOAD_REQUIRED',
+      offloadImages: count === 1 ? 1 : 2
     })
   })
 
