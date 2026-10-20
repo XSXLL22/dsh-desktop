@@ -5,9 +5,9 @@
 ## 实现边界
 
 - Electron 主进程持有企业凭据，通过限定的 `/v1/market` Broker 请求同一企业服务的 capabilities、catalog、sync 和 artifact 接口。账号标识与请求 epoch 校验隔离切换前后的响应，401 触发一次凭据刷新。
-- Harness 侧使用短期 Ed25519 签名授权，校验租户、账号、设备和插件版本；凭据保持在主进程。
-- 离线包校验覆盖摘要、文件清单、目标平台、解压路径和宿主 peer 依赖。插件保存在 `profiles/.enterprise-generations`，由真实 Cordis Loader 加载；更新失败恢复旧版本，签名到期停用运行实例。
-- 企业后台提供目录、离线包与签名策略。列表中的插件取决于实际登录的企业数据。
+- Harness 侧用在线席位和未签名发布快照校验租户、账号、设备和插件版本；凭据保持在主进程。
+- 离线包校验覆盖摘要、文件清单、目标平台、解压路径和宿主 peer 依赖。带根级 `package.json` 的 npm 包用 pnpm 装进同一套企业目录，安装记录保存文件清单摘要；未打进 `bundledDependencies` 的依赖需要可达的 npm registry。带 `manifest.json` 且没有 npm 元数据的离线包仍可离线安装。插件保存在 `profiles/.enterprise-generations`，由真实 Cordis Loader 加载；更新失败恢复旧版本。席位撤销、会话到期或短暂断网时停止运行实例，安装记录保留，恢复连接后按用户开关重新启用。
+- 企业后台提供目录和离线包。列表中的插件取决于实际登录的企业数据。市场契约版本为 2。
 
 ## 插件包制作
 
@@ -17,7 +17,7 @@
 node scripts/pack-enterprise-plugin.mjs release.json plugin.zip
 ```
 
-本次企业市场提测插件的制包配置使用 `plugin.desktop_min: "0.9.1"`，使 `0.9.2-test.1` 等签名测试包通过版本检查。该字段随插件包发布，后台目录应使用重新制包后的 manifest；桌面继续按标准 SemVer 比较。最低版本声明需要与插件实际依赖的宿主能力一致。
+本次企业市场提测插件的制包配置使用 `plugin.desktop_min: "0.9.1"`，使 `0.9.2-test.1` 等测试包通过版本检查。该字段随插件包发布，后台目录应使用重新制包后的 manifest；桌面继续按标准 SemVer 比较。最低版本声明需要与插件实际依赖的宿主能力一致。
 
 脚本读取已准备的依赖树，输出带文件摘要的离线包。详细接收合同由 `offline-bundle.js` 校验。管理员将 ZIP 导入企业后台后，客户端可从“来自企业”安装。
 
@@ -52,8 +52,8 @@ ELECTRON_RUN_AS_NODE=1 "${APP:?}/Contents/MacOS/BISHENG" --expose-internals scri
 ## PR #519 评审修正
 
 - 桌面版本由 Electron 的 `app.getVersion()` 经企业 Broker 状态传给市场，界面和安装共用后端的 SemVer 判断；缺失版本时提示兼容性受限。发布标签版本、预发布版本均参与标准版本比较。
-- 签名信任采用首次使用信任（TOFU）：首次从已确认的企业服务保存 Ed25519 公钥，后续同步固定使用本地公钥，服务端更换公钥时停止在线安装并要求管理员核验。`DSH_DESKTOP_MARKET_PUBLIC_KEY` 支持管理员预置独立公钥。默认模式的首次信任来源是企业服务；签名用于本地缓存完整性、授权绑定和有效期校验，独立于服务端的信任根需要管理员预置公钥。已有有效离线授权按原公钥继续校验。密钥轮换由管理员核验后处理。
+- 分发不再使用独立签名密钥，也不再读取 `DSH_DESKTOP_MARKET_PUBLIC_KEY`。安装记录只保存设备、已安装插件、用户开关和配置。服务端确认下架、禁用或摘要变化时关闭用户开关。协议版本不是 2 时保留安装记录，并提示管理员升级服务。
 - 退出和授权到期立即使在途与排队操作失效，状态清理、同步、安装和 Loader 操作共用串行队列。在途请求由 Broker 超时限制结束后清理。目录查询最多 100 页、10,000 条，响应必须包含有效总数，空页结束查找。
 - 企业包显式声明 Loader、市场安装器和 SemVer 依赖。隔离测试把声明依赖复制到仓库外，子进程使用真实 Loader 验证安装、停用、启用和更新失败回退；另使用打包 Node 24.9.0、全新 DSH_HOME 启动真实 Harness 并验证市场状态路由。
 
-上述测试使用本地签名测试数据与隔离 Profile。真实企业账号登录、正式安装包、Windows 原生路径及文件占用验收仍为 `NOT_RUN`。Windows 非法路径拒绝用例在 macOS 上运行，可验证校验规则；Windows 文件系统行为需对应环境验证。卸载和更新只改账号安装记录；下次冷启动在 Harness 拉起前，按全部企业账号的 `installed` 回收 `profiles/.enterprise-generations` 与 `.enterprise-staging` 中不再被引用的目录。停用版本、其他账号仍安装的版本、tombstone 和审计日志保留。
+上述测试使用本地发布快照与隔离 Profile。真实企业账号登录、正式安装包、Windows 原生路径及文件占用验收仍为 `NOT_RUN`。Windows 非法路径拒绝用例在 macOS 上运行，可验证校验规则；Windows 文件系统行为需对应环境验证。卸载和更新只改账号安装记录；下次冷启动在 Harness 拉起前，按全部企业账号的 `installed` 回收 `profiles/.enterprise-generations` 与 `.enterprise-staging` 中不再被引用的目录。停用版本、其他账号仍安装的版本、tombstone 和审计日志保留。

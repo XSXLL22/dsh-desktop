@@ -1,3 +1,5 @@
+import { normalizeAuditContext } from 'dsh-desktop-enterprise/contract'
+
 export const ALLOWED_ATTRIBUTION_HEADERS = Object.freeze(['user-agent', 'x-dsh-conversation-id', 'x-dsh-request-purpose'])
 export const REJECTED_CHAT_HEADERS = Object.freeze([
   'host',
@@ -19,7 +21,8 @@ export const CHAT_REQUEST_KEYS = Object.freeze([
   'reasoning_effort',
   'max_completion_tokens',
   'stop',
-  'n'
+  'n',
+  'audit_context'
 ])
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 export const MAX_CHAT_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024
@@ -59,7 +62,7 @@ export function pickAttributionHeaders(value: unknown): Record<string, string> {
   return picked
 }
 
-export function parseEnterpriseChatPayload(value: unknown): ParsedEnterpriseChat {
+export function parseEnterpriseChatPayload(value: unknown, trustedAuditFields: readonly string[] = []): ParsedEnterpriseChat {
   if (!isPlainObject(value) || !isPlainObject(value.request)) {
     throw Object.assign(new Error('Chat request is required.'), { status: 400 })
   }
@@ -99,8 +102,10 @@ export function parseEnterpriseChatPayload(value: unknown): ParsedEnterpriseChat
     throw Object.assign(new Error('Enterprise chat only supports n=1.'), { status: 400 })
   }
   validateChatImages(request.messages)
+  const { audit_context: rawContext, ...businessRequest } = request
+  const auditContext = normalizeAuditContext(rawContext, trustedAuditFields, request.messages.length)
   return {
-    request,
+    request: { ...businessRequest, ...(auditContext ? { audit_context: auditContext } : {}) },
     attribution: pickAttributionHeaders(value.attribution),
     model: request.model
   }

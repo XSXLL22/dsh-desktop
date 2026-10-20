@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { stream as streamResponses } from '@earendil-works/pi-ai/api/openai-responses'
-import { LlmError, ToolCallId, attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { parseSseEvents, pickAttributionHeaders, projectEnterpriseMessagesForTextModel, responseFailure } from './openai.js'
+import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { parseSseEvents, projectEnterpriseMessagesForTextModel, responseFailure, streamAttributionHeaders } from './openai.js'
 import { enforceEnterpriseRequestSize, projectEnterpriseOffloadedImages, readEnterpriseRequestImages } from './request-images.js'
 
 const TRANSPORT_URL = 'https://enterprise.invalid/v1/responses'
@@ -85,9 +85,7 @@ export async function* streamEnterpriseResponses(options, model, hooks, connecti
   assertAccount()
   const history = model.capabilities.vision ? projectEnterpriseOffloadedImages(options.messages) : projectEnterpriseMessagesForTextModel(options.messages)
   const images = model.capabilities.vision ? await readEnterpriseRequestImages(history, hooks.readImage, options.signal) : new Map()
-  const headers = pickAttributionHeaders({ ...attributionHeaders(), ...(options.sessionId === undefined ? {} : {
-    'x-dsh-conversation-id': String(options.sessionId), 'x-dsh-request-purpose': options.purpose ?? 'chat'
-  }) })
+  const headers = streamAttributionHeaders(options.sessionId, options.purpose)
   const serialize = (messages) => serializeResponsesRequest({ ...options, messages }, model, images, connectionKey)
   enforceEnterpriseRequestSize(history, serialize, headers, { connectionKey })
   const request = serializeResponsesRequest({ ...options, messages: history }, model, images, connectionKey, hooks.onReplayDegrade)

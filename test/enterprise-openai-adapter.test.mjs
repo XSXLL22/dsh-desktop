@@ -21,6 +21,50 @@ const model = {
   capabilities: { streaming: true, tools: true, reasoning_content: false }
 }
 
+describe('enterprise audit association', () => {
+  it('keeps error request ids and does not replay when association metadata is present', async () => {
+    let requests = 0
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng', models: () => [model],
+      auditFields: () => ['conversation_id', 'request_kind'],
+      request: async (body) => {
+        requests += 1
+        expect(body.audit_context).toEqual({ conversation_id: 'failed-session', request_kind: 'chat' })
+        return new Response(
+          'event: error\ndata: {"error":{"message":"Synthetic upstream failure","code":"upstream_error"},"request_id":"synthetic-audit-error"}\n\n',
+          { headers: { 'content-type': 'text/event-stream' } }
+        )
+      }
+    })
+    const events = []
+    for await (const event of adapter.stream({
+      model: model.id, sessionId: 'failed-session',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'synthetic failure request' }] }]
+    })) events.push(event)
+    expect(requests).toBe(1)
+    expect(events.at(-1)).toMatchObject({
+      type: 'finish', reason: { kind: 'error', failure: { code: 'upstream_error', requestId: 'synthetic-audit-error' } }
+    })
+  })
+
+  it.each([
+    [undefined, 'chat'], ['compaction', 'compaction'], ['session-title', 'session-title'], ['future-purpose', undefined]
+  ])('uses the actual session and purpose %s', async (purpose, kind) => {
+    let body
+    const adapter = new EnterpriseLlmAdapter({
+      providerName: () => 'BiSheng', models: () => [model],
+      auditFields: () => ['conversation_id', 'request_kind'],
+      request: async (request) => { body = request; return completedResponse() }
+    })
+    for await (const event of adapter.stream({
+      model: model.id, sessionId: 'persisted-session', purpose,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+    })) void event
+    expect(body.audit_context).toEqual({ conversation_id: 'persisted-session', ...(kind ? { request_kind: kind } : {}) })
+    expect(body.messages).toEqual([{ role: 'user', content: 'hello' }])
+  })
+})
+
 const visionModel = {
   ...model,
   capabilities: { ...model.capabilities, vision: true }

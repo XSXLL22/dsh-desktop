@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -6,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildHarnessArguments,
   buildHarnessSpawnOptions,
+  POSIX_SYSTEM_PATH,
   buildNodeArguments,
   extractDshEntryFailureCause,
   extractDuplicateLoaderEntryId,
@@ -325,6 +327,49 @@ describe('Harness launch contract', () => {
       buildDisclaimedUtilityProcessSpec(nodeArguments, spawnOptions, { disclaim: false }).options
         .disclaim
     ).toBe(false)
+  })
+
+  it('gives a PATH-less POSIX launch the system directories', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      for (const path of [undefined, '', '   '] as const) {
+        const environment: NodeJS.ProcessEnv = { DSH_HOME: '/harness' }
+        if (path !== undefined) environment.PATH = path
+        const options = buildHarnessSpawnOptions('/launch-root', '/harness', platform, environment)
+        expect(options.env?.PATH).toBe(POSIX_SYSTEM_PATH)
+        expect(options.env?.PATH).toContain('/usr/bin')
+        expect(options.env?.PATH).toContain('/bin')
+      }
+    }
+
+    const homebrew = buildHarnessSpawnOptions('/launch-root', '/harness', 'darwin', {
+      PATH: '/opt/homebrew/bin:/usr/bin'
+    })
+    expect(homebrew.env?.PATH).toBe('/opt/homebrew/bin:/usr/bin')
+  })
+
+  it('resolves system commands when the desktop environment omitted PATH', () => {
+    if (process.platform === 'win32') return
+    const options = buildHarnessSpawnOptions(tmpdir(), join(tmpdir(), 'harness'), process.platform, {
+      DSH_HOME: join(tmpdir(), 'harness')
+    })
+    const bash = spawnSync('bash', ['-c', 'echo ok'], {
+      cwd: tmpdir(),
+      env: options.env,
+      encoding: 'utf8'
+    })
+    expect(bash.error).toBeUndefined()
+    expect(bash.status).toBe(0)
+    expect(bash.stdout).toContain('ok')
+
+    if (process.platform === 'darwin') {
+      const sandbox = spawnSync('sandbox-exec', ['-n', 'no-network', 'true'], {
+        cwd: tmpdir(),
+        env: options.env,
+        encoding: 'utf8'
+      })
+      expect(sandbox.error).toBeUndefined()
+      expect(sandbox.status).toBe(0)
+    }
   })
 
   it('declares Node mode for Harness children without imposing it on the utility process', async () => {

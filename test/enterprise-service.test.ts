@@ -101,6 +101,119 @@ describe('enterprise service login loop', () => {
     expect(service.snapshot().models[0]?.reasoning).toEqual(reasoning)
   })
 
+  it('AC-T05/AC-T07: title broker binds the current epoch, refreshes once, and never sends broker identity fields', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(() => platform.close())
+    const bodies: unknown[] = []
+    let first = true
+    const { service } = await createService(createEnterpriseFetch(async (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (path === '/api/v1/dsh/audit/conversations/title') {
+        bodies.push(JSON.parse(String(init?.body)))
+        if (first) {
+          first = false
+          return Response.json({ error: { message: 'Expired', type: 'authentication_error', code: 'invalid_access_token' } }, { status: 401 })
+        }
+        return Response.json({ status: 'UPDATED', title_event_seq: 12 })
+      }
+      const response = await fetch(input, init)
+      if (path === '/api/v1/dsh/config') return Response.json({ ...await response.json(), audit_conversation_title: { version: 1 } })
+      return response
+    }))
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    const state = service.snapshot()
+    const update = { conversation_id: 'e2e-title-main', title: 'e2e-title-main', title_event_seq: 12 }
+    const request = { connectionKey: state.connectionKey, auditTitleEpoch: state.auditTitleEpoch, update }
+    expect(await service.reportAuditTitle(request)).toEqual({ status: 'UPDATED', title_event_seq: 12 })
+    expect(bodies).toEqual([update, update])
+    expect(service.snapshot().usage).toMatchObject({ used: state.usage?.used, remaining: state.usage?.remaining, limit: state.usage?.limit })
+    await expect(service.reportAuditTitle({ ...request, auditTitleEpoch: Number(state.auditTitleEpoch) - 1 })).rejects.toMatchObject({ status: 409 })
+    await expect(service.reportAuditTitle({ ...request, update: { ...update, user_id: 1 } })).rejects.toMatchObject({ status: 400 })
+    await service.logout()
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    expect(service.snapshot().connectionKey).toBe(state.connectionKey)
+    expect(service.snapshot().auditTitleEpoch).not.toBe(state.auditTitleEpoch)
+    await expect(service.reportAuditTitle(request)).rejects.toMatchObject({ status: 409 })
+    expect(bodies).toHaveLength(2)
+  })
+
+  it('refreshes optional capability independently and clears it across a BASE/account change', async () => {
+    const first = createMockEnterpriseServer({ port: 0, auditContext: { fields: ['conversation_id', 'request_kind'] } })
+    const second = createMockEnterpriseServer({ port: 0, auditContext: { fields: ['request_kind'] } })
+    const origin = await first.listen()
+    const otherOrigin = await second.listen()
+    cleanups.push(() => first.close(), () => second.close())
+    let failConfig = false
+    const { service } = await createService(createEnterpriseFetch(async (input, init) => {
+      if (failConfig && String(input).endsWith('/api/v1/dsh/config')) throw new Error('synthetic capability outage')
+      return fetch(input, init)
+    }))
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    expect(service.snapshot().audit_context?.fields).toEqual(['conversation_id', 'request_kind'])
+    const copy = service.snapshot()
+    copy.audit_context?.fields.pop()
+    expect(service.snapshot().audit_context?.fields).toHaveLength(2)
+    first.state.auditContext = { fields: [1] }
+    await service.refreshAuditCapability()
+    expect(service.snapshot()).not.toHaveProperty('audit_context')
+    expect(service.snapshot().modelsAvailable).toBe(true)
+    failConfig = true
+    await service.refreshAuditCapability()
+    expect(service.snapshot()).not.toHaveProperty('audit_context')
+    expect(service.snapshot().phase).toBe('connected')
+    failConfig = false
+    const nextLogin = await service.startLogin(otherOrigin)
+    expect(service.snapshot()).not.toHaveProperty('audit_context')
+    await completeBrowserLogin(otherOrigin, nextLogin.authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    expect(service.snapshot().base).toBe(otherOrigin)
+    expect(service.snapshot().audit_context?.fields).toEqual(['request_kind'])
+    await service.logout()
+    expect(service.snapshot()).not.toHaveProperty('audit_context')
+  })
+
+  it('does not treat an invalid root config as a successful initial connection', async () => {
+    const { service } = await createService(createEnterpriseFetch(async () => new Response(
+      JSON.stringify({ enabled: true, client_id: 'not-dsh', contract_version: '0.5.0' }),
+      { headers: { 'content-type': 'application/json' } }
+    )))
+    await expect(service.startLogin('http://127.0.0.1:34567')).rejects.toThrow('incompatible')
+    expect(service.snapshot().connected).toBe(false)
+  })
+
+  it('does not let an older config refresh overwrite the latest capability snapshot', async () => {
+    const platform = createMockEnterpriseServer({ port: 0 })
+    const origin = await platform.listen()
+    cleanups.push(() => platform.close())
+    let intercept = false
+    const pending: Array<(response: Response) => void> = []
+    const { service } = await createService(createEnterpriseFetch(async (input, init) => {
+      if (intercept && String(input).endsWith('/api/v1/dsh/config')) {
+        return new Promise<Response>((resolve) => pending.push(resolve))
+      }
+      return fetch(input, init)
+    }))
+    await completeBrowserLogin(origin, (await service.startLogin(origin)).authorizationUrl)
+    await waitFor(() => service.snapshot().phase === 'connected')
+    intercept = true
+    const old = service.refreshAuditCapability()
+    await waitFor(() => pending.length === 1)
+    const recent = service.refreshAuditCapability()
+    await waitFor(() => pending.length === 2)
+    const config = (fields: string[]) => new Response(JSON.stringify({
+      enabled: true, client_id: 'dsh-desktop', contract_version: '0.5.0', audit_context: { fields }
+    }), { headers: { 'content-type': 'application/json' } })
+    pending[1]?.(config(['request_kind']))
+    await recent
+    pending[0]?.(config(['conversation_id', 'request_kind']))
+    await old
+    expect(service.snapshot().audit_context?.fields).toEqual(['request_kind'])
+  })
+
   it.each([false, true])('reports the app version and commits login even when activation fails: %s', async (failActivation) => {
     const platform = createMockEnterpriseServer({ port: 0 })
     const origin = await platform.listen()
