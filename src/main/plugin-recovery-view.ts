@@ -60,9 +60,10 @@ export interface PluginRecoveryViewModel {
   quitLabel: string
   safeModeLabel: string
   canUninstall: boolean
-  /** No plugin or market is blamed: entering Safe Mode is the only recovery on offer. */
+  /** Only the explicit Safe Mode Agent action is available, without repair or rollback. */
   safeModeOnly: boolean
   canRepair: boolean
+  offerRepairAgent: boolean
   roundAction?: string
   rollbackLabel?: string
   rollbackUnavailableReason?: string
@@ -199,6 +200,8 @@ export function buildPluginRecoveryViewModel(options: {
   upgradeCandidate?: PluginRecoveryUpgradeCandidate
   pluginChecks?: PluginRecoveryCheck[]
   repairPlan?: RepairPlan
+  /** A previous repair or rollback failed; always leave the next action to the user. */
+  repairAttempted?: boolean
   rollbackVersion?: string
   rollbackUnavailableReason?: string
   market?: {
@@ -238,7 +241,9 @@ export function buildPluginRecoveryViewModel(options: {
     reasonDetail: description.detail,
     plugins: pluginPackages.map(displayPluginName),
     removedPlugins: [...options.removedPlugins].map(displayPluginName),
-    notice,
+    notice: notice ?? (options.repairAttempted
+      ? zh ? '上次修复后仍无法正常启动，请选择下一步。' : 'Startup still failed after the last repair. Choose what to do next.'
+      : undefined),
     safetyNote: zh ? '修复不会卸载插件；你的工作区、会话和模型配置会保留。' : 'Repair does not uninstall plugins. Your workspaces, sessions and model settings are kept.',
     primaryLabel: canRepair ? zh ? '一键修复' : 'Repair now' : zh ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)',
     primaryBusyLabel: canRepair ? zh ? '正在执行本轮修复…' : 'Applying this repair…' : zh ? '正在进入维修 Agent…' : 'Opening repair Agent…',
@@ -258,6 +263,7 @@ export function buildPluginRecoveryViewModel(options: {
     safeModeLabel: zh ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)',
     canUninstall: false,
     canRepair,
-    safeModeOnly: !canRepair
+    offerRepairAgent: canRepair && options.repairAttempted === true,
+    safeModeOnly: !canRepair && !(plan.kind === 'known' && options.rollbackVersion)
   }
 }

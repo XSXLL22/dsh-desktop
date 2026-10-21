@@ -43,6 +43,39 @@ describe('plugin recovery view model', () => {
     expect(model.primaryLabel).toBe('一键修复')
     expect(model.uninstallLabel).toBeUndefined()
   })
+  it.each(['upgrade', 'disable', 'configuration'] as const)('offers an explicit Agent alternative after a failed round before %s', action => {
+    const model = buildPluginRecoveryViewModel({
+      snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh',
+      rollbackVersion: '0.12.0', repairAttempted: true,
+      repairPlan: { kind: 'known', action, plugins: ['a'], upgrades: [] }
+    })
+    expect(model.canRepair).toBe(true)
+    expect(model.primaryLabel).toBe('一键修复')
+    expect(model.offerRepairAgent).toBe(true)
+    expect(model.notice).toContain('请选择下一步')
+    expect(model.rollbackLabel).toContain('0.12.0')
+    expect(model.safeModeOnly).toBe(false)
+  })
+  it('leaves exhausted repairs as a user choice between Agent and available rollback', () => {
+    const model = buildPluginRecoveryViewModel({
+      snapshot: failedSnapshot(), plugins: [], removedPlugins: [], locale: 'en',
+      rollbackVersion: '0.12.0', repairAttempted: true,
+      repairPlan: { kind: 'known', plugins: [], upgrades: [] }
+    })
+    expect(model.canRepair).toBe(false)
+    expect(model.offerRepairAgent).toBe(false)
+    expect(model.primaryLabel).toContain('Open repair Agent')
+    expect(model.rollbackLabel).toContain('0.12.0')
+    expect(model.safeModeOnly).toBe(false)
+    expect(model.notice).toContain('Choose what to do next')
+  })
+  it('preserves operation-specific failure notices and does not show an extra Agent before repair', () => {
+    const model = buildPluginRecoveryViewModel({
+      snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'en', notice: 'Repair could not be applied.'
+    })
+    expect(model.offerRepairAgent).toBe(false)
+    expect(model.notice).toBe('Repair could not be applied.')
+  })
   it('explains a duplicate route without exposing only a raw stack trace', () => {
     const description = describePluginFailure(
       ['[stderr] webserver: duplicate prefix route "/sidebar/api"'],

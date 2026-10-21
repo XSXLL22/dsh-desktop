@@ -923,11 +923,11 @@
       const repairAgentPrompt = model.locale === 'zh'
         ? '请结合诊断事实和 harness.log，定位导致启动失败的确切根因。先说明结论和建议的最小可逆操作，在我明确确认之前不要修改任何文件或配置。'
         : 'Using the diagnostic facts and harness.log, find the exact root cause of the startup failure. Explain the conclusion and the smallest reversible fix first, and do not change any file or setting until I explicitly confirm.'
-      // Beside the Safe Mode button, and only when no culprit was identified:
-      // a named plugin or market has its own repair above.
+      // A failed round leaves the next action to the user, even when another
+      // one-click round is available. No action is dispatched on page load.
       const repairAgent = document.getElementById('repair-agent')
-      repairAgent.hidden = true
-      repairAgent.textContent = model.locale === 'zh' ? '智能修复 Agent' : 'Repair agent'
+      repairAgent.hidden = !model.offerRepairAgent
+      repairAgent.textContent = model.safeModeLabel || (model.locale === 'zh' ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)')
       repairAgent.addEventListener('click', () => {
         document.querySelectorAll('button').forEach((control) => { control.disabled = true })
         void window.dshRecovery.action('agent', { prompt: repairAgentPrompt })

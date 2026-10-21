@@ -7,6 +7,7 @@ import { initializeDesktopService, desktopDiagnostics } from './desktop-service'
 import { applyMacosWindowBackdrop } from './macos-window-backdrop'
 import { checkBlockingPluginUpdates, PluginRecoveryEvidence, type PluginRecoveryCheck } from './plugin-recovery-market'
 import { RepairAgentService, type CrashEvidence } from './repair-agent'
+import { RepairDrafts } from './repair-drafts'
 import { buildRepairPlan, type RepairPlan } from './repair-policy'
 import { readRepairJournal, recordRepairAttempt, repairAttemptsForVersion } from './state/repair-job'
 import { spawn } from 'node:child_process'
@@ -236,6 +237,7 @@ let windowStateManager: WindowStateManager | undefined
 let mobileBridge: LanMobileBridge
 let developmentRepairDemo: ReturnType<typeof createDevelopmentRepairDemo>
 let developmentDemoUnknown = false
+const repairDrafts = new RepairDrafts()
 let repairAgentService: RepairAgentService | undefined
 let repairAgentOpening: Promise<{ ok: boolean; error?: string }> | undefined
 /** A repair prompt from the Recovery page, started by the Safe Mode page load. */
@@ -1560,12 +1562,11 @@ function launchSafeHarness(): Promise<void> {
 }
 
 /**
- * Open a Repair Agent session in the currently running Harness, queue the
- * prompt, and make it the session the Harness UI shows. The UI restores its
+ * Open a Repair Agent session in the currently running Harness, prepare an editable
+ * draft, and make it the session the Harness UI shows. The UI restores its
  * current session from desktop storage when the page loads, so a page that
  * is already open has to reload to follow (see reloadHarnessWindow). The
- * prompt runs in the background; its history reaches the UI on its own, so
- * only setup failures are awaited here.
+ * draft is inserted by the session-scoped UI; only the user submits it.
  * @returns whether a session was opened, and why it could not be when it
  * was not: every caller shows that reason, because a failure here is
  * otherwise invisible to the user who clicked.
@@ -1591,12 +1592,6 @@ async function openRepairAgentPrompt(
     }
   }
   const service = repairAgentService
-  const availability = await service.checkModelAvailability()
-  if (!availability.ok) {
-    const errorMsg = availability.message ?? (harnessLocale() === 'zh' ? '当前模型不可用' : 'Model unavailable')
-    runtime.note(`[desktop] repair agent: model unavailable: ${errorMsg}`)
-    return { ok: false, error: errorMsg }
-  }
   const session = await service.initSession(options)
   if (!session.ok || !session.sessionId) {
     const error = session.error ?? 'unknown error'
@@ -1605,10 +1600,7 @@ async function openRepairAgentPrompt(
   }
   desktopStorageManager?.setItem(HARNESS_CURRENT_SESSION_KEY, JSON.stringify({ sessionId: session.sessionId }))
   runtime.note(`[desktop] repair agent: session ${session.sessionId} opened`)
-  if (session.needsBriefing) {
-    const result = await service.sendPrompt(session.sessionId, prompt)
-    if (!result.ok) return { ok: false, error: result.error }
-  }
+  repairDrafts.set(session.sessionId, prompt.trim() || (harnessLocale() === 'zh' ? '请帮我排查遇到的问题：' : 'Help me diagnose this problem:'))
   return { ok: true }
 }
 
@@ -1984,6 +1976,7 @@ async function waitForPluginRecoveryAction(options: {
   pluginChecks?: PluginRecoveryCheck[]
   market?: Parameters<typeof buildPluginRecoveryViewModel>[0]['market']
   repairPlan?: RepairPlan
+  repairAttempted?: boolean
   rollbackVersion?: string
   rollbackUnavailableReason?: string
 }): Promise<PluginRecoveryAction> {
@@ -2078,6 +2071,7 @@ async function showPluginRecovery(options?: {
   cancelPluginRecoverySessionReset()
   const removedPlugins = pluginRecoveryRemovedPlugins
   let automaticRepairBlocked = false
+  let repairAttempted = false
   let notice: string | undefined
   let recoveryMessage = options?.message
   let recoveryLogs = options?.logs
@@ -2237,6 +2231,7 @@ async function showPluginRecovery(options?: {
       const rollback = repairPlan.kind === 'known' ? await getApplicationRollbackStatus() : undefined
       const action = await waitForPluginRecoveryAction({
         repairPlan,
+        repairAttempted: repairAttempted || currentAttempts.some(attempt => attempt.status !== 'verified'),
         rollbackVersion: rollback?.available ? rollback.targetVersion : undefined,
         rollbackUnavailableReason: rollback && !rollback.available
           ? rollbackUnavailableDescription(rollback.reason, harnessLocale())
@@ -2273,30 +2268,6 @@ async function showPluginRecovery(options?: {
         repairAgentLaunchError = undefined
         await launchSafeHarness()
         await repairAgentOpening
-        if (repairAgentService) {
-          const availability = await repairAgentService.checkModelAvailability()
-          if (!availability.ok) {
-            takePendingRepairPrompt()
-            const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
-            const dialogOptions: MessageBoxOptions = {
-              type: 'warning',
-              title: isChinese ? '无法进入智能维修' : 'Cannot Enter Repair Agent',
-              message: availability.message ?? (isChinese ? '当前模型不可用' : 'Model unavailable'),
-              detail: availability.detail,
-              buttons: [isChinese ? '我知道了' : 'OK'],
-              defaultId: 0,
-              cancelId: 0,
-              noLink: true
-            }
-            if (owner) {
-              await dialog.showMessageBox(owner, dialogOptions)
-            } else {
-              await dialog.showMessageBox(dialogOptions)
-            }
-            void showSafeModeManager({ notice: availability.message, noticeTone: 'error' }).catch(showUnexpectedError)
-            break
-          }
-        }
         const repairPrompt = takePendingRepairPrompt()
         if (repairPrompt !== undefined) {
           const started = await startRepairAgentPrompt(repairPrompt)
@@ -2316,16 +2287,14 @@ async function showPluginRecovery(options?: {
         try { await rollbackApplication(); return }
         catch (error) {
           runtime.note(`[repair] rollback failed: ${String(error)}`)
-          pendingRepairPrompt = isChinese ? '应用版本回退失败，请检查已有日志并协助恢复启动。' : 'Application rollback failed. Inspect existing diagnostics and help restore startup.'
-          await launchSafeHarness()
-          const started = await startRepairAgentPrompt(takePendingRepairPrompt() ?? '')
-          if (started.ok) reloadHarnessWindow()
-          else void showSafeModeManager({ notice: repairAgentFailureNotice(started.error), noticeTone: 'error' }).catch(showUnexpectedError)
-          return
+          repairAttempted = true
+          notice = isChinese ? '应用版本回退未成功，请选择下一步处理方式。' : 'Application rollback failed. Choose what to do next.'
+          continue
         }
         continue
       } else if (action === 'auto-process') {
         if (!repairPlan.action) continue
+        repairAttempted = true
         const versions = repairPlan.action === 'configuration' ? configurationVersions
           : Object.fromEntries(repairPlan.upgrades.map(candidate => [candidate.packageName, candidate.targetVersion]))
         const attempt = {
@@ -2796,30 +2765,6 @@ async function showSafeModeManager(initial?: {
             )
             noticeTone = 'error'
             continue
-          }
-          if (repairAgentService) {
-            const availability = await repairAgentService.checkModelAvailability()
-            if (!availability.ok) {
-              const owner = safeModeManager?.parent
-              const dialogOptions: MessageBoxOptions = {
-                type: 'warning',
-                title: isChinese ? '无法进入智能维修' : 'Cannot Enter Repair Agent',
-                message: availability.message ?? (isChinese ? '当前模型不可用' : 'Model unavailable'),
-                detail: availability.detail,
-                buttons: [isChinese ? '我知道了' : 'OK'],
-                defaultId: 0,
-                cancelId: 0,
-                noLink: true
-              }
-              if (owner && !owner.isDestroyed()) {
-                await dialog.showMessageBox(owner, dialogOptions)
-              } else {
-                await dialog.showMessageBox(dialogOptions)
-              }
-              notice = availability.message
-              noticeTone = 'error'
-              continue
-            }
           }
           const started = await startRepairAgentPrompt(action.prompt)
           if (!started.ok) {
@@ -3427,6 +3372,16 @@ async function bootstrap(): Promise<void> {
     scheduleNormalProfileBootConfirmation()
     return { ok: true }
   })
+  ipcMain.handle('repair-agent:draft/get', (event, sessionId: unknown) => {
+    assertTrustedMainWindowEvent(event)
+    if (!event.sender.getURL().startsWith('http://127.0.0.1:')) return {}
+    return typeof sessionId === 'string' ? repairDrafts.get(sessionId) : {}
+  })
+  ipcMain.handle('repair-agent:draft/ack', (event, sessionId: unknown, token: unknown) => {
+    assertTrustedMainWindowEvent(event)
+    if (!event.sender.getURL().startsWith('http://127.0.0.1:')) return { ok: false }
+    return { ok: typeof sessionId === 'string' && typeof token === 'string' && repairDrafts.acknowledge(sessionId, token) }
+  })
   ipcMain.handle('repair-agent:open', async event => {
     assertTrustedMainWindowEvent(event)
     if (!event.sender.getURL().startsWith('http://127.0.0.1:')) return { ok: false, error: 'Repair requires a running Harness interface' }
@@ -3625,11 +3580,9 @@ async function bootstrap(): Promise<void> {
       canCheckAutomatically: () => runtime.snapshot().phase === 'ready' && !safeModeVisible && !failureRecoveryVisible,
       installFailed: async () => {
         quitting = false
-        await launchSafeHarness()
-        void showSafeModeManager({
-          notice: harnessLocale() === 'zh' ? '应用安装未完成，请继续检修或退出后重试。' : 'Application installation did not finish. Continue repair or quit and retry.',
-          noticeTone: 'error'
-        }).catch(showUnexpectedError)
+        if (!failureRecoveryVisible) void showPluginRecovery({
+          message: harnessLocale() === 'zh' ? '应用安装未完成，请选择下一步处理方式。' : 'Application installation did not finish. Choose what to do next.'
+        })
       },
       prepareToInstall: async () => {
         await runtime.stop()

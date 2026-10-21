@@ -88,7 +88,8 @@ describe('DSH Desktop client slot occupants', () => {
 
     expect(plugin.inject).toEqual(['locale', 'slots', 'remote.session', 'sessions', 'uiWorkspace'])
     expect(registrations.map(({ config }) => config.name)).toEqual([
-      'sidebar.footer.action',
+      'sidebar.settings.action',
+      'conversation.input.dock',
       'sidebar.brand.mark',
       'sidebar.brand.name',
       'conversation.hero.brand.mark',
