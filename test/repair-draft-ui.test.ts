@@ -64,6 +64,7 @@ describe('repair draft admission', () => {
     expect(repair?.props['data-dsh-repair-entry']).toBe(true)
     expect(phone?.props['data-dsh-mobile-entry']).toBe(true)
     expect(repair?.props['aria-label']).toBe('open')
+    expect(repair?.props.title).toBe('description')
     expect(repair?.children[0]).toMatchObject({ type: 'svg', props: { width: 18, height: 18, viewBox: '0 0 24 24' } })
     expect(phone?.children[0]).toMatchObject({ type: 'svg', props: { width: 18, height: 18, viewBox: '0 0 24 24' } })
     expect(repair?.children).not.toContain('open')

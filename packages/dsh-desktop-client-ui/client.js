@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
         : React.createElement('path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-7.91 7.91a2.12 2.12 0 0 1-3-3l7.91-7.91a6 6 0 0 1 7.94-7.94z' }))
       return React.createElement('div', { 'data-dsh-desktop-utilities': true, 'data-wide': wide },
         typeof bridge.openRepairAgent === 'function' && React.createElement('button', {
-          type: 'button', disabled: busy, title: t(busy ? 'opening' : 'open'),
+          type: 'button', disabled: busy, title: t(busy ? 'opening' : 'description'),
           'aria-label': t(busy ? 'opening' : 'open'), 'data-dsh-repair-entry': true,
           onClick: () => { void open(() => bridge.openRepairAgent()) }
         }, icon('repair')),
@@ -185,8 +185,8 @@ window.__ModuleLoader__.load({
     const inject = ['locale', 'slots', 'remote.session', 'sessions', 'uiWorkspace']
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(REPAIR_NS, {
-        zh: { open: '进入维修模式', opening: '正在打开维修…', failed: '无法打开维修会话，请重试', phone: '连接手机', phoneManage: '管理手机连接', phoneFailed: '无法读取手机连接状态' },
-        en: { open: 'Enter repair mode', opening: 'Opening repair…', failed: 'Could not open repair. Please retry.', phone: 'Connect phone', phoneManage: 'Manage phone connection', phoneFailed: 'Could not read phone connection status.' }
+        zh: { open: '进入维修模式', description: '维修 Agent：协助排查和修复问题。点击进入修复模式，描述问题后发送。', opening: '正在打开维修…', failed: '无法打开维修会话，请重试', phone: '连接手机', phoneManage: '管理手机连接', phoneFailed: '无法读取手机连接状态' },
+        en: { open: 'Enter repair mode', description: 'Repair Agent helps diagnose and resolve problems. Click to enter repair mode, describe the issue, and send when ready.', opening: 'Opening repair…', failed: 'Could not open repair. Please retry.', phone: 'Connect phone', phoneManage: 'Manage phone connection', phoneFailed: 'Could not read phone connection status.' }
       }))
       const repairText = ctx.locale.bind(REPAIR_NS)
       ctx.slots.inject('sidebar.settings.action', () => ctx.slots.register({
