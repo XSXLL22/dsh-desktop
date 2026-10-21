@@ -8,13 +8,13 @@ Var dshOldMoved
 Var dshNewMoved
 
 !macro dshExtractPayload FILE
-  extract_user_retry_${__LINE__}:
+  extract_user_retry:
   nsExec::ExecToStack '"$PLUGINSDIR\dsh-7za.exe" x -y -bd -bb0 "-o$INSTDIR" "${FILE}"'
   Pop $R0
   Pop $R1
   ${If} $R0 != 0
     DetailPrint $R1
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "安装解压失败 (7za 退出码: $R0)$\r$\n$\r$\n目标目录: $INSTDIR$\r$\n详细信息:$\r$\n$R1$\r$\n$\r$\n可能原因：解压文件被杀毒软件（如腾讯电脑管家、360 等）拦截或磁盘空间不足。$\r$\n$\r$\n请临时退出安全软件后点击【重试】；点击【取消】将中止安装。" IDRETRY extract_user_retry_${__LINE__}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "安装解压失败 (7za 退出码: $R0)$\r$\n$\r$\n目标目录: $INSTDIR$\r$\n详细信息:$\r$\n$R1$\r$\n$\r$\n可能原因：解压文件被杀毒软件（如腾讯电脑管家、360 等）拦截或磁盘空间不足。$\r$\n$\r$\n请临时退出安全软件后点击【重试】；点击【取消】将中止安装。" IDRETRY extract_user_retry
     Call dshRollbackDirectories
     SetErrorLevel 2
     Quit
