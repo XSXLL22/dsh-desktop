@@ -31,6 +31,7 @@ export function createDevelopmentRepairDemo(options: DemoOptions) {
   const profileDirectory = join(home, 'profiles', 'web')
   const fixture = join(profileDirectory, 'node_modules', DEMO_PLUGIN)
   let busy = false
+  let rollbackOutcome: 'success' | 'failure' | undefined
 
   async function guard(path: string) {
     const relative = path.slice(home.length + 1)
@@ -108,9 +109,10 @@ export function createDevelopmentRepairDemo(options: DemoOptions) {
   }
   return {
     menu: [
-      item('1. 模拟插件阻断启动（真实故障）', install),
+      item('1. 模拟插件阻断启动（真实故障）', async () => { rollbackOutcome = undefined; await install() }),
       item('2. 预览未知启动错误（模拟证据）', async () => { options.note('这是未知错误证据预览，并非实际发生的崩溃。'); await options.showUnknownRecovery() }),
       item('3. 清除演示故障并正常重启', async () => {
+        rollbackOutcome = undefined
         if (await owned()) {
           for (const file of ['cordis.patch.yml', '.dsh-market/state.json']) {
             const path = join(profileDirectory, file)
@@ -122,8 +124,20 @@ export function createDevelopmentRepairDemo(options: DemoOptions) {
         await options.restartNormal()
       }),
       item('4. 打开正常环境维修 Agent', options.openNormalRepair),
-      item('5. 打开安全模式维修 Agent', options.openSafeRepair)
+      item('5. 打开安全模式维修 Agent', options.openSafeRepair),
+      item('6. 模拟应用版本回退成功', async () => { rollbackOutcome = 'success'; await install() }),
+      item('7. 模拟应用版本回退失败', async () => { rollbackOutcome = 'failure'; await install() })
     ],
+    rollbackTarget() { return rollbackOutcome ? '0.12.0' : undefined },
+    async simulateRollback() {
+      const outcome = rollbackOutcome
+      if (!outcome) throw new Error('Rollback simulation is not armed')
+      rollbackOutcome = undefined
+      if (outcome === 'failure') throw new Error('[模拟] 应用版本回退失败；实际应用版本和用户数据未更改。')
+      if (!await owned()) throw new Error('Owned demonstration fixture is missing')
+      const result = await disableProfilePlugin(home, DEMO_PLUGIN)
+      if (!result.ok) throw new Error(result.detail)
+    },
     async checkPlugin(packageName: string): Promise<PluginRecoveryCheck | undefined> {
       if (packageName !== DEMO_PLUGIN) return undefined
       const manifest = await owned()

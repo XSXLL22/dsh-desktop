@@ -93,6 +93,13 @@ describe('plugin recovery view model', () => {
     expect(model.offerRepairAgent).toBe(false)
     expect(model.notice).toBe('Repair could not be applied.')
   })
+  it('labels simulated rollback without changing the target version', () => {
+    const model = buildPluginRecoveryViewModel({
+      snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh',
+      rollbackVersion: '0.12.0', rollbackSimulation: true
+    })
+    expect(model.rollbackLabel).toBe('回退应用至 0.12.0（模拟）')
+  })
   it('explains a duplicate route without exposing only a raw stack trace', () => {
     const description = describePluginFailure(
       ['[stderr] webserver: duplicate prefix route "/sidebar/api"'],

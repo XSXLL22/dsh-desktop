@@ -1,3 +1,4 @@
+import { ApplicationRollbackFlow } from './application-rollback-flow'
 import { developmentEnvironment } from './development-environment'
 import { createDevelopmentRepairDemo } from './development-repair-demo'
 import { desktopFileUrl, navigateDesktopWindow } from './desktop-navigation'
@@ -239,6 +240,13 @@ let windowStateManager: WindowStateManager | undefined
 let mobileBridge: LanMobileBridge
 let developmentRepairDemo: ReturnType<typeof createDevelopmentRepairDemo>
 let developmentDemoUnknown = false
+let applicationRollbackVisible = false
+const applicationRollbackFlow = new ApplicationRollbackFlow(async state => {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
+  ++mainWindowNavigationVersion
+  const loaded = await loadDesktopResource(window, desktopResourcePath('application-rollback.html'), { query: { state: JSON.stringify(state), theme: harnessThemePreference() } })
+  if (!loaded) throw new Error('Unable to load rollback page')
+})
 const repairDrafts = new RepairDrafts()
 let repairAgentService: RepairAgentService | undefined
 let repairAgentOpening: Promise<{ ok: boolean; error?: string }> | undefined
@@ -1058,7 +1066,10 @@ function createWindow(): BrowserWindow {
   installContextMenu(window, harnessLocale)
   installMainWindowRendererRecovery(window)
   window.on('closed', () => {
-    if (mainWindow === window) mainWindow = undefined
+    if (mainWindow === window) {
+      applicationRollbackFlow.abort()
+      mainWindow = undefined
+    }
     resolvePluginRecoveryAction('quit')
     resolveWebImportAction('skip')
     resolveSafeModeAction({ type: 'quit' })
@@ -1071,7 +1082,7 @@ async function openHarness(
   url: string,
   focusIntent: WindowFocusIntent = 'automatic'
 ): Promise<void> {
-  if (quitting || gpuFallbackRelaunching) return
+  if (quitting || gpuFallbackRelaunching || applicationRollbackVisible) return
   if (!safeModeVisible && returnToNormalAfterRepair) {
     returnToNormalAfterRepair = false
     try {
@@ -1212,7 +1223,7 @@ async function showWebHomeImport(
 }
 
 async function showSplash(): Promise<void> {
-  if (quitting || gpuFallbackRelaunching) return
+  if (quitting || gpuFallbackRelaunching || applicationRollbackVisible) return
   clearProfileBootConfirmation()
   const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
   const navigationVersion = ++mainWindowNavigationVersion
@@ -1996,6 +2007,7 @@ async function waitForPluginRecoveryAction(options: {
   repairPlan?: RepairPlan
   repairAttempted?: boolean
   rollbackVersion?: string
+  rollbackSimulation?: boolean
   rollbackUnavailableReason?: string
 }): Promise<PluginRecoveryAction> {
   if (quitting || gpuFallbackRelaunching) return 'quit'
@@ -2089,6 +2101,7 @@ async function showPluginRecovery(options?: {
   cancelPluginRecoverySessionReset()
   const removedPlugins = pluginRecoveryRemovedPlugins
   let automaticRepairBlocked = false
+  let rollbackFailed = false
   let repairAttempted = false
   let notice: string | undefined
   let recoveryMessage = options?.message
@@ -2243,14 +2256,18 @@ async function showPluginRecovery(options?: {
         attempts,
         configurationRepairable: configurationIssues.length > 0 || startupRepairs.length > 0
       })
-      const repairPlan: RepairPlan = journalUnavailable || developmentDemoUnknown ? { kind: 'unknown', plugins: [], upgrades: [] }
+      const repairPlan: RepairPlan = journalUnavailable || developmentDemoUnknown || rollbackFailed ? { kind: 'unknown', plugins: [], upgrades: [] }
         : planned.kind === 'unknown' && currentAttempts.some(attempt => attempt.status !== 'verified')
           ? { ...planned, kind: 'known' } : planned
-      const rollback = repairPlan.kind === 'known' ? await getApplicationRollbackStatus() : undefined
+      const demoRollbackTarget = developmentRepairDemo?.rollbackTarget()
+      const rollback = demoRollbackTarget && repairPlan.kind === 'known'
+        ? { available: true as const, targetVersion: demoRollbackTarget }
+        : repairPlan.kind === 'known' ? await getApplicationRollbackStatus() : undefined
       const action = await waitForPluginRecoveryAction({
         repairPlan,
         repairAttempted: repairAttempted || currentAttempts.some(attempt => attempt.status !== 'verified'),
         rollbackVersion: rollback?.available ? rollback.targetVersion : undefined,
+        rollbackSimulation: Boolean(demoRollbackTarget),
         rollbackUnavailableReason: rollback && !rollback.available
           ? rollbackUnavailableDescription(rollback.reason, harnessLocale())
           : undefined,
@@ -2303,13 +2320,40 @@ async function showPluginRecovery(options?: {
         }
         break
       } else if (action === 'rollback') {
-        if (repairPlan.kind !== 'known' || !rollback?.available) continue
-        try { await rollbackApplication(); return }
+        if (repairPlan.kind !== 'known' || !rollback?.available || !rollback.targetVersion) continue
+        try {
+          applicationRollbackVisible = true
+          const outcome = await applicationRollbackFlow.run({ locale: harnessLocale(), currentVersion: app.getVersion(), targetVersion: rollback.targetVersion, simulation: Boolean(demoRollbackTarget) }, async progress => {
+            if (!demoRollbackTarget) { await rollbackApplication(); return }
+            await progress(isChinese ? '正在模拟应用版本回退（实际版本不变）' : 'Simulating rollback (actual version unchanged)')
+            await new Promise(resolve => setTimeout(resolve, 1200))
+            applicationRollbackFlow.assertActive()
+            await developmentRepairDemo?.simulateRollback()
+            await progress(isChinese ? '正在重启并验证正常启动' : 'Restarting and verifying startup')
+            applicationRollbackFlow.assertActive()
+            returnToNormalAfterRepair = true
+            await launchWithFreshEvidence()
+            if (runtime.snapshot().phase !== 'ready') throw new Error('Demonstration startup verification failed')
+          })
+          applicationRollbackVisible = false
+          if (outcome === 'closed') return
+          if (outcome === 'cancelled') continue
+          if (demoRollbackTarget) {
+            schedulePluginRecoverySessionReset()
+            const url = runtime.snapshot().url
+            if (url) await openHarness(url)
+          }
+          return
+        }
         catch (error) {
+          applicationRollbackVisible = false
+          rollbackFailed = true
           runtime.note(`[repair] rollback failed: ${String(error)}`)
           automaticRepairBlocked = true
           repairAttempted = true
-          notice = isChinese ? '应用版本回退未成功，请选择下一步处理方式。' : 'Application rollback failed. Choose what to do next.'
+          notice = demoRollbackTarget
+            ? isChinese ? '[模拟] 应用版本回退未成功，实际应用版本未改变。请选择下一步处理方式。' : '[Simulation] Application rollback failed. The actual version is unchanged. Choose what to do next.'
+            : isChinese ? '应用版本回退未成功，请选择下一步处理方式。' : 'Application rollback failed. Choose what to do next.'
           continue
         }
         continue
@@ -3304,9 +3348,9 @@ async function bootstrap(): Promise<void> {
           pluginFailures: snapshot.pluginFailures
         }
       }
-      if (snapshot.phase === 'ready' && snapshot.url) {
+      if (!applicationRollbackVisible && snapshot.phase === 'ready' && snapshot.url) {
         void openHarness(snapshot.url).catch(showUnexpectedError)
-      } else if (snapshot.phase === 'failed') {
+      } else if (!applicationRollbackVisible && snapshot.phase === 'failed') {
         void showRuntimeFailure(snapshot).catch(showUnexpectedError)
       }
     }
@@ -3393,6 +3437,11 @@ async function bootstrap(): Promise<void> {
     }
     scheduleNormalProfileBootConfirmation()
     return { ok: true }
+  })
+  ipcMain.handle('application-rollback:action', (event, action: unknown) => {
+    assertTrustedMainWindowEvent(event)
+    if (!applicationRollbackVisible || new URL(event.sender.getURL()).protocol !== 'file:' || new URL(event.sender.getURL()).pathname !== pathToFileURL(desktopResourcePath('application-rollback.html')).pathname) throw new Error('Rollback page is not active')
+    return { ok: applicationRollbackFlow.action(action) }
   })
   ipcMain.handle('repair-agent:draft/get', (event, sessionId: unknown) => {
     assertTrustedMainWindowEvent(event)
@@ -3734,6 +3783,7 @@ if (isDaemonLaunch(process.env, process.platform)) {
     app.on('window-all-closed', () => {
       if (process.platform !== 'darwin') app.quit()
     })
+    app.on('will-quit', () => { applicationRollbackFlow.abort(); applicationRollbackVisible = false })
     app.on('before-quit', (event) => {
       desktopDiagnostics?.markCleanExit()
       if (quitting || !runtime) return

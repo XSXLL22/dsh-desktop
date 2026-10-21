@@ -482,6 +482,16 @@ contextBridge.exposeInMainWorld(
 )
 
 contextBridge.exposeInMainWorld(
+  'dshRollback',
+  Object.freeze({
+    action: (action: unknown): Promise<{ ok: boolean }> => {
+      if (action !== 'confirm' && action !== 'cancel' && action !== 'continue') return Promise.resolve({ ok: false })
+      return ipcRenderer.invoke('application-rollback:action', action)
+    }
+  })
+)
+
+contextBridge.exposeInMainWorld(
   'dshWebImport',
   Object.freeze({
     action: (action: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('web-import:action', action)

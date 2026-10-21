@@ -206,6 +206,7 @@ export function buildPluginRecoveryViewModel(options: {
   /** A previous repair or rollback failed; always leave the next action to the user. */
   repairAttempted?: boolean
   rollbackVersion?: string
+  rollbackSimulation?: boolean
   rollbackUnavailableReason?: string
   market?: {
     installedVersion?: string
@@ -261,7 +262,7 @@ export function buildPluginRecoveryViewModel(options: {
     primaryBusyLabel: canRepair ? zh ? '正在执行本轮修复…' : 'Applying this repair…' : zh ? '正在进入维修 Agent…' : 'Opening repair Agent…',
     autoProcessLabel: canRepair ? zh ? '一键修复' : 'Repair now' : undefined,
     rollbackUnavailableReason: plan.kind === 'known' && !options.rollbackVersion ? options.rollbackUnavailableReason ?? (zh ? '当前没有可回退的应用版本。' : 'No app version is available to roll back to.') : undefined,
-    rollbackLabel: plan.kind === 'known' && options.rollbackVersion ? zh ? `回退应用至 ${options.rollbackVersion}` : `Restore app ${options.rollbackVersion}` : undefined,
+    rollbackLabel: plan.kind === 'known' && options.rollbackVersion ? zh ? `回退应用至 ${options.rollbackVersion}${options.rollbackSimulation ? '（模拟）' : ''}` : `Restore app ${options.rollbackVersion}${options.rollbackSimulation ? ' (simulation)' : ''}` : undefined,
     upgradeCandidate,
     pluginChecks: options.pluginChecks,
     marketPrimary: false,
