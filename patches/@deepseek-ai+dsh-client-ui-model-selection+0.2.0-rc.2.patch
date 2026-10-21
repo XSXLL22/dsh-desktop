@@ -1,0 +1,73 @@
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js
+index 29c1b1c..1b4ad3e 100644
+--- a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js
++++ b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js
+@@ -85,6 +85,11 @@ window.__ModuleLoader__.load({
+ 				error: null
+ 			});
+ 			reasoning = /* @__PURE__ */ new Map();
++			names = /* @__PURE__ */ new Map();
++			/** Last advertised picker label for an exact route in this Host generation. */
++			displayNameFor(selection) {
++				return this.names.get(JSON.stringify([selection.provider, selection.model]));
++			}
+ 			/**
+ 			* Read the last advertised reasoning metadata, including unavailable models.
+ 			* @param selection - provider and model whose effort is displayed.
+@@ -118,7 +123,11 @@ window.__ModuleLoader__.load({
+ 				const operation = this.ctx.remote.session.modelCatalog().then((response) => {
+ 					if (!response.ok) throw new Error(`${response.error.code}: ${response.error.message}`);
+ 					if (generation === this.generation) {
+-						for (const group of response.value.groups) for (const model of group.models) this.reasoning.set(JSON.stringify([group.id, model.id]), model.reasoning);
++						for (const group of response.value.groups) for (const model of group.models) {
++							const key = JSON.stringify([group.id, model.id]);
++							this.reasoning.set(key, model.reasoning);
++							this.names.set(key, model.name?.trim() || void 0);
++						}
+ 						this.store.set({
+ 							value: response.value,
+ 							status: "ready",
+@@ -160,6 +169,7 @@ window.__ModuleLoader__.load({
+ 			/** Clear Host-specific values and load the replacement Host generation. */
+ 			resetGeneration() {
+ 				this.reasoning.clear();
++				this.names.clear();
+ 				this.invalidate(true);
+ 				this.load().catch(() => {});
+ 			}
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/catalog.d.ts b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/catalog.d.ts
+index 17a865b..dcc40b4 100644
+--- a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/catalog.d.ts
++++ b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/catalog.d.ts
+@@ -14,6 +14,9 @@ export declare class ModelCatalogDirectory {
+     /** Current shared catalog value and load lifecycle. */
+     readonly store: SnapshotStore<ModelCatalogState>;
+     private readonly reasoning;
++    private readonly names;
++    /** Last advertised picker label for an exact route in this Host generation. */
++    displayNameFor(selection: ModelSelection): string | undefined;
+     /**
+      * Read the last advertised reasoning metadata, including unavailable models.
+      * @param selection - provider and model whose effort is displayed.
+diff --git a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/service.d.ts b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/service.d.ts
+index a73a2a6..75242ed 100644
+--- a/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/service.d.ts
++++ b/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/types/client/service.d.ts
+@@ -2,6 +2,7 @@ import { Service } from '@deepseek-ai/cordis';
+ import type { Context } from '@deepseek-ai/cordis';
+ import type { SessionId } from '@deepseek-ai/dsh-session/types';
+ import { ModelDirectory } from './directory.ts';
++import type { ModelCatalogDirectory } from './catalog.ts';
+ declare module '@deepseek-ai/cordis' {
+     interface Context {
+         modelDirectories: ModelDirectoryResolver;
+@@ -11,7 +12,8 @@ declare module '@deepseek-ai/cordis' {
+ export declare class ModelDirectoryResolver extends Service {
+     static inject: string[];
+     private readonly live;
+-    private readonly catalog;
++    /** Shared model metadata for selectors and historical usage labels. */
++    readonly catalog: ModelCatalogDirectory;
+     /**
+      * @param ctx - owning root context (the service registers itself as `models`).
+      */

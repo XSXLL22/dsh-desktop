@@ -13,6 +13,15 @@
 
 # Model switch display names
 
+## 2026-10-21 — V1.1.0 turn usage model names
+
+- Baseline: `dataelement/bisheng-work:V1.1.0@9f4fc53930fec8f014ea6421713615a403e67e27`; branch `codex/v110-usage-model-names`; isolated worktree `bisheng-work-v110-usage-model-names`. Locked and installed Harness: `0.2.0-rc.2`.
+- Implemented: the completed-turn usage dialog resolves each recorded route to the selector's advertised model name. The shared catalog retains known names during authorization changes and clears them on connection reset. Legacy routes with unavailable names show localized copy; token accounting and route attribution keep their existing values.
+- Verified: clean offline `npm ci` and root postinstall/dependency replay, TypeScript, production build, and `git diff --check`. Focused checks: 22 passed, including 12 new React/catalog regressions. Full suite with local HTTP/subprocess access: 2,062 passed, 3 skipped, 1 failed. The first run under restricted local-port access was stopped after environment failures.
+- Baseline failure: `enterprise-chat.test.ts` / “keeps the first abort reason when later sources also abort” also fails against extracted original `V1.1.0` source and tests (19 passed / 1 failed). Its implementation and test are unchanged in this work.
+- Runtime/UI: the actual Harness starts with an isolated temporary Profile, and its authenticated browser page mounts the conversation composer and model selector with the new client dependency. Usage-label behavior is verified with the actual bundled React component and fixture catalogs. Real enterprise authorization changes, installation-package verification, and Windows native acceptance remain pending.
+- Related authorization-recovery work is tracked separately in PR #68. Both changes extend the model-selection dependency; integration should retain both behaviors.
+
 ## 2026-09-22 — Signed test-build compatibility
 
 - PR #519 acceptance plugin fixture now declares `desktop_min: "0.9.1"`. Catalog and installation regression checks use Desktop `0.9.2-test.1`, and the physical isolated Profile Loader smoke uses that same prerelease version for installation and failed-update rollback.

@@ -79,3 +79,11 @@ PR #357 展示了两种应区别处理的变化：
 - ContextMeter 原本直接渲染；把它挪到 dock 旁边并不自动让它成为 slot。若采用新的位置配置/独立贡献机制，需要先实现相应契约；同时验证原 dock 贡献项的空间和挂载条件。
 
 这些是设计选择示例，不表示所提新扩展 API 已存在。本文是开发与评审约束；当前尚无自动 slot 契约门禁。
+
+### Turn usage model labels (Harness 0.2.0-rc.2, 2026-10-21)
+
+`TurnUsagePanel` resolves each recorded provider/model route through the same model catalog that supplies the composer selector. The catalog retains advertised names for the current Host generation, allowing completed turns to keep their labels after authorization changes. Connection reset clears those names and rejects late catalog responses from the previous generation. Missing names use localized copy. Route attribution and token accounting retain their existing values.
+
+The chat package explicitly declares its model-selection client dependency and receives the shared catalog through the existing turn-tail registration. The rendering slot keeps its ownership and layout. The bundled `dsh-client-ui-chat` renderer owns the usage row and exposes no label formatter slot; `dsh-client-ui-model-selection` owns the catalog. Both dependency changes are replayable against `0.2.0-rc.2`, with matching type declarations. Remove these changes when Harness supplies the same label resolution and lifecycle contract.
+
+`test/turn-usage-model-names.test.mjs` renders the actual usage component with React and exercises catalog arrival, authorization withdrawal, multiple routes, localized missing/empty names, connection reset, late responses, and dialog closing. Geometry hooks are fixture stubs. Saved logs that predate this change and reference a model absent from the current connection have no recoverable name; they show the localized fallback.
