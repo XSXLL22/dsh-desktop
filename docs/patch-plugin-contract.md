@@ -80,6 +80,18 @@ PR #357 展示了两种应区别处理的变化：
 
 这些是设计选择示例，不表示所提新扩展 API 已存在。本文是开发与评审约束；当前尚无自动 slot 契约门禁。
 
+### Model authorization changes (Harness 0.2.0-rc.2, 2026-10-21)
+
+The shared `ModelDirectory` reconciles its durable session selection with each successfully loaded catalog. It retains an available selection; a withdrawn selection switches through `session.selectModel` to the available configured default, then a model from the same provider, then the first available provider. The replacement uses its own reasoning default. Provider discovery failures preserve the saved selection for recovery. Attempts are shared per catalog and selection, and the existing selection generation protects later manual choices and session disposal.
+
+`conversation.input.model` keeps its existing ownership and layout. Its caption uses the advertised name, an actionable selection label, or “暂无可用模型”. The ordinary composer awaits directory recovery before sending; empty and unresolved catalogs return a localized failure through the existing draft/attachment restoration path. Addressed subagents retain their own transport. Cancellation is checked after recovery.
+
+The official DeepSeek catalog uses the request path's credential resolver, so automatic selection considers configured official providers. This reuses the credential discovery fix from PR #60 for V1.1.0.
+
+These changes belong to `dsh-client-ui-model-selection`, `dsh-client-ui-conversation`, and `dsh-llm-deepseek-api-key` at `0.2.0-rc.2`. Existing slots expose rendering contributions; shared selection reconciliation and the composer send boundary live inside the upstream implementations, so these corrections are recorded as replayable dependency changes. Remove the corresponding hunks when Harness supplies equivalent behavior. Regressions: `test/model-revocation.test.mjs`, `test/deepseek-model-credentials.test.mjs`, and `test/deepseek-model-credentials-runtime.test.ts`.
+
+The conversation model trigger, menu/search labels, tooltips, and `/model` rows share an enterprise display-name formatter. A missing, blank, or internal-ID display name becomes localized “企业模型 {index}” / “Enterprise model {index}”; configured names remain intact. The catalog and selection requests retain their original IDs. Model-label regression cases cover both locales and distinguish multiple unnamed models.
+
 ### Turn usage model labels (Harness 0.2.0-rc.2, 2026-10-21)
 
 `TurnUsagePanel` resolves each recorded provider/model route through the same model catalog that supplies the composer selector. The catalog retains advertised names for the current Host generation, allowing completed turns to keep their labels after authorization changes. Connection reset clears those names and rejects late catalog responses from the previous generation. Missing names use localized copy. Route attribution and token accounting retain their existing values.

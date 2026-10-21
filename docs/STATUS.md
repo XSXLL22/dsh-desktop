@@ -64,3 +64,13 @@ Verification:
 - `npm run typecheck`: PASS.
 - `npm run build`: PASS.
 - Native Desktop login, real provider calls, and installed-app UI acceptance: `NOT_RUN`.
+
+## V1.1.0 model authorization recovery — 2026-10-21
+
+- Target: `dataelement/bisheng-work:V1.1.0`, remote baseline `9f4fc53930fec8f014ea6421713615a403e67e27`; branch `codex/v110-model-revocation`, isolated worktree `bisheng-work-v110-model-revocation`. Installed BISHENG Dev / DSH Desktop and locked dependency Harness versions: `0.2.0-rc.2`.
+- Implemented: shared session-model reconciliation after catalog updates; available default / same-provider / other-provider replacement; localized empty-model state; composer waits for recovery and retains drafts/attachments on an unavailable catalog. Provider discovery failures and newer manual selections retain their own handling.
+- Reused the official credential discovery correction from PR #60 so a missing official Key yields an empty official catalog.
+- Verification: clean `npm ci` / dependency replay, TypeScript, production build and `git diff --check` passed. All 25 focused model-directory/render/submission/credential tests passed, including a real Harness subprocess with an isolated Profile and authenticated catalog requests. Full suite: 2,075 passed, 3 skipped, 1 failed. The failing `enterprise-chat.test.ts` first-abort-reason case reproduces against the original V1.1.0 source at the baseline above (19 passed / 1 failed); the tested source and test are unchanged by this PR. A Node 24 focused rerun also passed all 25 model tests and reproduced the existing abort failure.
+- Release boundary: installer rebuild, real enterprise account authorization changes, and native Windows acceptance remain pending.
+
+- Display-name follow-up: conversation model captions, menu/search names, tooltips and `/model` choices use localized enterprise-model labels when the server supplies a blank name or internal identifier. Original IDs remain in selection requests. Six additional display cases passed (31 model-related tests total). Clean dependency replay, typecheck and production build passed. Full regression: 2,081 passed, 3 skipped, and the same baseline first-abort-reason case failed.
