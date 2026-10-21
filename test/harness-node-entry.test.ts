@@ -223,6 +223,39 @@ describe('windowsHide ESM built-in synchronization', () => {
 
     expect(JSON.parse(output)).toEqual({ cwd: 'C:/fixture', windowsHide: true })
   })
+
+  it('preserves util.promisify.custom for exec and execFile returning { stdout, stderr }', () => {
+    const helperUrl = pathToFileURL(
+      join(process.cwd(), 'build', 'windows-child-process-hide.mjs')
+    ).href
+    const script = `
+      import childProcess from 'node:child_process'
+      import { syncBuiltinESMExports } from 'node:module'
+      import util from 'node:util'
+      import { enforceWindowsChildProcessHide } from ${JSON.stringify(helperUrl)}
+
+      enforceWindowsChildProcessHide(childProcess, syncBuiltinESMExports)
+
+      const execFileP = util.promisify(childProcess.execFile)
+      const execP = util.promisify(childProcess.exec)
+
+      const rFile = await execFileP(process.execPath, ['-e', 'process.stdout.write("file-out"); process.stderr.write("file-err")'])
+      const rExec = await execP(JSON.stringify(process.execPath) + ' -e "process.stdout.write(String.fromCharCode(101,120,101,99,45,111,117,116))"')
+
+      process.stdout.write(JSON.stringify({
+        execFile: { stdout: rFile.stdout, stderr: rFile.stderr },
+        exec: { stdout: rExec.stdout, stderr: rExec.stderr }
+      }))
+    `
+    const output = execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+      encoding: 'utf8'
+    })
+
+    expect(JSON.parse(output)).toEqual({
+      execFile: { stdout: 'file-out', stderr: 'file-err' },
+      exec: { stdout: 'exec-out', stderr: '' }
+    })
+  })
 })
 
 describe('windowsHide patching for spawn', () => {

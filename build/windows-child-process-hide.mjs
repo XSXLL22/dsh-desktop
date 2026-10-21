@@ -48,6 +48,18 @@ export function enforceWindowsChildProcessHide(childProcess, syncBuiltinESMExpor
     return originalExec.call(this, command, applyWindowsHide(options), callback)
   }
 
+  const customPromisify = Symbol.for('nodejs.util.promisify.custom')
+  if (originalExec && originalExec[customPromisify]) {
+    Object.defineProperty(childProcess.exec, customPromisify, {
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: function customPromisifiedExec(command, options) {
+        return originalExec[customPromisify].call(this, command, applyWindowsHide(options))
+      }
+    })
+  }
+
   childProcess.execSync = function patchedExecSync(command, options) {
     return originalExecSync.call(this, command, applyWindowsHide(options))
   }
@@ -57,9 +69,29 @@ export function enforceWindowsChildProcessHide(childProcess, syncBuiltinESMExpor
       return originalExecFile.call(this, file, applyWindowsHide(undefined), undefined, args)
     }
     if (typeof options === 'function') {
-      return originalExecFile.call(this, file, args, applyWindowsHide(undefined), options)
+      if (Array.isArray(args)) {
+        return originalExecFile.call(this, file, args, applyWindowsHide(undefined), options)
+      }
+      return originalExecFile.call(this, file, applyWindowsHide(args), options)
     }
     return originalExecFile.call(this, file, args, applyWindowsHide(options), callback)
+  }
+
+  if (originalExecFile && originalExecFile[customPromisify]) {
+    Object.defineProperty(childProcess.execFile, customPromisify, {
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: function customPromisifiedExecFile(file, args, options) {
+        if (Array.isArray(args)) {
+          return originalExecFile[customPromisify].call(this, file, args, applyWindowsHide(options))
+        }
+        if (args && typeof args === 'object') {
+          return originalExecFile[customPromisify].call(this, file, applyWindowsHide(args))
+        }
+        return originalExecFile[customPromisify].call(this, file, applyWindowsHide(undefined))
+      }
+    })
   }
 
   childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
