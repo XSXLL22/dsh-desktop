@@ -337,18 +337,24 @@
         gap: 16px;
       }
       .body-row { display: flex; flex: 1 1 auto; min-height: 0; }
-      .error-details { margin-top: 16px; }
-      .error-details > summary {
-        width: fit-content;
-        cursor: pointer;
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1.6;
-        padding-block: 5px;
+      .heading-row { display: block; }
+      .heading-row h1 { display: inline; }
+      .error-info { display: inline-block; vertical-align: baseline; margin-left: 7px; }
+      .error-info-button {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 19px; height: 19px; padding: 0; border: 1px solid var(--muted);
+        border-radius: 50%; background: transparent; color: var(--muted);
+        font: 600 12px Georgia, serif; cursor: pointer; vertical-align: 2px;
       }
-      .error-details > summary:hover { color: var(--ink); }
-      .error-details > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+      .error-info-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+      .error-popover {
+        position: fixed; z-index: 20; width: min(440px, calc(100vw - 32px));
+        max-height: min(430px, calc(100vh - 32px)); overflow: auto;
+        box-sizing: border-box; padding: 16px; border: 1px solid var(--line);
+        border-radius: 12px; background: var(--surface); color: var(--ink);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, .14);
+      }
+      .error-popover-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
       .details-card {
         margin: 12px 0;
         border: 1px solid var(--line);
@@ -484,14 +490,10 @@
         <p class="notice" id="notice" role="alert"></p>
         <div class="heading-row">
           <h1 id="heading"></h1>
-        </div>
-        <p class="summary" id="summary"></p>
-        <details class="repair-plan" id="repair-plan" hidden>
-          <summary id="repair-plan-label"></summary>
-          <ul id="repair-plan-steps"></ul>
-        </details>
-        <details class="error-details" id="error-details">
-          <summary id="advanced-label"></summary>
+        <div class="error-info" id="error-info">
+            <button class="error-info-button" id="error-info-button" type="button" aria-controls="error-details" aria-expanded="false">i</button>
+            <section class="error-popover" id="error-details" role="region" aria-labelledby="advanced-label" hidden>
+          <p class="error-popover-title" id="advanced-label"></p>
           <div class="details-card">
             <p class="meta-label" id="launch-directory-label"></p>
             <p class="path" id="launch-directory"></p>
@@ -501,7 +503,15 @@
           <div class="advanced-actions">
             <button class="plugin-upgrade-btn plugin-remove-btn" id="show-log" type="button"></button>
           </div>
+        </section>
+          </div>
+        </div>
+        <p class="summary" id="summary"></p>
+        <details class="repair-plan" id="repair-plan" hidden>
+          <summary id="repair-plan-label"></summary>
+          <ul id="repair-plan-steps"></ul>
         </details>
+
 
         <section class="conflict-card" id="conflict-card" aria-label="Plugin recovery details">
           <ul class="plugins" id="plugins"></ul>
@@ -704,13 +714,55 @@
       document.getElementById('quit').addEventListener('click', () => navigate('quit'))
     </script>
     <script>
+      const errorAnchor = document.getElementById('error-info-button')
+      const errorPopup = document.getElementById('error-details')
+      const errorInfo = document.getElementById('error-info')
+      errorAnchor.setAttribute('aria-label', model.advancedLabel || 'Error details')
+      let errorCloseTimer
+      const closeError = () => {
+        clearTimeout(errorCloseTimer)
+        errorPopup.hidden = true
+        errorAnchor.setAttribute('aria-expanded', 'false')
+      }
+      const openError = () => {
+        clearTimeout(errorCloseTimer)
+        errorPopup.hidden = false
+        errorAnchor.setAttribute('aria-expanded', 'true')
+        const anchor = errorAnchor.getBoundingClientRect()
+        const popup = errorPopup.getBoundingClientRect()
+        errorPopup.style.left = `${Math.max(16, Math.min(anchor.left, window.innerWidth - popup.width - 16))}px`
+        errorPopup.style.top = `${Math.max(16, Math.min(anchor.bottom + 8, window.innerHeight - popup.height - 16))}px`
+      }
+      const deferErrorClose = () => {
+        clearTimeout(errorCloseTimer)
+        errorCloseTimer = setTimeout(closeError, 180)
+      }
+      errorInfo.addEventListener('mouseenter', openError)
+      errorInfo.addEventListener('mouseleave', deferErrorClose)
+      errorInfo.addEventListener('focusin', openError)
+      errorInfo.addEventListener('focusout', event => {
+        if (!errorInfo.contains(event.relatedTarget)) deferErrorClose()
+      })
+      errorAnchor.addEventListener('click', openError)
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !errorPopup.hidden) {
+          errorAnchor.focus()
+          closeError()
+        }
+      })
+      document.addEventListener('pointerdown', event => {
+        if (!errorInfo.contains(event.target)) closeError()
+      })
+      window.addEventListener('resize', closeError)
+    </script>
+    <script>
       // Only the request is sent: the main process prepends the offline
       // diagnosis and the failed launch's logs to the first turn.
       const repairAgentPrompt = model.locale === 'zh'
         ? '请结合诊断事实和 harness.log，定位导致启动失败的确切根因。先说明结论和建议的最小可逆操作，在我明确确认之前不要修改任何文件或配置。'
         : 'Using the diagnostic facts and harness.log, find the exact root cause of the startup failure. Explain the conclusion and the smallest reversible fix first, and do not change any file or setting until I explicitly confirm.'
-      // A failed round leaves the next action to the user, even when another
-      // one-click round is available. No action is dispatched on page load.
+      // Known repairs never offer the Agent shortcut. Exhausted or unknown
+      // failures use the primary Agent action; page load never dispatches it.
       const repairAgent = document.getElementById('repair-agent')
       repairAgent.hidden = !model.offerRepairAgent
       repairAgent.textContent = model.safeModeLabel || (model.locale === 'zh' ? '让 Agent 帮我修' : 'Ask Agent to help')

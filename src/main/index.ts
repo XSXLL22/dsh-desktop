@@ -2305,6 +2305,7 @@ async function showPluginRecovery(options?: {
         try { await rollbackApplication(); return }
         catch (error) {
           runtime.note(`[repair] rollback failed: ${String(error)}`)
+          automaticRepairBlocked = true
           repairAttempted = true
           notice = isChinese ? '应用版本回退未成功，请选择下一步处理方式。' : 'Application rollback failed. Choose what to do next.'
           continue

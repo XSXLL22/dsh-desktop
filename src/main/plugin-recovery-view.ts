@@ -275,7 +275,7 @@ export function buildPluginRecoveryViewModel(options: {
     safeModeLabel: zh ? '让 Agent 帮我修' : 'Ask Agent to help',
     canUninstall: false,
     canRepair,
-    offerRepairAgent: canRepair && options.repairAttempted === true,
+    offerRepairAgent: false,
     safeModeOnly: !canRepair && !(plan.kind === 'known' && options.rollbackVersion)
   }
 }

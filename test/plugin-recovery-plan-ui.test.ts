@@ -36,17 +36,17 @@ function renderPlan(available: boolean) {
 }
 
 describe('recovery plan and rollback controls', () => {
-  it('keeps error details inline after the independently expandable repair plan', () => {
+  it('places an accessible error info icon beside the heading and keeps logs in its popover', () => {
+    const heading = html.indexOf('<h1 id="heading">')
+    const info = html.indexOf('id="error-info-button"', heading)
     const plan = html.indexOf('<details class="repair-plan"')
-    const error = html.indexOf('<details class="error-details"')
-    const decision = html.indexOf('<div class="decision-row"')
-    expect(plan).toBeGreaterThan(0)
-    expect(error).toBeGreaterThan(html.indexOf('</details>', plan))
-    expect(error).toBeLessThan(decision)
-    expect(html.slice(error, html.indexOf('</details>', error))).toContain('id="show-log"')
+    expect(info).toBeGreaterThan(heading)
+    expect(info).toBeLessThan(plan)
+    expect(html).toContain('aria-controls="error-details" aria-expanded="false"')
+    expect(html).toContain('id="error-details" role="region"')
+    expect(html).not.toContain('<details class="error-details"')
     expect(html).not.toContain('details-drawer')
-    expect(html).not.toContain('details-resizer')
-    expect(html).toContain('.decision-row.safe-mode-only { justify-content: flex-end; }')
+    expect(html).toContain('id="show-log"')
   })
 
   it('renders an expandable plan with no action until the user chooses', () => {

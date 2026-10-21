@@ -60,7 +60,7 @@ describe('plugin recovery view model', () => {
     expect(model.primaryLabel).toBe('一键修复')
     expect(model.uninstallLabel).toBeUndefined()
   })
-  it.each(['upgrade', 'disable', 'configuration'] as const)('offers an explicit Agent alternative after a failed round before %s', action => {
+  it.each(['upgrade', 'disable', 'configuration'] as const)('keeps Agent hidden while a known %s repair remains after a failed round', action => {
     const model = buildPluginRecoveryViewModel({
       snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh',
       rollbackVersion: '0.12.0', repairAttempted: true,
@@ -68,7 +68,7 @@ describe('plugin recovery view model', () => {
     })
     expect(model.canRepair).toBe(true)
     expect(model.primaryLabel).toBe('一键修复')
-    expect(model.offerRepairAgent).toBe(true)
+    expect(model.offerRepairAgent).toBe(false)
     expect(model.notice).toContain('请选择下一步')
     expect(model.rollbackLabel).toContain('0.12.0')
     expect(model.safeModeOnly).toBe(false)
