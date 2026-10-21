@@ -10,7 +10,7 @@ import { RepairAgentService, type CrashEvidence } from './repair-agent'
 import { RepairDrafts } from './repair-drafts'
 import { rememberRepairReturnNavigation, restoreRepairReturnNavigation } from './repair-navigation'
 import { RepairSessionStore } from './state/repair-agent-sessions'
-import { buildRepairPlan, type RepairPlan } from './repair-policy'
+import { buildRepairPlan, canOpenRecoveryAgent, type RepairPlan } from './repair-policy'
 import { readRepairJournal, recordRepairAttempt, repairAttemptsForVersion } from './state/repair-job'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
@@ -2278,6 +2278,8 @@ async function showPluginRecovery(options?: {
         applyPendingFrontendEvidence()
         continue
       } else if (action.startsWith('agent:')) {
+        // Enforce the same decision in main even if an outdated page submits it.
+        if (!canOpenRecoveryAgent(repairPlan)) continue
         // Start Safe Mode first: the agent session must live in the Safe Mode
         // Harness, not in the failed normal one that is about to be stopped.
         // Its page load opens the session (see openHarness); should the page
@@ -2360,7 +2362,7 @@ async function showPluginRecovery(options?: {
             const result = await repairSafeModeCompatibilityIssues(dshHome, configurationIssues)
             if (result.failed.length > 0 || result.installFailed) {
               failed = true
-              failures.push(result.installFailed ?? (isChinese ? '部分运行配置未能修复，请进入维修 Agent。' : 'Some runtime configuration could not be repaired. Open the Repair Agent.'))
+              failures.push(result.installFailed ?? (isChinese ? '部分运行配置未能修复，请选择下一步处理方式。' : 'Some runtime configuration could not be repaired. Choose what to do next.'))
             }
           }
           if (repairPlan.action === 'disable') {
@@ -2372,7 +2374,7 @@ async function showPluginRecovery(options?: {
           }
         } catch (error) {
           failed = true
-          failures.push(isChinese ? '本轮修复未完成，请进入维修 Agent 继续排查。' : 'This repair could not finish. Continue with the Repair Agent.')
+          failures.push(isChinese ? '本轮修复未完成，请选择下一步处理方式。' : 'This repair could not finish. Choose what to do next.')
           runtime.note(`[repair] round failed: ${String(error)}`)
         }
         try {

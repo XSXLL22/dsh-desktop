@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepairPlan } from '../src/main/repair-policy'
+import { buildRepairPlan, canOpenRecoveryAgent } from '../src/main/repair-policy'
 
 describe('repair rounds', () => {
   const upgrades = [{ packageName: 'a', targetVersion: '2.0.0' }]
@@ -51,4 +51,19 @@ describe('repair rounds', () => {
     expect(buildRepairPlan({ plugins: [], upgradeOnlyPlugins: ['dshmarket'] }).kind).toBe('known')
   })
 
+})
+
+describe('recovery Agent admission', () => {
+  it.each(['upgrade', 'disable', 'configuration'] as const)('rejects Agent entry while a known %s repair remains', action => {
+    expect(canOpenRecoveryAgent({ kind: 'known', action, plugins: [], upgrades: [] })).toBe(false)
+  })
+
+  it('allows unknown problems, including the fallback plan used after rollback failure', () => {
+    expect(canOpenRecoveryAgent({ kind: 'unknown', plugins: [], upgrades: [] })).toBe(true)
+  })
+
+  it('allows identified problems only after available repair rounds are exhausted', () => {
+    const plan = buildRepairPlan({ plugins: ['a'], attempts: [{ action: 'disable', plugins: ['a'], status: 'failed' }] })
+    expect(canOpenRecoveryAgent(plan)).toBe(true)
+  })
 })

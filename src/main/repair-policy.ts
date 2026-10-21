@@ -14,6 +14,11 @@ export interface RepairPlan {
   upgrades: PluginRecoveryUpgradeCandidate[]
 }
 
+/** Agent fallback is available only after identified automatic repairs are exhausted. */
+export function canOpenRecoveryAgent(plan: RepairPlan): boolean {
+  return plan.kind === 'unknown' || plan.action === undefined
+}
+
 /** A round never mixes upgrades and disables: verify the restart between them. */
 export function buildRepairPlan(options: {
   plugins: readonly string[]
