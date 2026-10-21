@@ -1329,10 +1329,18 @@ jobs:
               echo "[Windows x64 installer]($base/bisheng-windows-x64-setup.exe)" >> "$GITHUB_STEP_SUMMARY"
               ;;
           esac
+      - name: Prepare Chinese test summary tooling
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.MODELS_TOKEN }}
+        run: |
+          if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then
+            npm install -g @github/copilot@latest || echo "::warning::提测总结工具安装失败，将发送明确的降级说明。"
+          fi
       - name: Verify signed test downloads and send Feishu notification
         if: success()
         env:
           FEISHU_RELEASE_WEBHOOK: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.MODELS_TOKEN }}
           MODELSCOPE_REPO_ID: alexyaojin/bisheng-work
           RELEASE_TAG: ${{ inputs.signed_version }}
           TARGET: ${{ inputs.target }}

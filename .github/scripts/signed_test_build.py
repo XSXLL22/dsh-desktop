@@ -12,7 +12,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
-from feishu_release_notes import send_feishu_notification
+from feishu_release_notes import bound_code_diff, send_feishu_notification
+from test_change_summary import summarize_changes
 
 INSTALLERS = {
     "macos": [
@@ -81,43 +82,24 @@ def build_test_changes(repository_url: str) -> str:
     earlier = [tag for tag in tags if git("rev-parse", f"refs/tags/{tag}^{{commit}}") != head]
     previous = git("describe", "--tags", "--abbrev=0", *[f"--match={tag}" for tag in earlier], head) if earlier else ""
     revision = f"{previous}..{head}" if previous else head
-    raw = git("log", "--no-merges", "--reverse", "--format=%s%x00%b%x00", revision)
-    sections: dict[str, list[str]] = {"功能": [], "修复": [], "性能与改进": [], "其他变更": []}
-    fields = raw.split("\0")
-
-    def markdown(text: str) -> str:
-        return re.sub(r"([\\`*\[\]<>_])", r"\\\1", text)
-
-    for index in range(0, len(fields) - 1, 2):
-        subject, body = fields[index].strip(), fields[index + 1].strip()
-        match = re.match(r"(feat|fix|perf|refactor|build|ci|docs|test|chore)(?:\(([^)]+)\))?!?:\s*(.+)", subject, re.DOTALL)
-        category = "其他变更"
-        title = subject
-        if match:
-            kind, scope, title = match.groups()
-            category = {"feat": "功能", "fix": "修复", "perf": "性能与改进", "refactor": "性能与改进"}.get(kind, category)
-            if scope:
-                title = f"{scope}: {title}"
-        item = f"- {markdown(title)}"
-        if body:
-            item += "\n" + "\n".join(f"  {markdown(line)}" for line in body.splitlines())
-        sections[category].append(item)
-    baseline = f"上一个 tag：`{previous}`" if previous else "无历史版本 tag，列出首次提测变更。"
-    parts = ["**本次提测变更**", baseline, f"构建提交：`{head[:12]}`", "以下列表与说明来自该范围的提交记录，供提测核对。"]
-    for title, items in sections.items():
-        if items:
-            parts.extend([f"**{title}**", "\n".join(items)])
-    if not any(sections.values()):
-        parts.append("该范围没有非合并提交。")
-    return "\n\n".join(parts)
+    raw = git("log", "--no-merges", "--reverse", "--format=%s%n%b", revision)
+    # An empty tree includes all current code for a first build without a baseline tag.
+    baseline = previous or subprocess.check_output(
+        ["git", "hash-object", "-t", "tree", "--stdin"], input="", text=True,
+    ).strip()
+    diff_range = f"{baseline}..{head}"
+    paths = ("--", ".", ":(exclude)package-lock.json", ":(exclude)pnpm-lock.yaml")
+    statistics = git("diff", "--stat", diff_range, *paths)
+    code = bound_code_diff(git("diff", "--no-ext-diff", "--unified=1", diff_range, *paths))
+    return summarize_changes(raw, statistics, code)
 
 
 TEST_SUGGESTIONS = """\
 **测试建议**
-1. **安装与启动**：全新安装或覆盖升级，验证应用能否正常启动进入主界面。
-2. **基础对话与交互**：新建会话与模型问答交互，验证流式输出、工具调用（Tool Call）与思考过程折叠。
-3. **功能改动验证**：核对本次提测的变更与修复点，验证相关业务流程与插件（如 Office / PPT 等）运行正常。
-4. **配置与状态恢复**：测试修改设置、重启应用或异常退出后，数据与配置状态能否正常持久化与恢复。\
+1. 安装与升级：检查全新安装、覆盖升级和启动。
+2. 对话与工具：检查流式输出、工具调用和思考折叠。
+3. 变更回归：逐项验证上述功能和问题修复。
+4. 状态恢复：检查设置、会话在重启和异常退出后的恢复。\
 """
 
 
