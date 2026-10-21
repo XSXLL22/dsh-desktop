@@ -8,6 +8,8 @@ import { applyMacosWindowBackdrop } from './macos-window-backdrop'
 import { checkBlockingPluginUpdates, PluginRecoveryEvidence, type PluginRecoveryCheck } from './plugin-recovery-market'
 import { RepairAgentService, type CrashEvidence } from './repair-agent'
 import { RepairDrafts } from './repair-drafts'
+import { rememberRepairReturnNavigation, restoreRepairReturnNavigation } from './repair-navigation'
+import { RepairSessionStore } from './state/repair-agent-sessions'
 import { buildRepairPlan, type RepairPlan } from './repair-policy'
 import { readRepairJournal, recordRepairAttempt, repairAttemptsForVersion } from './state/repair-job'
 import { spawn } from 'node:child_process'
@@ -242,6 +244,7 @@ let repairAgentService: RepairAgentService | undefined
 let repairAgentOpening: Promise<{ ok: boolean; error?: string }> | undefined
 /** A repair prompt from the Recovery page, started by the Safe Mode page load. */
 let pendingRepairPrompt: string | undefined
+let returnToNormalAfterRepair = false
 /** A Safe Mode reason raised while its manager was already open. */
 let pendingSafeModeNotice: string | undefined
 /** Why the last Repair Agent session could not open, until it is shown once. */
@@ -1069,6 +1072,15 @@ async function openHarness(
   focusIntent: WindowFocusIntent = 'automatic'
 ): Promise<void> {
   if (quitting || gpuFallbackRelaunching) return
+  if (!safeModeVisible && returnToNormalAfterRepair) {
+    returnToNormalAfterRepair = false
+    try {
+      const saved = await new RepairSessionStore(join(app.getPath('userData'), 'recovery')).load('normal')
+      if (saved && desktopStorageManager) restoreRepairReturnNavigation(desktopStorageManager, saved.sessionId)
+    } catch (error) {
+      runtime.note(`[repair] could not restore ordinary navigation: ${String(error)}`)
+    }
+  }
   const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
   const rendererUrl = desktopHarnessUrl(url, process.platform, runtime.snapshot().authToken)
   if (shouldLoadHarnessUrl(window.webContents.getURL(), url)) {
@@ -1592,11 +1604,17 @@ async function openRepairAgentPrompt(
     }
   }
   const service = repairAgentService
+  const previousNormalRepair = !safeModeVisible
+    ? await new RepairSessionStore(join(app.getPath('userData'), 'recovery')).load('normal')
+    : undefined
   const session = await service.initSession(options)
   if (!session.ok || !session.sessionId) {
     const error = session.error ?? 'unknown error'
     runtime.note(`[desktop] repair agent: session unavailable: ${error}`)
     return { ok: false, error }
+  }
+  if (!safeModeVisible && desktopStorageManager) {
+    rememberRepairReturnNavigation(desktopStorageManager, previousNormalRepair?.sessionId ?? session.sessionId)
   }
   desktopStorageManager?.setItem(HARNESS_CURRENT_SESSION_KEY, JSON.stringify({ sessionId: session.sessionId }))
   runtime.note(`[desktop] repair agent: session ${session.sessionId} opened`)
@@ -2359,6 +2377,7 @@ async function showPluginRecovery(options?: {
         try {
           await recordRepairAttempt(dshHome, { ...attempt, status: failed ? 'failed' : 'restart' })
           notice = failures.join('\n') || undefined
+          returnToNormalAfterRepair = true
           await launchWithFreshEvidence()
         } catch (error) {
           automaticRepairBlocked = true

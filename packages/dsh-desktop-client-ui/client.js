@@ -140,7 +140,7 @@ window.__ModuleLoader__.load({
         ? React.createElement(React.Fragment, null,
           React.createElement('rect', { x: 7, y: 2.75, width: 10, height: 18.5, rx: 2.25 }),
           React.createElement('path', { d: 'M10.2 5.5h3.6M10.5 18.35h3' }))
-        : React.createElement('path', { d: 'M14.7 6.3a5 5 0 0 0-6.4 6.4L3 18a2.1 2.1 0 0 0 3 3l5.3-5.3a5 5 0 0 0 6.4-6.4l-3.2 3.2-3-3z' }))
+        : React.createElement('path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-7.91 7.91a2.12 2.12 0 0 1-3-3l7.91-7.91a6 6 0 0 1 7.94-7.94z' }))
       return React.createElement('div', { 'data-dsh-desktop-utilities': true, 'data-wide': wide },
         typeof bridge.openRepairAgent === 'function' && React.createElement('button', {
           type: 'button', disabled: busy, title: t(busy ? 'opening' : 'open'),
@@ -206,13 +206,14 @@ window.__ModuleLoader__.load({
           [data-dsh-sidebar-settings] { display:flex; align-items:center; }
           [data-dsh-sidebar-settings-content] { flex:1; min-width:0; }
           [data-dsh-sidebar-settings-actions] { flex:none; display:flex; align-items:center; }
-          [data-dsh-desktop-utilities] { display:flex; flex:none; position:relative; }
+          [data-dsh-desktop-utilities] { display:flex; align-items:center; flex:none; position:relative; }
           [data-dsh-desktop-utilities][data-wide=false] { flex-direction:column; }
           [data-dsh-desktop-utilities] button {
             appearance:none; display:inline-flex; align-items:center; justify-content:center;
             width:32px; height:36px; padding:0; position:relative; border:0; border-radius:8px;
             color:var(--dsw-alias-label-secondary); background:transparent; cursor:pointer;
           }
+          [data-dsh-desktop-utilities] button > svg { display:block; flex:none; }
           [data-dsh-desktop-utilities] button:hover { background:var(--dsw-alias-interactive-bg-hover); color:var(--dsw-alias-label-primary); }
           [data-dsh-desktop-utilities] button:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:1px; }
           [data-dsh-desktop-utilities] button:disabled { opacity:.5; cursor:wait; }
