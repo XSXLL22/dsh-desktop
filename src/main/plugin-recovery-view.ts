@@ -238,7 +238,7 @@ export function buildPluginRecoveryViewModel(options: {
     brand: 'DSH Desktop',
     badge: zh ? '启动修复' : 'Startup recovery',
     heading: zh ? '启动遇到问题，DSH 暂时无法正常启动' : 'A startup error is preventing DSH from opening',
-    summary: canRepair ? (zh ? '别着急，我们已找到可尝试的修复方案。展开查看后，同意方案可点击“一键修复”；也可以选择回退应用版本。' : 'We have a repair plan you can try. Review it below, then choose Repair now or roll back the app version.') : (zh ? '暂时无法自动修复。进入维修 Agent 后，将在安全模式下继续排查。' : 'Automatic repair is unavailable. Continue with the repair Agent in Safe Mode.'),
+    summary: canRepair ? (zh ? '别着急，我们已找到可尝试的修复方案。展开查看后，同意方案可点击“一键修复”；也可以选择回退应用版本。' : 'We have a repair plan you can try. Review it below, then choose Repair now or roll back the app version.') : (zh ? '暂时无法自动修复。进入维修 Agent 模式后，将在安全模式下继续排查问题。' : 'Automatic repair is unavailable. The repair Agent will continue investigating in Safe Mode.'),
     roundAction,
     repairDetailsLabel: zh ? '查看修复方案' : 'View repair plan',
     repairDetails: canRepair ? [

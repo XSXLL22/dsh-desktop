@@ -36,6 +36,19 @@ function renderPlan(available: boolean) {
 }
 
 describe('recovery plan and rollback controls', () => {
+  it('keeps error details inline after the independently expandable repair plan', () => {
+    const plan = html.indexOf('<details class="repair-plan"')
+    const error = html.indexOf('<details class="error-details"')
+    const decision = html.indexOf('<div class="decision-row"')
+    expect(plan).toBeGreaterThan(0)
+    expect(error).toBeGreaterThan(html.indexOf('</details>', plan))
+    expect(error).toBeLessThan(decision)
+    expect(html.slice(error, html.indexOf('</details>', error))).toContain('id="show-log"')
+    expect(html).not.toContain('details-drawer')
+    expect(html).not.toContain('details-resizer')
+    expect(html).toContain('.decision-row.safe-mode-only { justify-content: flex-end; }')
+  })
+
   it('renders an expandable plan with no action until the user chooses', () => {
     const page = renderPlan(true)
     expect(page.get('repair-plan').hidden).toBe(false)
