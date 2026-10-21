@@ -102,7 +102,7 @@ it('shows only the empty notice when the enterprise has no plugins', async () =>
 
 it.each([
   ['protocol_mismatch', '当前客户端需要更新后的企业市场，请联系管理员升级服务端。'],
-  ['seat_revoked', '你的客户端使用授权已失效，请联系管理员确认席位，重新授权后再登录。'],
+  ['seat_revoked', '当前登录已失效，请重新登录。'],
   ['session_expired', '登录会话已过期，请重新登录。']
 ])('shows the specific market failure for %s', async (errorCode, copy) => {
   const { text } = await mountMarket({ catalogFailure: { error: 'raw server text', errorCode } })
