@@ -1,4 +1,5 @@
 import { developmentEnvironment } from './development-environment'
+import { createDevelopmentRepairDemo } from './development-repair-demo'
 import { desktopFileUrl, navigateDesktopWindow } from './desktop-navigation'
 import { recoverStartupConfiguration } from './startup-config-recovery'
 import { inspectStartupConfiguration, repairStartupConfig } from './state/startup-config-recovery'
@@ -233,6 +234,8 @@ let runtime: HarnessRuntime
 let desktopStorageManager: DesktopStorageManager | undefined
 let windowStateManager: WindowStateManager | undefined
 let mobileBridge: LanMobileBridge
+let developmentRepairDemo: ReturnType<typeof createDevelopmentRepairDemo>
+let developmentDemoUnknown = false
 let repairAgentService: RepairAgentService | undefined
 let repairAgentOpening: Promise<{ ok: boolean; error?: string }> | undefined
 /** A repair prompt from the Recovery page, started by the Safe Mode page load. */
@@ -2110,8 +2113,8 @@ async function showPluginRecovery(options?: {
   try {
     while (!quitting) {
       const snapshot = runtime.snapshot()
-      const message = recoveryMessage ?? snapshot.message
-      const detection = await detectPluginRecovery({
+      const message = developmentDemoUnknown ? '[演示] 未知启动错误（模拟证据，非真实崩溃）' : recoveryMessage ?? snapshot.message
+      const detection = developmentDemoUnknown ? { plugins: [], logs: ['[DEMO] Unknown startup failure preview; no real crash was induced.'] } : await detectPluginRecovery({
         dshHome,
         initialLogs: recoveryLogs ?? snapshot.logs,
         startupFailures: followRendererLogs ? undefined : snapshot.pluginFailures,
@@ -2120,7 +2123,7 @@ async function showPluginRecovery(options?: {
         slotProviderNodeModulesPaths: [join(bundledRuntimeRoot(), 'node_modules')],
         timeoutMs: waitForRendererEvidence ? PLUGIN_RECOVERY_EVIDENCE_TIMEOUT_MS : 0
       })
-      detection.plugins = evidence.targets(detection.plugins, removedPlugins)
+      if (!developmentDemoUnknown) detection.plugins = evidence.targets(detection.plugins, removedPlugins)
       // A plugin the deferred migration left manifest-only is not broken; removing
       // it would delete a working plugin because of an install-time failure. A
       // pending plugin whose legacy copy is installed can still be the culprit.
@@ -2151,8 +2154,13 @@ async function showPluginRecovery(options?: {
 
       const runtimeVersion =
         (await readBundledDshVersion(join(bundledRuntimeRoot(), 'node_modules'))) || '0.1.2-alpha.1'
+      const demoChecks: PluginRecoveryCheck[] = []
+      for (const plugin of detection.plugins) {
+        const checked = await developmentRepairDemo?.checkPlugin(plugin)
+        if (checked) demoChecks.push(checked)
+      }
       const pluginChecks = await checkBlockingPluginUpdates({
-        plugins: detection.plugins,
+        plugins: detection.plugins.filter(plugin => !demoChecks.some(check => check.packageName === plugin)),
         attemptedUpgrades,
         locale: harnessLocale(),
         check: async (targetPlugin) => {
@@ -2168,6 +2176,7 @@ async function showPluginRecovery(options?: {
           })
         }
       })
+      pluginChecks.push(...demoChecks)
       const upgradeCandidate = detection.plugins.length === 1 ? pluginChecks[0]?.upgradeCandidate : undefined
 
       // dshmarket is a core bundle, so it never reaches `detection.plugins`
@@ -2222,7 +2231,7 @@ async function showPluginRecovery(options?: {
         attempts,
         configurationRepairable: configurationIssues.length > 0 || startupRepairs.length > 0
       })
-      const repairPlan: RepairPlan = journalUnavailable ? { kind: 'unknown', plugins: [], upgrades: [] }
+      const repairPlan: RepairPlan = journalUnavailable || developmentDemoUnknown ? { kind: 'unknown', plugins: [], upgrades: [] }
         : planned.kind === 'unknown' && currentAttempts.some(attempt => attempt.status !== 'verified')
           ? { ...planned, kind: 'known' } : planned
       const rollback = repairPlan.kind === 'known' ? await getApplicationRollbackStatus() : undefined
@@ -2338,7 +2347,7 @@ async function showPluginRecovery(options?: {
         try {
           await runtime.stop()
           for (const candidate of repairPlan.upgrades) {
-            const result = await (candidate.packageName === 'dshmarket'
+            const result = await developmentRepairDemo?.upgradePlugin(candidate) ?? await (candidate.packageName === 'dshmarket'
               ? upgradeMarketInSharedTree({
                 dshHome, dshEntryPath: dshEntryPath(), targetVersion: candidate.targetVersion,
                 nodeExecutablePath: bundledNodePath(), pnpmEntryPath: bundledPnpmEntryPath(),
@@ -3202,6 +3211,7 @@ function installMenu(): void {
     },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
   ]
+  if (developmentRepairDemo) template.push({ label: '维修场景演示', submenu: developmentRepairDemo.menu })
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   if (process.platform === 'win32' && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setMenuBarVisibility(false)
@@ -3632,6 +3642,53 @@ async function bootstrap(): Promise<void> {
         stopUpdateManager()
       }
     })
+  }
+  developmentRepairDemo = createDevelopmentRepairDemo({
+    enabled: developmentBuild && !app.isPackaged && process.env.DSH_DEV_REPAIR_DEMO === '1',
+    profile: developmentConfig.profile,
+    dshHome,
+    note: message => {
+      runtime.note(`[repair-demo] ${message}`)
+      if (message.startsWith('维修演示失败')) void dialog.showMessageBox({ type: 'error', message, buttons: ['知道了'] })
+    },
+    restartNormal: async () => {
+      developmentDemoUnknown = false
+      if (failureRecoveryVisible) { resolvePluginRecoveryAction('restart'); return }
+      await launchHarness()
+    },
+    showUnknownRecovery: async () => {
+      developmentDemoUnknown = true
+      if (failureRecoveryVisible) { resolvePluginRecoveryAction('refresh'); return }
+      void showPluginRecovery({ message: '[演示] 未知启动故障（模拟证据，非真实崩溃）', logs: ['[DEMO] Startup failed without identifiable plugin ownership.'] })
+    },
+    openNormalRepair: async () => {
+      developmentDemoUnknown = false
+      if (failureRecoveryVisible || safeModeVisible || runtime.snapshot().phase !== 'ready') {
+        await dialog.showMessageBox({ type: 'info', message: '请先选择“清除演示故障并正常重启”，再打开正常环境维修 Agent。', buttons: ['知道了'] })
+        return
+      }
+      const started = await startRepairAgentPrompt('这是隔离环境的非阻塞故障演示。请先询问我需要排查的问题。', { fresh: true })
+      if (started.ok) reloadHarnessWindow()
+      else await dialog.showMessageBox({ type: 'warning', message: started.error ?? '无法打开维修 Agent', buttons: ['知道了'] })
+    },
+    openSafeRepair: async () => {
+      if (failureRecoveryVisible) { resolvePluginRecoveryAction('agent:这是安全模式维修演示，请根据诊断信息继续排查。'); return }
+      pendingRepairPrompt = '这是安全模式维修演示，请根据诊断信息继续排查。'
+      await launchSafeHarness()
+      await repairAgentOpening
+      const prompt = takePendingRepairPrompt()
+      if (prompt !== undefined) {
+        const started = await startRepairAgentPrompt(prompt)
+        if (started.ok) reloadHarnessWindow()
+        else void showSafeModeManager({ notice: repairAgentFailureNotice(started.error), noticeTone: 'error' }).catch(showUnexpectedError)
+      } else if (repairAgentLaunchError) {
+        void showSafeModeManager({ notice: repairAgentFailureNotice(repairAgentLaunchError), noticeTone: 'error' }).catch(showUnexpectedError)
+      }
+    }
+  })
+  if (developmentRepairDemo && mainWindow) {
+    mainWindow.setTitle('DSH Desktop · V0.13.0 维修演示')
+    mainWindow.on('page-title-updated', event => event.preventDefault())
   }
   installMenu()
   if (startInSafeMode) {
