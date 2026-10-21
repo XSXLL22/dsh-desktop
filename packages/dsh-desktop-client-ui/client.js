@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const { BrandWordmark, FishLogo, MenuItemButton } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const { BrandWordmark, FishLogo, MenuItemButton, Tooltip } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     // Tight bounds of the mark inside its 1000x1000 source artwork.
     const BRAND_MARK_VIEWBOX = { x: 42, y: 218, width: 898, height: 564 }
@@ -142,11 +142,14 @@ window.__ModuleLoader__.load({
           React.createElement('path', { d: 'M10.2 5.5h3.6M10.5 18.35h3' }))
         : React.createElement('path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-7.91 7.91a2.12 2.12 0 0 1-3-3l7.91-7.91a6 6 0 0 1 7.94-7.94z' }))
       return React.createElement('div', { 'data-dsh-desktop-utilities': true, 'data-wide': wide },
-        typeof bridge.openRepairAgent === 'function' && React.createElement('button', {
-          type: 'button', disabled: busy, title: t(busy ? 'opening' : 'description'),
-          'aria-label': t(busy ? 'opening' : 'open'), 'data-dsh-repair-entry': true,
+        typeof bridge.openRepairAgent === 'function' && React.createElement(Tooltip, {
+          label: t(busy ? 'opening' : 'description'), side: 'top', align: 'end',
+          portal: true, maxWidth: 280, delayMs: 0, focusDelayMs: 0
+        }, React.createElement('button', {
+          type: 'button', disabled: busy,
+          'aria-label': t(busy ? 'opening' : 'open'), 'aria-description': t('description'), 'data-dsh-repair-entry': true,
           onClick: () => { void open(() => bridge.openRepairAgent()) }
-        }, icon('repair')),
+        }, icon('repair'))),
         typeof bridge.openMobilePairing === 'function' && (wide || connected) && React.createElement('button', {
           type: 'button', disabled: busy, title: t(connected ? 'phoneManage' : 'phone'),
           'aria-label': t(connected ? 'phoneManage' : 'phone'), 'data-dsh-mobile-entry': true,
