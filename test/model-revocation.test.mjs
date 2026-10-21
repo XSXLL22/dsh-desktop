@@ -23,7 +23,7 @@ const react = {
   useMemo: fn => fn(), useEffect() {}, useLayoutEffect() {}, useId: () => 'test-model'
 }
 let modelClient
-vm.runInNewContext(modelSource.replace('exports.apply = apply;', 'exports.ModelSelect = ModelSelect; exports.zh = zh; exports.en = en; exports.apply = apply;'), {
+vm.runInNewContext(modelSource.replace('exports.apply = apply;', 'exports.ModelSelect = ModelSelect; exports.optionsOf = optionsOf; exports.zh = zh; exports.en = en; exports.apply = apply;'), {
   window: { __ModuleLoader__: { load({ factory }) {
     modelClient = factory(id => ({
       react, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'react-dom': {},
@@ -58,7 +58,7 @@ function fixture(value = initial, selected = old, available = true) {
 
 function caption(directory, locale = 'zh') {
   const dictionary = modelClient[locale]
-  const tree = modelClient.ModelSelect({ locked: false, available: true, directory: directory.store, load() {}, select() {}, t: key => dictionary[key] })
+  const tree = modelClient.ModelSelect({ locked: false, available: true, directory: directory.store, load() {}, select() {}, t: (key, args = {}) => dictionary[key].replace(/\{(\w+)\}/g, (_match, name) => args[name]) })
   const flatten = node => typeof node === 'string' ? [node] : Array.isArray(node) ? node.flatMap(flatten) : node?.props ? flatten(node.props.children) : []
   return flatten(tree).join(' ')
 }
@@ -216,4 +216,22 @@ it('preserves cancellation while model recovery is in flight', async () => {
   settle({ ok: true, value: { selected: replacement } })
   await expect(pending).rejects.toThrow()
   expect(i.sendSession).not.toHaveBeenCalled()
+})
+
+// Display fallback applies to trigger, menu/search names, tooltips and /model rows.
+it.each([undefined, '', '   ', 'bisheng:2', 'bisheng-enterprise/bisheng:2'])('shows a localized caption for enterprise display name %s', async name => {
+  const f = fixture(catalogValue([group(enterprise, [{ id: old.model, name }])]))
+  await f.directory.load()
+  expect(caption(f.directory)).toContain('企业模型 1')
+  expect(caption(f.directory, 'en')).toContain('Enterprise model 1')
+  const rows = modelClient.optionsOf(f.directory.store.getSnapshot(), (key, args = {}) => modelClient.zh[key].replace(/\{(\w+)\}/g, (_match, name) => args[name]))
+  expect(rows[0]).toMatchObject({ id: 'bisheng-enterprise/bisheng:2', label: '企业模型 1' })
+  expect(f.directory.store.getSnapshot().current).toEqual(old)
+})
+it('keeps administrator display names and distinguishes unnamed enterprise models', async () => {
+  const f = fixture(catalogValue([group(enterprise, [{ id: old.model, name: '  DeepSeek V3  ' }, { id: 'bisheng:3', name: 'bisheng:3' }, { id: 'bisheng:4', name: '' }])]))
+  await f.directory.load()
+  expect(caption(f.directory)).toContain('DeepSeek V3')
+  const rows = modelClient.optionsOf(f.directory.store.getSnapshot(), (key, args = {}) => modelClient.zh[key].replace(/\{(\w+)\}/g, (_match, name) => args[name]))
+  expect(rows.map(row => row.label)).toEqual(['DeepSeek V3', '企业模型 2', '企业模型 3'])
 })
