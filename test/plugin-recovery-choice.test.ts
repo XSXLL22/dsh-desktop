@@ -18,7 +18,7 @@ function renderChoice(offerRepairAgent: boolean) {
   }
   const action = vi.fn()
   runInNewContext(scriptText, {
-    model: { locale: 'zh', offerRepairAgent, safeModeLabel: '进入维修 Agent（安全模式）' },
+    model: { locale: 'zh', offerRepairAgent, safeModeLabel: '让 Agent 帮我修' },
     document: { getElementById: () => button, querySelectorAll: () => [button] },
     window: { dshRecovery: { action } }
   })
@@ -29,7 +29,7 @@ describe('standalone recovery Agent choice', () => {
   it('shows the alternative after a failed repair but dispatches nothing until clicked', () => {
     const page = renderChoice(true)
     expect(page.button.hidden).toBe(false)
-    expect(page.button.textContent).toBe('进入维修 Agent（安全模式）')
+    expect(page.button.textContent).toBe('让 Agent 帮我修')
     expect(page.action).not.toHaveBeenCalled()
     page.click()
     expect(page.button.disabled).toBe(true)

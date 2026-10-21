@@ -46,7 +46,8 @@ describe('plugin recovery view model', () => {
     expect(model.safeModeOnly).toBe(true)
     expect(model.canRepair).toBe(false)
     expect(model.rollbackLabel).toBeUndefined()
-    expect(model.primaryLabel).toContain('repair Agent (Safe Mode)')
+    expect(model.primaryLabel).toBe('Ask Agent to help')
+    expect(model.summary).toContain('Safe Mode')
   })
   it('keeps rollback available when known one-click rounds are exhausted', () => {
     const model = buildPluginRecoveryViewModel({ snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh', rollbackVersion: '0.12.0', repairPlan: { kind: 'known', plugins: [], upgrades: [] } })
@@ -80,7 +81,7 @@ describe('plugin recovery view model', () => {
     })
     expect(model.canRepair).toBe(false)
     expect(model.offerRepairAgent).toBe(false)
-    expect(model.primaryLabel).toContain('Open repair Agent')
+    expect(model.primaryLabel).toBe('Ask Agent to help')
     expect(model.rollbackLabel).toContain('0.12.0')
     expect(model.safeModeOnly).toBe(false)
     expect(model.notice).toContain('Choose what to do next')

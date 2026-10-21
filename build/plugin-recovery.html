@@ -359,7 +359,7 @@
         flex: 0 0 auto;
         display: inline-flex;
         align-items: center;
-        margin-top: 4px;
+        margin-top: 16px;
       }
       .details-toggle::after {
         width: 6px;
@@ -372,7 +372,7 @@
         transform-origin: center;
       }
 
-      /* Technical details open as a second column beside the content, between
+      /* Error details open as a second column beside the content, between
          header and footer. Closed, the column has no width; open, it takes a
          fixed width and the content column shrinks to fit. */
       .body-row {
@@ -617,14 +617,14 @@
         <p class="notice" id="notice" role="alert"></p>
         <div class="heading-row">
           <h1 id="heading"></h1>
-          <button class="text-button details-toggle" id="advanced-label" type="button"
-            aria-haspopup="dialog" aria-controls="details-drawer" aria-expanded="false"></button>
         </div>
         <p class="summary" id="summary"></p>
         <details class="repair-plan" id="repair-plan" hidden>
           <summary id="repair-plan-label"></summary>
           <ul id="repair-plan-steps"></ul>
         </details>
+        <button class="text-button details-toggle" id="advanced-label" type="button"
+          aria-controls="details-drawer" aria-expanded="false"></button>
 
         <section class="conflict-card" id="conflict-card" aria-label="Plugin recovery details">
           <ul class="plugins" id="plugins"></ul>
@@ -641,6 +641,7 @@
               <button class="button" id="repair-agent" type="button" hidden></button>
               <button class="button primary" id="primary" type="button"></button>
             </div>
+            <p class="rollback-note" id="agent-environment-note" hidden></p>
             <p class="safety">
               <span class="safety-icon" aria-hidden="true">✓</span>
               <span id="safety-note"></span>
@@ -721,11 +722,11 @@
       setText('summary', model.summary)
       setText('safety-note', model.safetyNote)
       setText('advanced-label', model.advancedLabel)
-      setText('drawer-title', model.locale === 'zh' ? '技术详情' : 'Technical details')
+      setText('drawer-title', model.locale === 'zh' ? '报错详情' : 'Error details')
       const detailsDrawer = document.getElementById('details-drawer')
       const detailsToggle = document.getElementById('advanced-label')
       const detailsClose = document.getElementById('details-close')
-      detailsClose.setAttribute('aria-label', model.locale === 'zh' ? '关闭技术详情' : 'Close technical details')
+      detailsClose.setAttribute('aria-label', model.locale === 'zh' ? '关闭报错详情' : 'Close error details')
       let detailsReturnFocus = null
       const setDetailsOpen = (open) => {
         detailsDrawer.classList.toggle('open', open)
@@ -807,7 +808,7 @@
         event.preventDefault()
       })
       detailsResizer.setAttribute('aria-valuemin', String(DETAILS_MIN))
-      detailsResizer.setAttribute('aria-label', model.locale === 'zh' ? '调整技术详情面板宽度' : 'Resize the technical details panel')
+      detailsResizer.setAttribute('aria-label', model.locale === 'zh' ? '调整报错详情面板宽度' : 'Resize the error details panel')
       detailsToggle.addEventListener('click', () => setDetailsOpen(!detailsDrawer.classList.contains('open')))
       detailsClose.addEventListener('click', () => setDetailsOpen(false))
       document.addEventListener('keydown', (event) => {
@@ -898,6 +899,11 @@
         item.textContent = step
         document.getElementById('repair-plan-steps').appendChild(item)
       }
+      const agentEnvironmentNote = document.getElementById('agent-environment-note')
+      agentEnvironmentNote.hidden = !model.offerRepairAgent
+      agentEnvironmentNote.textContent = model.locale === 'zh'
+        ? 'Agent 将在安全模式下排查，第三方插件暂不加载。'
+        : 'The Agent runs in Safe Mode with third-party plugins temporarily disabled.'
       const rollbackNote = document.getElementById('rollback-note')
       rollbackNote.hidden = !model.rollbackUnavailableReason
       rollbackNote.textContent = model.rollbackUnavailableReason || ''
@@ -945,7 +951,7 @@
       // one-click round is available. No action is dispatched on page load.
       const repairAgent = document.getElementById('repair-agent')
       repairAgent.hidden = !model.offerRepairAgent
-      repairAgent.textContent = model.safeModeLabel || (model.locale === 'zh' ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)')
+      repairAgent.textContent = model.safeModeLabel || (model.locale === 'zh' ? '让 Agent 帮我修' : 'Ask Agent to help')
       repairAgent.addEventListener('click', () => {
         document.querySelectorAll('button').forEach((control) => { control.disabled = true })
         void window.dshRecovery.action('agent', { prompt: repairAgentPrompt })
