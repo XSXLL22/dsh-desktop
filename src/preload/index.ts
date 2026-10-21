@@ -214,9 +214,8 @@ async function mountSafeModeBanner(): Promise<void> {
       .actions button { flex:1 1 auto; min-height:26px; padding:3px 8px; border:1px solid var(--dsw-alias-border-l2, rgba(120,120,125,.35)); border-radius:8px; color:var(--dsw-alias-label-primary, #3f3f46); background:transparent; cursor:pointer; font:inherit; font-size:11px; font-weight:600; white-space:nowrap; }
       .actions button:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(32,33,36,.08)); }
       .actions button:disabled { opacity:.55; cursor:default; }
-      .compact { display:none; width:32px; height:32px; padding:0; border:1px solid var(--dsw-alias-border-l2, rgba(120,120,125,.35)); border-radius:9px; background:transparent; cursor:pointer; place-items:center; }
+      .compact { display:none; width:32px; height:32px; padding:0; border:1px solid var(--dsw-alias-border-l2, rgba(120,120,125,.35)); border-radius:9px; background:transparent; place-items:center; }
       :host([data-compact="true"]) .compact { display:grid; }
-      .compact:hover { background:var(--dsw-alias-interactive-bg-hover, rgba(32,33,36,.08)); }
     `
     const bar = document.createElement('div')
     bar.className = 'bar'
@@ -230,46 +229,33 @@ async function mountSafeModeBanner(): Promise<void> {
     const description = document.createElement('span')
     description.className = 'description'
     description.textContent = safeModeLocale === 'zh'
-      ? '已暂时停用所有第三方插件，可停用有问题的插件后重启。'
-      : 'All third-party plugins are temporarily disabled. Disable a problematic plugin, then restart.'
+      ? '已暂时停用所有第三方插件，维修完成后可退出安全模式并重启。'
+      : 'All third-party plugins are temporarily disabled. Exit Safe Mode and restart after repairs.'
     const actions = document.createElement('span')
     actions.className = 'actions'
-    const manage = document.createElement('button')
-    manage.type = 'button'
-    manage.textContent = safeModeLocale === 'zh' ? '管理插件' : 'Manage plugins'
-    manage.setAttribute('aria-label', safeModeLocale === 'zh' ? '停用或启用第三方插件' : 'Disable or re-enable third-party plugins')
-    manage.addEventListener('click', () => {
-      void ipcRenderer.invoke('safe-mode:manage')
-    })
     const exit = document.createElement('button')
     exit.type = 'button'
     exit.textContent = safeModeLocale === 'zh' ? '退出安全模式' : 'Exit Safe Mode'
     exit.setAttribute('aria-label', safeModeLocale === 'zh' ? '退出安全模式并重启' : 'Exit Safe Mode and restart')
     exit.addEventListener('click', () => {
-      manage.disabled = true
       exit.disabled = true
       void ipcRenderer.invoke('safe-mode:exit').then((result) => {
         if (result?.blocked) {
-          manage.disabled = false
           exit.disabled = false
         }
       }).catch(() => {
-        manage.disabled = false
         exit.disabled = false
       })
     })
-    actions.append(manage, exit)
+    actions.append(exit)
     head.append(dot, label)
     bar.append(head, description, actions)
-    const compact = document.createElement('button')
-    compact.type = 'button'
+    const compact = document.createElement('span')
     compact.className = 'compact'
-    compact.title = safeModeLocale === 'zh' ? '安全模式：管理插件' : 'Safe Mode: manage plugins'
+    compact.title = safeModeLocale === 'zh' ? '安全模式：第三方插件已停用' : 'Safe Mode: third-party plugins disabled'
+    compact.setAttribute('role', 'img')
     compact.setAttribute('aria-label', compact.title)
     compact.appendChild(dot.cloneNode(true))
-    compact.addEventListener('click', () => {
-      void ipcRenderer.invoke('safe-mode:manage')
-    })
     shadow.append(style, bar, compact)
     safeModeBannerHost = host
     placeSafeModeBanner()
