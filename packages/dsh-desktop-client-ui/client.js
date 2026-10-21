@@ -104,8 +104,42 @@ window.__ModuleLoader__.load({
       }, unread ? (chinese ? '标为已读' : 'Mark as read') : (chinese ? '标为未读' : 'Mark as unread'))
     }
 
-    const inject = ['slots', 'remote.session', 'sessions', 'uiWorkspace']
+    const REPAIR_NS = 'dsh-desktop-repair'
+    function RepairEntry({ t }) {
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const mounted = React.useRef(true)
+      React.useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+      if (typeof window.dshDesktop?.openRepairAgent !== 'function') return null
+      return React.createElement('div', { 'data-dsh-repair-entry': true },
+        React.createElement('button', {
+          type: 'button', disabled: busy,
+          style: { color: 'var(--dsw-alias-label-primary)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px' },
+          onClick: async () => {
+            if (busy) return
+            setBusy(true); setError('')
+            try {
+              const result = await window.dshDesktop.openRepairAgent()
+              if (!result.ok) throw new Error(result.error || t('failed'))
+            } catch (reason) {
+              if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason))
+            } finally { if (mounted.current) setBusy(false) }
+          }
+        }, t(busy ? 'opening' : 'open')),
+        error && React.createElement('span', { role: 'alert' }, error))
+    }
+
+    const inject = ['locale', 'slots', 'remote.session', 'sessions', 'uiWorkspace']
     function apply(ctx) {
+      ctx.effect(() => ctx.locale.register(REPAIR_NS, {
+        zh: { open: '维修 Agent', opening: '正在打开维修…', failed: '无法打开维修会话，请重试' },
+        en: { open: 'Repair Agent', opening: 'Opening repair…', failed: 'Could not open repair. Please retry.' }
+      }))
+      const repairText = ctx.locale.bind(REPAIR_NS)
+      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+        name: 'sidebar.footer.action', id: 'desktop-repair', locale: REPAIR_NS,
+        inject: () => ({ t: repairText })
+      }, RepairEntry))
       ctx.effect(() => {
         const id = 'dsh-desktop-preset-toolbar-style'
         if (document.getElementById(id)) return

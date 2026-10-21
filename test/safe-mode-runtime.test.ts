@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { it, expect } from 'vitest'
+import { RepairAgentService } from '../src/main/repair-agent'
+import { RepairSessionStore } from '../src/main/state/repair-agent-sessions'
 import { HarnessRuntime } from '../src/main/runtime/harness-runtime'
 import { ensureSafeModeProfile, SAFE_MODE_PROFILE } from '../src/main/state/safe-mode-profile'
 import { BRIDGE_READY_LINE } from '../packages/dsh-desktop-log-bridge/index.js'
@@ -86,11 +88,40 @@ registerHooks({ resolve(specifier, context, next) {
     const created = await fetch(new URL('/api/session/create', url), {
       method: 'POST',
       headers: { Cookie: cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'client-request', rpcId: 'safe-mode-session', method: 'session/create', payload: { args: { request: {} } } })
+      body: JSON.stringify({ type: 'client-request', rpcId: 'safe-mode-session', method: 'session/create', payload: { args: { request: { cwd: home, agentPreset: 'desktop-repair' } } } })
     })
     const envelope = await created.json()
     expect(envelope.result?.ok, JSON.stringify(envelope)).toBe(true)
     expect(envelope.result?.value?.sessionId).toBeTruthy()
+    expect(envelope.result?.value?.agentPreset).toBe('desktop-repair')
+    // Desktop and Harness can both restart while the ordinary session remains
+    // durable. Restore through the real cold-safe list API, not a live map.
+    const admitted = await fetch(new URL('/api/session/prompt', url), {
+      method: 'POST', headers: { Cookie: cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'repair-persist', method: 'session/prompt', payload: { args: { request: {
+        requestId: 'repair-persist-request', sessionId: envelope.result.value.sessionId,
+        mode: 'queue', content: [{ type: 'text', text: 'Diagnose startup failure' }]
+      } } } })
+    })
+    expect((await admitted.json()).result?.ok).toBe(true)
+    const sessionStateDirectory = join(home, 'desktop-repair-state')
+    await new RepairSessionStore(sessionStateDirectory).save('safe', {
+      sessionId: envelope.result.value.sessionId, briefed: false
+    })
+    await recovered.stop()
+    await recovered.start(home, SAFE_MODE_PROFILE)
+    expect(recovered.snapshot().phase, recovered.snapshot().logs.join('\n')).toBe('ready')
+    const repair = new RepairAgentService({
+      harnessUrl: () => recovered.snapshot().url,
+      harnessAuthToken: () => recovered.snapshot().authToken,
+      environment: () => 'safe', sessionStateDirectory,
+      ensureHarnessReady: async () => {}, workspaceDirectory: home, locale: () => 'en'
+    })
+    expect(await repair.initSession()).toMatchObject({
+      ok: true, sessionId: envelope.result.value.sessionId, created: false, needsBriefing: true
+    })
+    repair.dispose()
+
     // Recovery uses its own overlay and never edits the normal composition.
     expect(await readFile(normalPatch, 'utf8')).toContain('name: \'dsh-ppt-composer\'')
   } finally {

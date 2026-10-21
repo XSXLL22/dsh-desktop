@@ -615,12 +615,6 @@
           <button class="text-button details-toggle" id="advanced-label" type="button"
             aria-haspopup="dialog" aria-controls="details-drawer" aria-expanded="false"></button>
         </div>
-        <div class="progress" id="progress">
-          <span class="progress-text" id="progress-text"></span>
-          <span class="progress-track" role="progressbar" id="progress-bar" aria-labelledby="progress-text" aria-valuemin="0" aria-valuemax="100">
-            <span class="progress-fill" id="progress-fill"></span>
-          </span>
-        </div>
         <p class="summary" id="summary"></p>
 
         <section class="conflict-card" id="conflict-card" aria-label="Plugin recovery details">
@@ -866,7 +860,7 @@
       const safeModeBtn = document.getElementById('safe-mode')
       if (safeModeBtn) {
         // The primary action already enters Safe Mode when no repair is available.
-        safeModeBtn.hidden = safeModeOnly
+        safeModeBtn.hidden = true
         safeModeBtn.textContent = model.safeModeLabel || (model.locale === 'zh' ? '进入安全模式' : 'Enter Safe Mode')
         safeModeBtn.addEventListener('click', () => {
           safeModeBtn.disabled = true
@@ -874,135 +868,24 @@
           if (secondary) secondary.disabled = true
           document.querySelectorAll('.plugin-upgrade-btn').forEach((btn) => { btn.disabled = true })
           safeModeBtn.textContent = model.locale === 'zh' ? '正在进入安全模式…' : 'Entering Safe Mode…'
-          navigate('safe-mode')
+          void window.dshRecovery.action('agent', { prompt: repairAgentPrompt })
         })
       }
 
-      const progress = document.getElementById('progress')
-      if (model.progress) {
-        const handled = Array.isArray(model.removedPlugins) ? model.removedPlugins.length : 0
-        const remaining = Array.isArray(model.plugins) ? model.plugins.length : 0
-        const percent = Math.round((handled / Math.max(1, handled + remaining)) * 100)
-        setText('progress-text', model.progress)
-        document.getElementById('progress-fill').style.width = `${percent}%`
-        document.getElementById('progress-bar').setAttribute('aria-valuenow', String(percent))
-        progress.classList.add('visible')
-      }
       const notice = document.getElementById('notice')
       if (model.notice) {
         notice.textContent = model.notice
         notice.classList.add('visible')
       }
 
-      const conflictCard = document.getElementById('conflict-card')
-      const pluginList = document.getElementById('plugins')
-      if (Array.isArray(model.plugins) && model.plugins.length > 0) {
-        pluginList.classList.add('visible')
-        for (const [pluginIndex, plugin] of model.plugins.entries()) {
-          const item = document.createElement('li')
-          const mark = document.createElement('span')
-          mark.className = 'plugin-mark'
-          mark.setAttribute('aria-hidden', 'true')
-          mark.textContent = '!'
-          const name = document.createElement('span')
-          name.className = 'plugin-name'
-          const check = model.pluginChecks?.[pluginIndex]
-          name.textContent = check?.packageName || String(plugin)
-          item.append(mark, name)
-
-          if (check) {
-            const hint = document.createElement('span')
-            hint.className = 'plugin-check-hint'
-            hint.textContent = check.hint
-            item.appendChild(hint)
-            const actions = document.createElement('div')
-            actions.className = 'plugin-check-actions'
-            item.appendChild(actions)
-            const addAction = (type, label) => {
-              const button = document.createElement('button')
-              button.type = 'button'
-              button.className = `plugin-upgrade-btn${type === 'uninstall' ? ' plugin-remove-btn' : ''}`
-              button.textContent = label
-              button.addEventListener('click', () => {
-                document.querySelectorAll('button').forEach((control) => { control.disabled = true })
-                navigate(`${type}:${check.packageName}`)
-              })
-              actions.appendChild(button)
-            }
-            if (check.upgradeCandidate) {
-              addAction('upgrade', model.locale === 'zh'
-                ? `升级至 v${check.upgradeCandidate.targetVersion}`
-                : `Upgrade to v${check.upgradeCandidate.targetVersion}`)
-            }
-            addAction('uninstall', model.locale === 'zh' ? '卸载此插件' : 'Remove this plugin')
-          } else {
-          const candidate = model.upgradeCandidate
-          const candidateName = candidate
-            ? (candidate.packageName.startsWith('@')
-                ? candidate.packageName.slice(candidate.packageName.indexOf('/') + 1)
-                : candidate.packageName)
-            : undefined
-
-          if (candidate && (candidateName === plugin || model.plugins.length === 1)) {
-            const upgradeBtn = document.createElement('button')
-            upgradeBtn.type = 'button'
-            upgradeBtn.className = 'plugin-upgrade-btn plugin-upgrade'
-            const versionStr = candidate.targetVersion.startsWith('v')
-              ? candidate.targetVersion
-              : `v${candidate.targetVersion}`
-            upgradeBtn.textContent = model.upgradeHint || (model.locale === 'zh' ? `该插件有新的兼容版本（${versionStr}）` : `A compatible update is available (${versionStr})`)
-            upgradeBtn.title = model.locale === 'zh' ? `可升级至 ${versionStr}` : `Can upgrade to ${versionStr}`
-            upgradeBtn.addEventListener('click', () => {
-              primary.click()
-            })
-            item.appendChild(upgradeBtn)
-          }
-
-          }
-
-          pluginList.appendChild(item)
-        }
+      // Plugin details stay in the technical drawer; users approve one complete round.
+      document.getElementById('conflict-card').hidden = true
+      if (model.rollbackUnavailableReason) {
+        const note = document.createElement('p')
+        note.className = 'summary'
+        note.textContent = model.rollbackUnavailableReason
+        document.querySelector('.column').appendChild(note)
       }
-
-      // The market is a core bundle with its own repair, never the plugin
-      // removal path; every action here names no version — main picks it.
-      const market = model.marketCheck
-      if (market) {
-        pluginList.classList.add('visible')
-        const item = document.createElement('li')
-        const mark = document.createElement('span')
-        mark.className = 'plugin-mark'
-        mark.setAttribute('aria-hidden', 'true')
-        mark.textContent = '!'
-        const name = document.createElement('span')
-        name.className = 'plugin-name'
-        name.textContent = String(market.name)
-        const hint = document.createElement('span')
-        hint.className = 'plugin-check-hint'
-        hint.textContent = String(market.hint || '')
-        const actions = document.createElement('div')
-        actions.className = 'plugin-check-actions'
-        // Same row, buttons, and styles as a third-party plugin's check above.
-        const addMarketAction = (action, label, className) => {
-          if (!label) return
-          const button = document.createElement('button')
-          button.type = 'button'
-          button.className = className
-          button.textContent = String(label)
-          button.addEventListener('click', () => {
-            document.querySelectorAll('button').forEach((control) => { control.disabled = true })
-            navigate(action)
-          })
-          actions.appendChild(button)
-        }
-        addMarketAction('market-upgrade', market.upgradeLabel, 'plugin-upgrade-btn')
-        addMarketAction('market-remove', market.removeLabel, 'plugin-upgrade-btn plugin-remove-btn')
-        item.append(mark, name, hint, actions)
-        pluginList.appendChild(item)
-      }
-
-      // Nothing listed (Safe Mode is the only option): no empty card.
-      conflictCard.hidden = !pluginList.classList.contains('visible')
       const navigate = (action) => {
         if (window.dshRecovery && typeof window.dshRecovery.action === 'function') {
           void window.dshRecovery.action(action)
@@ -1016,62 +899,20 @@
       const primary = document.getElementById('primary')
       const secondary = document.getElementById('secondary')
 
-      if (model.retryCheckLabel) {
-        setText('primary', model.retryCheckLabel)
-      } else if (model.autoProcessLabel) {
-        setText('primary', model.autoProcessLabel)
-      } else if (model.marketPrimary) {
-        // Same buttons as a lone third-party plugin: upgrade first, removal beside it.
-        setText('primary', model.primaryLabel)
-        if (model.marketCheck.upgradeLabel) {
-          setText('secondary', model.locale === 'zh' ? '卸载插件' : 'Uninstall plugin')
-          secondary.hidden = false
-          secondary.addEventListener('click', () => {
-            secondary.disabled = true
-            primary.disabled = true
-            if (safeModeBtn) safeModeBtn.disabled = true
-            document.querySelectorAll('.plugin-upgrade-btn').forEach((btn) => { btn.disabled = true })
-            secondary.textContent = model.locale === 'zh' ? '正在卸载…' : 'Removing…'
-            navigate('market-remove')
-          })
-        }
-      } else if (model.upgradeCandidate) {
-        setText('primary', model.upgradeLabel)
-        setText('secondary', model.uninstallLabel || (model.locale === 'zh' ? '卸载插件' : 'Uninstall plugin'))
+      setText('primary', model.primaryLabel)
+      if (model.rollbackLabel) {
         secondary.hidden = false
+        secondary.textContent = model.rollbackLabel
         secondary.addEventListener('click', () => {
-          secondary.disabled = true
-          primary.disabled = true
-          if (safeModeBtn) safeModeBtn.disabled = true
-          document.querySelectorAll('.plugin-upgrade-btn').forEach((btn) => { btn.disabled = true })
-          secondary.textContent = model.locale === 'zh' ? '正在卸载…' : 'Removing…'
-          navigate('uninstall')
+          document.querySelectorAll('button').forEach(control => { control.disabled = true })
+          navigate('rollback')
         })
-      } else {
-        setText('primary', model.primaryLabel)
       }
-
       primary.addEventListener('click', () => {
-        primary.disabled = true
-        if (secondary) secondary.disabled = true
-        if (safeModeBtn) safeModeBtn.disabled = true
-        document.querySelectorAll('.plugin-upgrade-btn').forEach((btn) => { btn.disabled = true })
-        if (model.retryCheckLabel) {
-          primary.textContent = model.locale === 'zh' ? '正在检查更新…' : 'Checking updates…'
-          navigate('check-updates')
-        } else if (model.autoProcessLabel) {
-          primary.textContent = model.locale === 'zh' ? '正在自动处理…' : 'Recovering plugins…'
-          navigate('auto-process')
-        } else if (model.marketPrimary) {
-          primary.textContent = model.primaryBusyLabel
-          navigate(model.marketCheck.upgradeLabel ? 'market-upgrade' : 'market-remove')
-        } else if (model.upgradeCandidate) {
-          primary.textContent = model.upgradeBusyLabel || (model.locale === 'zh' ? '正在升级…' : 'Upgrading…')
-          navigate('upgrade')
-        } else {
-          primary.textContent = model.primaryBusyLabel
-          navigate(model.canUninstall ? 'uninstall' : 'safe-mode')
-        }
+        document.querySelectorAll('button').forEach(control => { control.disabled = true })
+        primary.textContent = model.primaryBusyLabel
+        if (model.canRepair) navigate('auto-process')
+        else void window.dshRecovery.action('agent', { prompt: repairAgentPrompt })
       })
       document.getElementById('show-log').addEventListener('click', () => navigate('show-log'))
       document.getElementById('quit').addEventListener('click', () => navigate('quit'))
@@ -1085,7 +926,7 @@
       // Beside the Safe Mode button, and only when no culprit was identified:
       // a named plugin or market has its own repair above.
       const repairAgent = document.getElementById('repair-agent')
-      repairAgent.hidden = (model.plugins?.length ?? 0) > 0 || Boolean(model.marketCheck)
+      repairAgent.hidden = true
       repairAgent.textContent = model.locale === 'zh' ? '智能修复 Agent' : 'Repair agent'
       repairAgent.addEventListener('click', () => {
         document.querySelectorAll('button').forEach((control) => { control.disabled = true })

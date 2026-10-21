@@ -539,6 +539,7 @@ window.addEventListener('pagehide', () => {
 contextBridge.exposeInMainWorld(
   'dshDesktop',
   Object.freeze({
+    openRepairAgent: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('repair-agent:open'),
     restartHarness: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('harness:restart'),
     getBuiltInImageGenerationStatus: (): Promise<{ enabled: boolean; marketActive: boolean }> =>
       ipcRenderer.invoke('desktop-host-plugin:status'),
