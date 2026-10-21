@@ -233,7 +233,12 @@
         gap: 12px;
         margin-top: 22px;
       }
-      .decision-aside { display: flex; flex: 0 0 auto; }
+      .decision-aside { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; flex: 0 1 42%; }
+      .rollback-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+      .repair-plan { margin-top: 20px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+      .repair-plan summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+      .repair-plan ul { margin: 14px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+      #secondary:disabled { cursor: not-allowed; }
       .decision-main {
         display: flex;
         flex-direction: column;
@@ -616,6 +621,10 @@
             aria-haspopup="dialog" aria-controls="details-drawer" aria-expanded="false"></button>
         </div>
         <p class="summary" id="summary"></p>
+        <details class="repair-plan" id="repair-plan" hidden>
+          <summary id="repair-plan-label"></summary>
+          <ul id="repair-plan-steps"></ul>
+        </details>
 
         <section class="conflict-card" id="conflict-card" aria-label="Plugin recovery details">
           <ul class="plugins" id="plugins"></ul>
@@ -623,12 +632,13 @@
 
         <div class="decision-row" id="decision-row">
           <div class="decision-aside">
+            <button class="button" id="secondary" type="button" hidden></button>
+            <p class="rollback-note" id="rollback-note" hidden></p>
             <button class="button" id="safe-mode" type="button"></button>
           </div>
           <div class="decision-main">
             <div class="actions">
               <button class="button" id="repair-agent" type="button" hidden></button>
-              <button class="button" id="secondary" type="button" hidden></button>
               <button class="button primary" id="primary" type="button"></button>
             </div>
             <p class="safety">
@@ -878,14 +888,19 @@
         notice.classList.add('visible')
       }
 
-      // Plugin details stay in the technical drawer; users approve one complete round.
+      // Keep the human-readable plan separate from diagnostic logs.
       document.getElementById('conflict-card').hidden = true
-      if (model.rollbackUnavailableReason) {
-        const note = document.createElement('p')
-        note.className = 'summary'
-        note.textContent = model.rollbackUnavailableReason
-        document.querySelector('.column').appendChild(note)
+      const repairPlan = document.getElementById('repair-plan')
+      repairPlan.hidden = !model.canRepair
+      setText('repair-plan-label', model.repairDetailsLabel)
+      for (const step of model.repairDetails || []) {
+        const item = document.createElement('li')
+        item.textContent = step
+        document.getElementById('repair-plan-steps').appendChild(item)
       }
+      const rollbackNote = document.getElementById('rollback-note')
+      rollbackNote.hidden = !model.rollbackUnavailableReason
+      rollbackNote.textContent = model.rollbackUnavailableReason || ''
       const navigate = (action) => {
         if (window.dshRecovery && typeof window.dshRecovery.action === 'function') {
           void window.dshRecovery.action(action)
@@ -900,10 +915,13 @@
       const secondary = document.getElementById('secondary')
 
       setText('primary', model.primaryLabel)
-      if (model.rollbackLabel) {
+      if (model.rollbackVisible || model.rollbackLabel) {
         secondary.hidden = false
-        secondary.textContent = model.rollbackLabel
+        secondary.disabled = !model.rollbackLabel
+        secondary.textContent = model.rollbackLabel || (model.locale === 'zh' ? '回退应用版本' : 'Roll back app version')
+        secondary.setAttribute('aria-describedby', 'rollback-note')
         secondary.addEventListener('click', () => {
+          if (secondary.disabled) return
           document.querySelectorAll('button').forEach(control => { control.disabled = true })
           navigate('rollback')
         })

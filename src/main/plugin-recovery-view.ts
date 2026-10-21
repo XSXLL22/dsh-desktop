@@ -64,6 +64,9 @@ export interface PluginRecoveryViewModel {
   safeModeOnly: boolean
   canRepair: boolean
   offerRepairAgent: boolean
+  repairDetails?: string[]
+  repairDetailsLabel?: string
+  rollbackVisible?: boolean
   roundAction?: string
   rollbackLabel?: string
   rollbackUnavailableReason?: string
@@ -234,9 +237,18 @@ export function buildPluginRecoveryViewModel(options: {
     locale,
     brand: 'DSH Desktop',
     badge: zh ? '启动修复' : 'Startup recovery',
-    heading: canRepair ? zh ? '已找到可修复的启动问题' : 'A startup fix is available' : zh ? 'DSH 暂时无法正常启动' : 'DSH could not start',
-    summary: roundAction ?? (zh ? '暂时无法自动修复。进入维修 Agent 后，将在安全模式下继续排查。' : 'Automatic repair is unavailable. Continue with the repair Agent in Safe Mode.'),
+    heading: zh ? '启动遇到问题，DSH 暂时无法正常启动' : 'A startup error is preventing DSH from opening',
+    summary: canRepair ? (zh ? '别着急，我们已找到可尝试的修复方案。展开查看后，同意方案可点击“一键修复”；也可以选择回退应用版本。' : 'We have a repair plan you can try. Review it below, then choose Repair now or roll back the app version.') : (zh ? '暂时无法自动修复。进入维修 Agent 后，将在安全模式下继续排查。' : 'Automatic repair is unavailable. Continue with the repair Agent in Safe Mode.'),
     roundAction,
+    repairDetailsLabel: zh ? '查看修复方案' : 'View repair plan',
+    repairDetails: canRepair ? [
+      ...(roundAction ? [roundAction] : []),
+      ...(plan.action === 'upgrade' ? plan.upgrades.map(candidate => zh
+        ? `升级插件 ${displayPluginName(candidate.packageName)}${candidate.installedVersion ? `（当前 ${candidate.installedVersion}）` : ''} 至 ${candidate.targetVersion}`
+        : `Update plugin ${displayPluginName(candidate.packageName)}${candidate.installedVersion ? ` (currently ${candidate.installedVersion})` : ''} to ${candidate.targetVersion}`)
+        : plan.action === 'disable' ? plan.plugins.map(name => zh ? `停用插件 ${displayPluginName(name)}（保留插件文件和数据）` : `Disable plugin ${displayPluginName(name)} (keep files and data)`) : [])
+    ] : undefined,
+    rollbackVisible: plan.kind === 'known',
     reasonTitle: description.title,
     reasonDetail: description.detail,
     plugins: pluginPackages.map(displayPluginName),
@@ -248,7 +260,7 @@ export function buildPluginRecoveryViewModel(options: {
     primaryLabel: canRepair ? zh ? '一键修复' : 'Repair now' : zh ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)',
     primaryBusyLabel: canRepair ? zh ? '正在执行本轮修复…' : 'Applying this repair…' : zh ? '正在进入维修 Agent…' : 'Opening repair Agent…',
     autoProcessLabel: canRepair ? zh ? '一键修复' : 'Repair now' : undefined,
-    rollbackUnavailableReason: plan.kind === 'known' ? options.rollbackUnavailableReason : undefined,
+    rollbackUnavailableReason: plan.kind === 'known' && !options.rollbackVersion ? options.rollbackUnavailableReason ?? (zh ? '当前没有可回退的应用版本。' : 'No app version is available to roll back to.') : undefined,
     rollbackLabel: plan.kind === 'known' && options.rollbackVersion ? zh ? `回退应用至 ${options.rollbackVersion}` : `Restore app ${options.rollbackVersion}` : undefined,
     upgradeCandidate,
     pluginChecks: options.pluginChecks,

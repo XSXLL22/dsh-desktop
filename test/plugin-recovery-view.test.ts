@@ -18,12 +18,28 @@ describe('plugin recovery view model', () => {
   it('offers one-click repair and rollback together for a known cause', () => {
     const model = buildPluginRecoveryViewModel({ snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh', rollbackVersion: '0.12.0',
       upgradeCandidate: { packageName: 'a', targetVersion: '2' } })
+    expect(model.heading).toContain('无法正常启动')
+    expect(model.summary).toContain('同意方案')
+    expect(model.repairDetails).toContain('升级插件 a 至 2')
     expect(model.canRepair).toBe(true)
     expect(model.primaryLabel).toBe('一键修复')
     expect(model.rollbackLabel).toContain('0.12.0')
     expect(model.roundAction).toContain('升级')
     expect(model.canUninstall).toBe(false)
     expect(model.progress).toBeUndefined()
+  })
+  it('keeps a visible rollback option disabled with a nearby explanation when unavailable', () => {
+    const model = buildPluginRecoveryViewModel({ snapshot: failedSnapshot(), plugins: ['a'], removedPlugins: [], locale: 'zh' })
+    expect(model.rollbackVisible).toBe(true)
+    expect(model.rollbackLabel).toBeUndefined()
+    expect(model.rollbackUnavailableReason).toContain('没有可回退')
+    expect(model.repairDetails).toContain('停用插件 a（保留插件文件和数据）')
+  })
+  it('provides an English repair plan without technical Profile terminology', () => {
+    const model = buildPluginRecoveryViewModel({ snapshot: failedSnapshot(), plugins: [], removedPlugins: [], locale: 'en', repairPlan: { kind: 'known', action: 'configuration', plugins: [], upgrades: [] } })
+    expect(model.repairDetailsLabel).toBe('View repair plan')
+    expect(model.repairDetails?.join(' ')).not.toMatch(/profile/i)
+    expect(model.summary).toContain('Review it below')
   })
   it('only offers Safe Mode Agent for an unknown cause even if rollback exists', () => {
     const model = buildPluginRecoveryViewModel({ snapshot: failedSnapshot(), plugins: [], removedPlugins: [], locale: 'en', rollbackVersion: '0.12.0' })
