@@ -1,4 +1,4 @@
-import { readInstallEvidence } from './install-evidence.mjs'
+import { inspectWorkbenchReloadRequirement, readInstallEvidence } from './install-evidence.mjs'
 import Schema from '@deepseek-ai/schemastery'
 import { CatalogError, createCatalogReader } from './catalog.mjs'
 import { selectMarketFetch } from './market-fetch.mjs'
@@ -257,7 +257,15 @@ export function apply(ctx, config) {
           const evidence = (await readInstallEvidence({}, undefined, [install.pluginName]))[install.pluginName]
           if (evidence?.fingerprint) install.fingerprint = evidence.fingerprint
           await marketInstalls.record(id, install)
-          return Response.json({ install, restartRequired: true }, { headers: { 'cache-control': 'no-store' } })
+          const home = process.env.DSH_HOME || (config.root ? join(config.root, '..') : undefined)
+          const requirement = await inspectWorkbenchReloadRequirement(install.pluginName, home)
+          return Response.json({
+            install,
+            restartRequired: requirement.restartRequired,
+            reloadRequired: requirement.reloadRequired,
+            actionRequired: requirement.actionRequired,
+            ...requirement.reason ? { restartReason: requirement.reason } : {}
+          }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) { return installFailure(error, 'Could not install the workbench.') }
       }
     })
@@ -270,12 +278,19 @@ export function apply(ctx, config) {
           const { id } = await catalogPayloadFrom(request)
           const install = (await marketInstalls.read())[id]
           if (!install) throw new MarketInstallError('This workbench was not installed from the workbench market.', 404)
+          const home = process.env.DSH_HOME || (config.root ? join(config.root, '..') : undefined)
+          const requirement = await inspectWorkbenchReloadRequirement(install.pluginName, home)
           let handle
           try { handle = ctx.desktopPnpm.removeWorkbenchGeneration(install.pluginName, config.root) }
           catch (error) { throw new MarketInstallError(error instanceof Error ? error.message : String(error), 409) }
           await awaitHandle(handle)
           await marketInstalls.forget(id)
-          return Response.json({ restartRequired: true }, { headers: { 'cache-control': 'no-store' } })
+          return Response.json({
+            restartRequired: requirement.restartRequired,
+            reloadRequired: requirement.reloadRequired,
+            actionRequired: requirement.actionRequired,
+            ...requirement.reason ? { restartReason: requirement.reason } : {}
+          }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) { return installFailure(error, 'Could not uninstall the workbench.') }
       }
     })

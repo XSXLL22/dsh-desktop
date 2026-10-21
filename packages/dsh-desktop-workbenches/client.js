@@ -39,7 +39,8 @@ window.__ModuleLoader__.load({
       '工作台功能已关闭': 'Workbenches are turned off', '可在 设置 → 通用 中重新开启。': 'Turn them on again in Settings → General.',
       '启用工作台功能': 'Enable workbenches', '开启后可使用工作台市场和已安装的工作台；关闭后所有工作台不加载，不影响已保存的会话和数据。': 'Browse the market and use installed workbenches when enabled. Turning this off does not affect saved sessions or data.',
       '工作台安装变更需要重启 Harness 后生效。已有会话和数据不受影响。 ': 'Restart Harness to apply workbench installation changes. Existing sessions and data are preserved. ',
-      '正在重启…': 'Restarting…', '立即重启': 'Restart now', '请从菜单 Harness → 重启 Harness。': 'Use Harness → Restart Harness in the menu.',
+      '工作台安装完成，刷新页面后生效。已有会话和数据不受影响。 ': 'Reload the page to apply workbench installation changes. Existing sessions and data are preserved. ',
+      '正在重启…': 'Restarting…', '立即重启': 'Restart now', '立即刷新': 'Reload now', '请从菜单 Harness → 重启 Harness。': 'Use Harness → Restart Harness in the menu.',
       '重新加载': 'Reload', '正在读取本地工作台…': 'Loading local workbenches…', '在线市场暂时无法读取，仍可使用已安装的工作台。 ': 'The online market is temporarily unavailable. Installed workbenches still work. ', '重试': 'Retry', '在线市场暂时无法更新，正在显示上一次成功读取的目录。': 'The online market could not be refreshed. Showing the last available catalog.',
       '暂无': 'N/A', '作者': 'Author', '工作台信息': 'Workbench information', 'GitHub Stars：暂无数据': 'GitHub stars: no data', '下载数：暂无数据': 'Downloads: no data', '下载数': 'Downloads',
       '会话': 'Sessions', '业务区域': 'Business area', '轮播': 'carousel', '上一张': 'Previous image', '下一张': 'Next image', '截图放大预览': 'Screenshot preview', '关闭截图预览': 'Close screenshot preview', '关闭': 'Close',
@@ -48,7 +49,7 @@ window.__ModuleLoader__.load({
       '这会从当前 Profile 卸载工作台插件，并移除左侧固定入口。若插件无法立即卸载，重启 Harness 后生效。已有会话、项目文件和工作台笔记都会保留。': 'This uninstalls the workbench plugin from the current profile and removes its sidebar shortcut. A Harness restart may be required. Sessions, project files, and notes are preserved.',
       '这会移除工作台安装记录和左侧固定入口。已有会话、项目文件和工作台笔记都会保留，之后重新安装仍可继续使用。': 'This removes the installation record and sidebar shortcut. Sessions, project files, and notes are preserved for future reinstalls.',
       '这会移除本地工作台和左侧固定入口。已有会话、项目文件和工作台笔记都会保留，之后重新安装仍可继续使用。': 'This removes the local workbench and sidebar shortcut. Sessions, project files, and notes are preserved for future reinstalls.',
-      '这个工作台暂时还没有填写介绍。': 'This workbench has no description yet.', '安装': 'Install', '正在安装…': 'Installing…', '查看安装说明': 'View installation instructions', '已安装': 'Installed', '运行中': 'Running', '已关闭': 'Off', '原生插件状态暂不可用': 'Plugin status unavailable', '更新': 'Update', '更新中…': 'Updating…', '重启后生效': 'Restart to apply', '更新失败': 'Update failed', '安装失败': 'Installation failed', '加载失败': 'Loading failed', '清除失败提示': 'Dismiss error',
+      '这个工作台暂时还没有填写介绍。': 'This workbench has no description yet.', '安装': 'Install', '正在安装…': 'Installing…', '查看安装说明': 'View installation instructions', '已安装': 'Installed', '运行中': 'Running', '已关闭': 'Off', '原生插件状态暂不可用': 'Plugin status unavailable', '更新': 'Update', '更新中…': 'Updating…', '重启后生效': 'Restart to apply', '刷新后生效': 'Reload to apply', '更新失败': 'Update failed', '安装失败': 'Installation failed', '加载失败': 'Loading failed', '清除失败提示': 'Dismiss error',
       '重试安装': 'Retry installation', '取消收藏': 'Remove favorite', '收藏工作台': 'Favorite workbench', '移除失联记录': 'Remove orphaned record', '移除残留记录': 'Remove stale record', '原生插件状态未知或不可卸载': 'Plugin status unknown or cannot be uninstalled',
       '还没有收藏工作台': 'No favorites yet', '还没有安装工作台': 'No installed workbenches yet', '没有找到匹配的工作台': 'No matching workbenches', '把鼠标移到市场卡片上，点击书签即可收藏。': 'Hover over a market card and select the bookmark to add a favorite.', '到工作台市场选择一个工作台开始。': 'Choose a workbench in the market to get started.', '试试其他关键词或分类。': 'Try another keyword or category.',
       '已复制': 'Copied', '复制失败，请展开指令手动复制。': 'Copy failed. Open the instructions and copy them manually.',
@@ -208,6 +209,8 @@ window.__ModuleLoader__.load({
         this.installing = null
         this.restartNeeded = false
         this.pendingRestart = new Set()
+        this.reloadNeeded = false
+        this.pendingReload = new Set()
         this.installFailures = new Map()
         this.draftNotes = new Map()
         this.noteTimers = new Map()
@@ -227,13 +230,13 @@ window.__ModuleLoader__.load({
       installRecordFor(catalogId) {
         const install = this.installs[catalogId]
         if (!install) return null
-        if (this.pendingRestart.has(catalogId) || this.native.status !== NATIVE_STATUS.ready) return install
+        if (this.pendingRestart.has(catalogId) || this.pendingReload.has(catalogId) || this.native.status !== NATIVE_STATUS.ready) return install
         const bundle = this.native.bundles[install.pluginName]
         return bundle && bundle.installed !== false ? install : null
       }
       originFor(entry) {
         const id = entry.catalogId || entry.id
-        if (this.pendingRestart.has(id)) return 'market'
+        if (this.pendingRestart.has(id) || this.pendingReload.has(id)) return 'market'
         return this.packageEvidence?.[this.pluginFor(entry)]?.origin || 'unknown'
       }
       updateRiskFor(entry) {
@@ -285,7 +288,7 @@ window.__ModuleLoader__.load({
       }
       updateAvailableFor(entry) {
         const catalogId = entry.catalogId || entry.id
-        if (!entry.listed || !entry.distribution || this.pendingRestart.has(catalogId) || this.installing === catalogId) return false
+        if (!entry.listed || !entry.distribution || this.pendingRestart.has(catalogId) || this.pendingReload.has(catalogId) || this.installing === catalogId) return false
         const name = this.pluginFor(entry)
         const bundle = name && this.native.bundles[name]
         const installed = this.native.status === NATIVE_STATUS.ready && name ? !!bundle && bundle.installed !== false : entry.installed || !!this.installRecordFor(catalogId)
@@ -339,6 +342,7 @@ window.__ModuleLoader__.load({
           const install = this.installRecordFor(item.id)
           const failedPackage = [item.distribution?.name, install?.pluginName].find((name) => moduleFailures.has(name))
           const pendingRestart = !provider && this.pendingRestart.has(item.id)
+          const pendingReload = !provider && this.pendingReload.has(item.id)
           const pluginName = this.pluginFor({ ...item, catalogId: item.id, sourcePackage: provider?.sourcePackage })
           const pluginClosed = pluginName && this.native.bundles[pluginName]?.enabled === false
           const bundle = pluginName && this.native.bundles[pluginName]
@@ -347,8 +351,8 @@ window.__ModuleLoader__.load({
           // A recovery removal can leave an old navigation/market record. The
           // native inventory wins once it is available: no package means there
           // is no current load failure to report.
-          const missingProvider = !provider && !pendingRestart && !pluginClosed && !packageMissing && !!bundle
-          const loadFailure = failedInstall?.message || (!pluginClosed && !packageMissing && !provider && !pendingRestart &&
+          const missingProvider = !provider && !pendingRestart && !pendingReload && !pluginClosed && !packageMissing && !!bundle
+          const loadFailure = failedInstall?.message || (!pluginClosed && !packageMissing && !provider && !pendingRestart && !pendingReload &&
             ((failedPackage && moduleFailures.get(failedPackage)) || (missingProvider && '工作台插件已安装，但启动后未注册。请重新加载或重试安装。')))
           const evidence = this.packageEvidence?.[pluginName]
           const remembered = this.knownProviders[item.id]
@@ -381,6 +385,7 @@ window.__ModuleLoader__.load({
             local: false,
             installed: !!provider,
             pendingRestart,
+            pendingReload,
             loadFailure: loadFailure || '',
             failureKind: failedInstall?.kind || (loadFailure ? 'load' : '')
           }
@@ -528,7 +533,7 @@ window.__ModuleLoader__.load({
       publish() {
         this.snapshot = { state: this.state, drafts: Object.fromEntries(this.draftNotes), ready: this.ready, error: this.error,
           catalogLoaded: this.catalogLoaded, catalogError: this.catalogError, catalogStale: this.catalogStale, catalogRefreshing: this.catalogRefreshing, checkingUpdates: this.checkingUpdates, pending: this.pending, marketOpen: this.marketOpen,
-          catalog: this.marketCatalog(), categories: this.marketCategories, installs: this.installs, installing: this.installing, native: this.native, togglingPlugin: this.togglingPlugin, removingPlugin: this.removingPlugin, removedWorkbenchIds: [...this.removedWorkbenchIds], restartNeeded: this.restartNeeded, switcherHint: this.switcherHint === true }
+          catalog: this.marketCatalog(), categories: this.marketCategories, installs: this.installs, installing: this.installing, native: this.native, togglingPlugin: this.togglingPlugin, removingPlugin: this.removingPlugin, removedWorkbenchIds: [...this.removedWorkbenchIds], restartNeeded: this.restartNeeded, reloadNeeded: this.reloadNeeded, switcherHint: this.switcherHint === true }
         for (const listener of this.listeners) listener()
       }
       report(error) { if (!this.disposed) { this.error = error instanceof Error ? error.message : String(error); this.publish() } }
@@ -621,7 +626,11 @@ window.__ModuleLoader__.load({
             }
             throw error
           }
-          if (data.restartRequired) this.restartNeeded = true
+          if (data.actionRequired === 'reload' || (data.reloadRequired && !data.restartRequired)) {
+            this.reloadNeeded = true
+          } else if (data.restartRequired || data.actionRequired === 'restart') {
+            this.restartNeeded = true
+          }
           return data
         } finally {
           this.installing = null
@@ -648,7 +657,13 @@ window.__ModuleLoader__.load({
           if (data.install?.catalogId !== catalogId || typeof data.install?.pluginName !== 'string') throw new Error('市场安装记录无效。')
           this.installs = { ...this.installs, [catalogId]: data.install }
           this.removedWorkbenchIds.delete(catalogId)
-          this.pendingRestart.add(catalogId)
+          if (data.actionRequired === 'reload' || (data.reloadRequired && !data.restartRequired)) {
+            this.pendingReload.add(catalogId)
+            this.pendingRestart.delete(catalogId)
+          } else {
+            this.pendingRestart.add(catalogId)
+            this.pendingReload.delete(catalogId)
+          }
           this.installFailures.delete(catalogId)
           this.publish()
           const result = await this.commit((state) => {
@@ -661,9 +676,17 @@ window.__ModuleLoader__.load({
           if (confirmationRisk(error)) throw error
           this.installFailures.set(catalogId, { kind: wasInstalled ? 'update' : 'install', message: error instanceof Error ? error.message : String(error) })
           this.pendingRestart.delete(catalogId)
+          this.pendingReload.delete(catalogId)
           this.publish()
           throw error
         }
+      }
+      reloadPage() {
+        try {
+          if (typeof window !== 'undefined' && window.location && typeof window.location.reload === 'function') {
+            window.location.reload()
+          }
+        } catch {}
       }
       showSwitcherHint() {
         // Only a validated install and saved sidebar shortcut trigger onboarding.
@@ -686,6 +709,7 @@ window.__ModuleLoader__.load({
         const { [catalogId]: _removed, ...rest } = this.installs
         this.installs = rest
         this.pendingRestart.delete(catalogId)
+        this.pendingReload.delete(catalogId)
         this.installFailures.delete(catalogId)
         this.publish()
       }
@@ -695,7 +719,7 @@ window.__ModuleLoader__.load({
       }
       staleRecordFor(entry) {
         const id = entry.id
-        if (this.native.status !== NATIVE_STATUS.ready || this.catalog.has(id) || !this.state.added.includes(id) || this.pendingRestart.has(id)) return false
+        if (this.native.status !== NATIVE_STATUS.ready || this.catalog.has(id) || !this.state.added.includes(id) || this.pendingRestart.has(id) || this.pendingReload.has(id)) return false
         const name = this.pluginFor(entry)
         const bundle = name && this.native.bundles[name]
         return !!name && (!bundle || bundle.installed === false)
@@ -1474,7 +1498,7 @@ window.__ModuleLoader__.load({
     }
     function Button({ children, primary, ...props }) { return h('button', { type: 'button', className: `dshWbBtn${primary ? ' dshWbPrimary' : ''}`, ...props }, children) }
     function Notice({ service, showCatalogStatus = false }) {
-      const { error, catalogError, catalogStale, catalogLoaded, catalogRefreshing, pending, ready, restartNeeded } = useWorkbench(service)
+      const { error, catalogError, catalogStale, catalogLoaded, catalogRefreshing, pending, ready, restartNeeded, reloadNeeded } = useWorkbench(service)
       const [restarting, setRestarting] = React.useState(false)
       const bridge = globalThis.dshDesktop
       const restart = async () => {
@@ -1485,6 +1509,8 @@ window.__ModuleLoader__.load({
         typeof bridge?.restartHarness === 'function'
           ? h(Button, { primary: true, disabled: restarting, onClick: () => void restart() }, restarting ? tr('正在重启…') : tr('立即重启'))
           : tr('请从菜单 Harness → 重启 Harness。'))
+      if (reloadNeeded && !error) return h('div', { className: 'dshWbNotice', role: 'status' }, tr('工作台安装完成，刷新页面后生效。已有会话和数据不受影响。 '),
+        h(Button, { primary: true, onClick: () => service.reloadPage() }, tr('立即刷新')))
       if (error) return h('div', { className: 'dshWbNotice', role: 'alert' }, tr(error), ' ', h(Button, { disabled: pending > 0, onClick: () => service.run(service.load()) }, tr('重新加载')))
       if (!ready) return h('div', { className: 'dshWbNotice', role: 'status' }, tr('正在读取本地工作台…'))
       if (!showCatalogStatus) return null
@@ -2113,7 +2139,7 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
             const orphanRecord = entry.unavailable && !pluginName && !service.marketInstallFor(entry.id)
             const canUninstall = orphanRecord || staleRecord || (localRemoval ? localRemoval.removable : !!service.marketInstallFor(entry.id) || (native?.status === NATIVE_STATUS.ready && !!bundle && bundle.installed !== false && bundle.removable === true))
             const removalLabel = orphanRecord ? tr('移除失联记录') : staleRecord ? tr('移除残留记录') : tr('卸载')
-            const installed = !removedWorkbenchIds.includes(catalogId) && (entry.pendingRestart || (native?.status === NATIVE_STATUS.ready && pluginName
+            const installed = !removedWorkbenchIds.includes(catalogId) && (entry.pendingRestart || entry.pendingReload || (native?.status === NATIVE_STATUS.ready && pluginName
               ? !!bundle && bundle.installed !== false
               : entry.installed || !!service.installRecordFor(catalogId)))
             // Native inventory describes the package actually on disk. The market
@@ -2129,12 +2155,13 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
               : cardVersion && `v${cardVersion}`
             const updateAvailable = installed && service.updateAvailableFor(entry)
             const awaitingRestart = installed && service.pendingRestart.has(catalogId)
+            const awaitingReload = installed && service.pendingReload.has(catalogId)
             const updating = installed && installing === catalogId
             const installedFailure = installed && !!entry.loadFailure
-            const canRetryInstalled = installedFailure && entry.failureKind !== 'update' && entry.listed && !!entry.distribution && !updateAvailable && !awaitingRestart
-            const showUpdate = (updateAvailable || updating || awaitingRestart || (installedFailure && entry.failureKind === 'update')) && !canRetryInstalled
-            const updateLabel = awaitingRestart ? tr('重启后生效') : updating ? tr('更新中…') : tr('更新')
-            const updateTitle = awaitingRestart ? both(`${entry.title}安装完成，重启 Harness 后生效`, `${entry.title} installed. Restart Harness to apply.`) : updating ? both(`正在更新${entry.title}`, `Updating ${entry.title}`) : both(`${updateLabel}${entry.title}至 v${entry.listedVersion}`, `Update ${entry.title} to v${entry.listedVersion}`)
+            const canRetryInstalled = installedFailure && entry.failureKind !== 'update' && entry.listed && !!entry.distribution && !updateAvailable && !awaitingRestart && !awaitingReload
+            const showUpdate = (updateAvailable || updating || awaitingRestart || awaitingReload || (installedFailure && entry.failureKind === 'update')) && !canRetryInstalled
+            const updateLabel = awaitingRestart ? tr('重启后生效') : awaitingReload ? tr('刷新后生效') : updating ? tr('更新中…') : tr('更新')
+            const updateTitle = awaitingRestart ? both(`${entry.title}安装完成，重启 Harness 后生效`, `${entry.title} installed. Restart Harness to apply.`) : awaitingReload ? both(`${entry.title}安装完成，刷新页面后生效`, `${entry.title} installed. Reload the page to apply.`) : updating ? both(`正在更新${entry.title}`, `Updating ${entry.title}`) : both(`${updateLabel}${entry.title}至 v${entry.listedVersion}`, `Update ${entry.title} to v${entry.listedVersion}`)
             return h('article', { key: catalogId, className: 'dshWbCard' },
               h('div', { className: 'dshWbMedia' }, h('button', { type: 'button', className: 'dshWbMediaOpen', 'aria-describedby': `dsh-wb-preview-tooltip-${catalogId}`, 'aria-label': both(`查看${entry.title}详情`, `View ${entry.title} details`), onClick: () => setDetail(catalogId) }, h(Preview, { entry }), h('span', { className: 'dshWbMediaZoom', 'aria-hidden': true }, h(MarketIcon, { name: 'zoom', size: 18 }))), h('span', { id: `dsh-wb-preview-tooltip-${catalogId}`, className: 'dshWbControlTooltip', role: 'tooltip' }, tr('查看详情'))),
               h('div', { className: 'dshWbCardBody' },
@@ -2144,7 +2171,7 @@ ${ACCEPTANCE_READING}先确认要公开的仓库和内容，不得公开密钥�
                 h('div', { className: 'dshWbActions' },
                   h('div', { className: 'dshWbCardVersionActions' },
                     h(EntryMetrics, { entry }),
-                    showUpdate && h('button', { type: 'button', className: 'dshWbUpdate', title: updateTitle, 'aria-label': updateTitle, 'aria-busy': updating, disabled: disabled || !!installing || awaitingRestart, onClick: () => installMarket(entry) }, h(MarketIcon, { name: 'refresh', size: 14 }), h('span', { className: 'dshWbUpdateText' }, updateLabel)),
+                    showUpdate && h('button', { type: 'button', className: 'dshWbUpdate', title: updateTitle, 'aria-label': updateTitle, 'aria-busy': updating, disabled: disabled || !!installing || awaitingRestart, onClick: () => awaitingReload ? service.reloadPage() : installMarket(entry) }, h(MarketIcon, { name: 'refresh', size: 14 }), h('span', { className: 'dshWbUpdateText' }, updateLabel)),
                     installedFailure && FailureHint({ id: catalogId, kind: entry.failureKind, detail: entry.loadFailure }),
                     canRetryInstalled && h('button', { type: 'button', className: 'dshWbRetry', title: updating ? both(`正在重试安装${entry.title}`, `Retrying installation of ${entry.title}`) : both(`重试安装${entry.title}`, `Retry installing ${entry.title}`), 'aria-label': updating ? both(`正在重试安装${entry.title}`, `Retrying installation of ${entry.title}`) : both(`重试安装${entry.title}`, `Retry installing ${entry.title}`), 'aria-busy': updating, disabled: disabled || !!installing, onClick: () => installMarket(entry) }, h(MarketIcon, { name: 'refresh', size: 17 }))),
                   h('div', { className: 'dshWbCardControls' },

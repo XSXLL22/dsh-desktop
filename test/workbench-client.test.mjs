@@ -2927,6 +2927,29 @@ describe('workbench market screenshot and metadata display', () => {
     expect(cardButtons(marketCard(service))).not.toContain('打开工作台')
   })
 
+  it('installs a pure-client workbench requesting reload rather than restart', async () => {
+    const { service } = await fixture()
+    service.remoteCatalog = [listed()]
+    withMarket(service, {
+      '/api/desktop-workbenches/market-install': () => Response.json({
+        install: { catalogId: 'o/helper', pluginName: 'helper', version: '1.0.0' },
+        restartRequired: false,
+        reloadRequired: true,
+        actionRequired: 'reload'
+      })
+    })
+    await service.installFromMarket('o/helper')
+    expect(service.getSnapshot()).toMatchObject({
+      installing: null,
+      restartNeeded: false,
+      reloadNeeded: true,
+      installs: { 'o/helper': { pluginName: 'helper' } }
+    })
+    const card = service.getSnapshot().catalog.find(entry => entry.catalogId === 'o/helper')
+    expect(card).toMatchObject({ installed: false, pendingRestart: false, pendingReload: true })
+    expect(JSON.stringify(marketCard(service))).toContain('刷新后生效')
+  })
+
   it('merges the installed provider through its caller package identity', async () => {
     const { service, ctx, saved } = await fixture()
     service.remoteCatalog = [listed()]

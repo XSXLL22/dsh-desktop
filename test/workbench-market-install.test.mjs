@@ -297,7 +297,7 @@ describe('workbench market install routes', () => {
     expect((await call('/api/desktop-workbenches/market-uninstall', { id: KEY })).status).toBe(404)
     await call('/api/desktop-workbenches/market-install', { id: KEY })
     const result = await call('/api/desktop-workbenches/market-uninstall', { id: KEY })
-    expect(result).toEqual({ status: 200, body: { restartRequired: true } })
+    expect(result).toMatchObject({ status: 200, body: { restartRequired: true, actionRequired: 'restart' } })
     expect(removeWorkbenchGeneration).toHaveBeenCalledWith('project-helper', root)
     expect((await call('/api/desktop-workbenches/market-installs')).body.installs).toEqual({})
   })
@@ -309,5 +309,54 @@ describe('workbench market install routes', () => {
     expect(result.status).toBe(200)
     expect(result.body.install).toMatchObject({ catalogId: 'o/project-helper', pluginName: 'project-helper' })
     expect(runPlugin).not.toHaveBeenCalled()
+  })
+
+  it('requests reload for pure client workbenches and restart for packages with server patches', async () => {
+    const installWorkbenchGeneration = vi.fn(() => handle())
+    const removeWorkbenchGeneration = vi.fn(() => handle())
+    const { call, home } = await host({ installWorkbenchGeneration, removeWorkbenchGeneration })
+
+    const profile = join(home, 'profiles', 'web')
+    const pkgDir = join(profile, 'node_modules', 'project-helper')
+    await mkdir(pkgDir, { recursive: true })
+    await writeFile(join(pkgDir, 'package.json'), JSON.stringify({
+      name: 'project-helper',
+      version: '1.2.0',
+      dsh: { client: { entry: './client.js' } }
+    }))
+
+    const installResult = await call('/api/desktop-workbenches/market-install', { id: KEY })
+    expect(installResult.status).toBe(200)
+    expect(installResult.body).toMatchObject({
+      restartRequired: false,
+      reloadRequired: true,
+      actionRequired: 'reload'
+    })
+
+    const uninstallResult = await call('/api/desktop-workbenches/market-uninstall', { id: KEY })
+    expect(uninstallResult.status).toBe(200)
+    expect(uninstallResult.body).toMatchObject({
+      restartRequired: false,
+      reloadRequired: true,
+      actionRequired: 'reload'
+    })
+
+    await writeFile(join(pkgDir, 'cordis.patch.yml'), '- insert:\n    name: project-helper\n')
+    await writeFile(join(pkgDir, 'package.json'), JSON.stringify({
+      name: 'project-helper',
+      version: '1.2.0',
+      dsh: {
+        bundle: { patch: './cordis.patch.yml' },
+        client: { entry: './client.js' }
+      }
+    }))
+
+    const serverInstallResult = await call('/api/desktop-workbenches/market-install', { id: KEY })
+    expect(serverInstallResult.status).toBe(200)
+    expect(serverInstallResult.body).toMatchObject({
+      restartRequired: true,
+      reloadRequired: false,
+      actionRequired: 'restart'
+    })
   })
 })
