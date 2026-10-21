@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   ALLOWED_ATTRIBUTION_HEADERS,
+  desktopChatAbortKind,
+  enterpriseHeaderTimeoutAbortReason,
+  enterpriseSessionChangedAbortReason,
   parseEnterpriseChatPayload,
   pickAttributionHeaders
 } from '../src/main/enterprise/enterprise-chat'
@@ -113,5 +116,49 @@ describe('enterprise chat payload validation', () => {
         }]
       }
     })).toThrow('size limit')
+  })
+})
+
+describe('desktop chat abort reasons', () => {
+  it('recognizes session and header reasons and ignores a caller abort', () => {
+    expect(desktopChatAbortKind(enterpriseSessionChangedAbortReason())).toBe('session')
+    expect(enterpriseSessionChangedAbortReason()).toMatchObject({
+      status: 409,
+      code: 'enterprise_session_changed',
+      message: 'Enterprise session changed.'
+    })
+    expect(desktopChatAbortKind(enterpriseHeaderTimeoutAbortReason())).toBe('header')
+    expect(enterpriseHeaderTimeoutAbortReason()).toMatchObject({
+      status: 504,
+      code: 'upstream_timeout',
+      message: 'Enterprise model response timed out.'
+    })
+    const caller = new AbortController()
+    caller.abort()
+    expect(desktopChatAbortKind(caller.signal.reason)).toBeUndefined()
+  })
+
+  it('keeps the first abort reason when later sources also abort', () => {
+    const caller = new AbortController()
+    const session = new AbortController()
+    const header = new AbortController()
+    const combined = AbortSignal.any([caller.signal, session.signal, header.signal])
+    session.abort(enterpriseSessionChangedAbortReason())
+    header.abort(enterpriseHeaderTimeoutAbortReason())
+    caller.abort()
+    expect(desktopChatAbortKind(combined.reason)).toBe('session')
+    expect(combined.reason).toMatchObject({ status: 409, code: 'enterprise_session_changed' })
+  })
+
+  it('prefers the caller when every source is already aborted', () => {
+    const caller = new AbortController()
+    const session = new AbortController()
+    const header = new AbortController()
+    caller.abort()
+    session.abort(enterpriseSessionChangedAbortReason())
+    header.abort(enterpriseHeaderTimeoutAbortReason())
+    const combined = AbortSignal.any([caller.signal, session.signal, header.signal])
+    expect(desktopChatAbortKind(combined.reason)).toBeUndefined()
+    expect(combined.reason).not.toMatchObject({ code: 'enterprise_session_changed' })
   })
 })

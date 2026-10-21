@@ -369,6 +369,23 @@ describe('enterprise chat failure copy', () => {
       .toBe('Enterprise session changed.')
   })
 
+  it('classifies a desktop header timeout without replacing an upstream error code', async () => {
+    const source = await readFile(join(import.meta.dirname, '../packages/dsh-desktop-enterprise/openai.js'), 'utf8')
+    const start = source.indexOf('const LOCAL_CHAT_FAILURES')
+    const end = source.indexOf('\nfunction requestFailure')
+    const classify = new Function(`${source.slice(start, end)}; return (payload, status) => classifyChatFailure(platformChatCode(payload), status)`)() as (
+      payload: unknown,
+      status: number
+    ) => string
+    expect(classify({
+      error: 'Enterprise model response timed out.',
+      errorCode: 'upstream_timeout'
+    }, 504)).toBe('upstream_timeout')
+    expect(classify({
+      error: { message: 'Access token is invalid.', code: 'invalid_access_token' }
+    }, 401)).toBe('invalid_access_token')
+  })
+
   it('keeps an upstream Chinese message instead of replacing it', async () => {
     const formatEnterpriseChatFailure = await loadFormatEnterpriseChatFailure()
     expect(formatEnterpriseChatFailure(429, {
