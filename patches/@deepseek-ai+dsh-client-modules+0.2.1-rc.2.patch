@@ -1,8 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js b/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js
+index 2eb5735..37a9ac6 100644
 --- a/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js
 +++ b/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js
-@@ -393,9 +393,28 @@
- 					await Promise.all(this.desired.plugins.map(async ({ id }) => {
+@@ -394,7 +394,26 @@ window.__ModuleLoader__.load({
  						await this.create(loader, id);
  					}));
  					await loader.await();
@@ -29,9 +29,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js b/node_m
  				});
  			}
  			/**
- 			* Validate and apply the latest full Host graph. Changed targets cancel obsolete mounts; identical targets share pending loads.
-@@ -483,9 +502,9 @@
- 			async create(loader, id) {
+@@ -484,7 +503,7 @@ window.__ModuleLoader__.load({
  				const options = { name: id };
  				const entryId = loader.ensureId(options);
  				try {
@@ -40,12 +38,43 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/client.js b/node_m
  				} finally {
  					this.managed.set(id, loader.resolve(entryId));
  				}
+@@ -748,6 +767,7 @@ window.__ModuleLoader__.load({
+ 				const fallback = reload === void 0 && row.url !== preferred ? row.url : void 0;
+ 				const failures = [];
+ 				const attempt = async (url) => {
++					const known = new Set(this.factories.keys());
+ 					try {
+ 						await this.loadShared(url);
+ 					} catch (error) {
+@@ -755,6 +775,14 @@ window.__ModuleLoader__.load({
+ 						return "transport-failed";
+ 					}
+ 					if (this.factories.has(id)) return "registered";
++					// A bundle that registered ids no graph row owns declared the wrong module
++					// id for this package; replaying it on the single-resource URL would only
++					// re-register those ids and report a duplicate instead of the real mismatch.
++					const foreign = [...this.factories.keys()].filter((key) => !known.has(key) && !this.graphRows.has(key));
++					if (foreign.length > 0) {
++						failures.push(`${url}: loaded without registering "${id}" via __ModuleLoader__.load; it registered ${foreign.map((key) => `"${key}"`).join(", ")} instead, which is not a row in this boot graph`);
++						return "mismatched-registration";
++					}
+ 					failures.push(`${url}: loaded without registering "${id}" via __ModuleLoader__.load`);
+ 					return "not-registered";
+ 				};
+@@ -769,7 +797,7 @@ window.__ModuleLoader__.load({
+ 					if (outcome === "transport-failed") outcome = await attempt(preferred);
+ 					if (outcome !== "registered" && fallback !== void 0) this.failedBundleUrls.add(preferred);
+ 				}
+-				if (outcome !== "registered" && fallback !== void 0) outcome = await attempt(fallback);
++				if (outcome !== "registered" && outcome !== "mismatched-registration" && fallback !== void 0) outcome = await attempt(fallback);
+ 				if (outcome !== "registered") throw new Error(`client-modules: could not load "${id}": ${failures.join("; ")}`);
+ 				if (reload !== void 0 && this.reloadTargets.get(id) === reload) this.reloadTargets.delete(id);
  			}
 diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js
+index aa6f705..a8b98cc 100644
 --- a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js
-@@ -283,9 +283,9 @@
- }
+@@ -284,7 +284,7 @@ function readSourceMap(clientPath) {
  /** Count generated lines while assembling indexed-map section offsets. */
  function newlineCount(value) {
  	let count = 0;
@@ -54,9 +83,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_mo
  	return count;
  }
  /** Resolve section sources against their original per-plugin map URL before combo relocation. */
- function comboSectionMap(resource, original) {
-@@ -305,9 +305,10 @@
- 	return section;
+@@ -306,7 +306,8 @@ function comboSectionMap(resource, original) {
  }
  /** Map each generated line to the same line in a bundled JavaScript source. */
  function identitySectionMap(source, sourceUrl) {
@@ -66,9 +93,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_mo
  	return {
  		version: 3,
  		names: [],
- 		sources: [sourceUrl],
-@@ -384,8 +385,18 @@
- 		scriptBody: lazyBody(() => buildComboScript(resources, comboSearch(entries, rev, true))),
+@@ -385,6 +386,16 @@ function buildCombo(records, sourceMapOf, revision) {
  		sourceMapBody: lazyBody(() => buildComboSourceMap(resources, sourceMapOf))
  	};
  }
@@ -85,9 +110,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_mo
  /** Add initial-load scheduling metadata to a combo artifact. */
  function buildBatch(phase, records, sourceMapOf) {
  	const artifact = buildCombo(records, sourceMapOf);
- 	return {
-@@ -684,9 +695,9 @@
- 			});
+@@ -685,7 +696,7 @@ var ClientModuleRegistry = class extends Service {
  		}
  		const responses = new Map(batchResponses);
  		for (const record of this.table.values()) {
@@ -96,9 +119,7 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_mo
  			responses.set(artifact.url, responses.get(artifact.url) ?? this.responses.get(artifact.url) ?? {
  				body: artifact.scriptBody,
  				contentType: "text/javascript; charset=utf-8"
- 			});
-@@ -785,9 +796,17 @@
- 				specifier: loaderName,
+@@ -786,7 +797,15 @@ var ClientModuleRegistry = class extends Service {
  				attributes: {}
  			}).url : internal.resolveSync(loaderName, baseUrl, {}).url;
  		} catch {
@@ -115,4 +136,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-modules/lib/index.js b/node_mo
  		}
  		return this.nearestPackage(moduleUrl, expectedPackageName);
  	}
- 	nearestPackage(moduleUrl, expectedPackageName) {
