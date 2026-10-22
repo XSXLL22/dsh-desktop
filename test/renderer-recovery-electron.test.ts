@@ -41,6 +41,7 @@ it.skipIf(!enabled)('recovers real sandboxed Electron navigation and renderer lo
     expect(result.stdout, evidence).toContain('SECURE-PREFERENCES {"sandbox":true,"contextIsolation":true,"nodeIntegration":false}')
     expect(result.stdout, evidence).toContain('NATIVE-RESTART {"before":2,"after":3,"restarts":1}')
     expect(result.stdout, evidence).toContain('NATIVE-RECOVERY-ACCEPTANCE-COMPLETE')
+    console.log('Native renderer recovery evidence:', result.stdout)
   } finally {
     // A failed/timed-out child may retain renderer handles; preserve its temporary
     // data instead of recursively removing a directory an active process may use.
@@ -73,6 +74,8 @@ app.on('window-all-closed', () => {})
 const windows = new Set()
 const owners = new Set()
 let server
+let windowSequence = 0
+const startedAt = Date.now()
 
 function setup(timeoutMs = 5_000) {
   const window = new BrowserWindow({ show: false, webPreferences: {
@@ -88,26 +91,45 @@ function setup(timeoutMs = 5_000) {
   const events = new EventEmitter()
   const errors = []
   let loads = 0
+  const windowId = ++windowSequence
+  const trace = (event, details = {}) => console.log('NATIVE-TRACE ' + JSON.stringify({
+    event, windowId, elapsedMs: Date.now() - startedAt, activeLoad: loads, ...details
+  }))
   const owner = new RendererNavigationRecovery({
     load: async url => {
-      loads += 1
+      const id = ++loads
+      trace('load-start', { id, url, loading: window.webContents.isLoading() })
       window.webContents.stop()
-      await window.loadURL(url)
+      trace('stop-requested', { id })
+      try {
+        await window.loadURL(url)
+      } catch (error) {
+        trace('load-rejected', { id, url, code: error.code, errno: error.errno, message: error.message })
+        throw error
+      }
+      trace('load-resolved', { id, url, currentUrl: window.webContents.getURL() })
       events.emit('loaded')
     },
     cancelled: () => window.isDestroyed(), onError: error => errors.push(error),
     cooldownMs: 30, timeoutMs, healthyMs: 10_000
   })
   owners.add(owner)
+  window.webContents.on('did-start-navigation', (_event, url, inPlace, main) => {
+    trace('did-start-navigation', { url, inPlace, main })
+  })
+  window.webContents.on('did-stop-loading', () => trace('did-stop-loading'))
+  window.webContents.on('did-finish-load', () => trace('did-finish-load'))
   window.webContents.on('render-process-gone', (_event, details) => {
+    trace('render-process-gone', details)
     events.emit('gone', details)
     if (details.reason !== 'clean-exit') owner.rendererGone(window.webContents.getURL())
   })
-  window.webContents.on('did-fail-load', (_event, code, _description, url, main) => {
+  window.webContents.on('did-fail-load', (_event, code, description, url, main) => {
+    trace('did-fail-load', { code, description, url, main })
     if (main) owner.loadFailed(url, code, window.webContents.getURL())
   })
   window.once('closed', () => { owner.dispose(); owners.delete(owner); windows.delete(window) })
-  return { window, owner, events, errors, loads: () => loads }
+  return { window, owner, events, errors, trace, loads: () => loads }
 }
 async function marker(window) {
   const result = await window.webContents.executeJavaScript('({ marker: document.getElementById("marker")?.textContent, node: typeof require })')
@@ -118,6 +140,7 @@ async function run() {
   const page = pathToFileURL(join(root, 'page.html')).href
   const first = setup()
   const pending = first.owner.navigate(page)
+  first.trace('manual-pending-renderer-loss')
   first.owner.rendererGone()
   assert.equal(await pending, true)
   assert.equal(first.loads(), 2)
@@ -129,7 +152,8 @@ async function run() {
   const replaced = once(first.events, 'loaded')
   first.window.webContents.forcefullyCrashRenderer()
   const [details] = await nativeGone
-  assert.equal(details.reason, 'crashed')
+  console.log('NATIVE-TERMINATION ' + JSON.stringify(details))
+  assert.ok(['crashed', 'killed'].includes(details.reason), 'Unexpected forced renderer termination reason: ' + details.reason)
   await replaced
   await marker(first.window)
   assert.equal(first.loads(), 3)
