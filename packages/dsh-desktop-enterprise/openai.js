@@ -536,10 +536,17 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
   async *stream(options) {
     const model = this.options.models().find((candidate) => candidate.id === options.model)
     if (!model) throw new LlmError(`BiSheng provider has no authorized model "${options.model}".`, 'UNKNOWN_MODEL')
+    let session
+    try {
+      session = this.options.resolveAuditSession?.(options.sessionId)
+    } catch {
+      // Optional live-session metadata must not interrupt a model call.
+      session = undefined
+    }
     if (model.capabilities.responses === true) {
       const connectionKey = this.options.connectionKey?.()
       const { streamEnterpriseResponses } = await import('./responses.js')
-      yield* streamEnterpriseResponses(options, model, this.options, connectionKey)
+      yield* streamEnterpriseResponses(options, model, this.options, connectionKey, session)
       return
     }
     const history = model.capabilities.vision
@@ -563,13 +570,6 @@ export class EnterpriseLlmAdapter extends LlmAdapter {
       sourceItems.push({ message_index, sources: known.map(source => ({ kind: source.kind, ...(source.form === undefined ? {} : { form: source.form }) })) })
     } : undefined
     const request = serializeEnterpriseRequest({ ...options, messages: history }, model, images, onMessage)
-    let session
-    try {
-      session = this.options.resolveAuditSession?.(options.sessionId)
-    } catch {
-      // Optional live-session metadata must not interrupt a model call.
-      session = undefined
-    }
     const auditContext = normalizeAuditContext({
       conversation_id: options.sessionId,
       request_kind: options.purpose === undefined ? 'chat' : options.purpose,

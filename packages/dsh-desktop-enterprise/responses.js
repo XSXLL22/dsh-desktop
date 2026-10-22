@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { stream as streamResponses } from '@earendil-works/pi-ai/api/openai-responses'
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { normalizeAuditContext } from './contract.js'
 import { parseSseEvents, projectEnterpriseMessagesForTextModel, responseFailure, streamAttributionHeaders } from './openai.js'
 import { enforceEnterpriseRequestSize, projectEnterpriseOffloadedImages, readEnterpriseRequestImages } from './request-images.js'
 
@@ -76,7 +77,7 @@ export function serializeResponsesRequest(options, model, images, connectionKey,
 }
 
 /** Use pi-ai's public Responses engine with a transport owned by the enterprise broker. */
-export async function* streamEnterpriseResponses(options, model, hooks, connectionKey) {
+export async function* streamEnterpriseResponses(options, model, hooks, connectionKey, session) {
   if (!connectionKey || !hooks.requestResponses) throw new LlmError('Enterprise models are unavailable.', 'MISSING_CREDENTIAL')
   const assertAccount = () => {
     options.signal?.throwIfAborted()
@@ -86,9 +87,18 @@ export async function* streamEnterpriseResponses(options, model, hooks, connecti
   const history = model.capabilities.vision ? projectEnterpriseOffloadedImages(options.messages) : projectEnterpriseMessagesForTextModel(options.messages)
   const images = model.capabilities.vision ? await readEnterpriseRequestImages(history, hooks.readImage, options.signal) : new Map()
   const headers = streamAttributionHeaders(options.sessionId, options.purpose)
-  const serialize = (messages) => serializeResponsesRequest({ ...options, messages }, model, images, connectionKey)
+  const auditContext = normalizeAuditContext({
+    conversation_id: options.sessionId,
+    request_kind: options.purpose ?? 'chat',
+    session_origin: session?.session_origin,
+    parent_conversation_id: session?.parent_conversation_id
+  }, hooks.auditFields?.() ?? [])
+  const serialize = (messages, onReplayDegrade) => ({
+    ...serializeResponsesRequest({ ...options, messages }, model, images, connectionKey, onReplayDegrade),
+    ...(auditContext ? { audit_context: auditContext } : {})
+  })
   enforceEnterpriseRequestSize(history, serialize, headers, { connectionKey })
-  const request = serializeResponsesRequest({ ...options, messages: history }, model, images, connectionKey, hooks.onReplayDegrade)
+  const request = serialize(history, hooks.onReplayDegrade)
   const controller = new AbortController()
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
   let terminal

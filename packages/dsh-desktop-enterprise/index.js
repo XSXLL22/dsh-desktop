@@ -405,7 +405,7 @@ function startEnterpriseLlm(ctx, llm, broker) {
       }
       return response.json()
     },
-    note: (reason) => console.warn('[enterprise-audit-title]', reason)
+    note: (reason, details) => console.warn('[enterprise-audit-title]', JSON.stringify({ reason, ...details }))
   })
   const adapter = new EnterpriseLlmAdapter({
     providerName: () => latest.tenant?.name || latest.user?.display_name || 'BiSheng Enterprise',

@@ -434,7 +434,7 @@ export class EnterpriseService {
   }
 
   async proxyResponses(payload: unknown, response: ServerResponse, signal: AbortSignal): Promise<void> {
-    const parsed = parseEnterpriseResponsesPayload(payload)
+    const parsed = parseEnterpriseResponsesPayload(payload, this.auditFields)
     if (parsed.connectionKey !== this.connectionKey()) {
       throw Object.assign(new Error('Enterprise session changed.'), { status: 409 })
     }
