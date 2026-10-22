@@ -1,5 +1,5 @@
 diff --git a/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js b/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js
-index a0c19c8..3019921 100644
+index a0c19c8..12bac14 100644
 --- a/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js
 @@ -125,8 +125,10 @@ function publicToolName(serverName, rawName) {
@@ -46,24 +46,30 @@ index a0c19c8..3019921 100644
 -			timeout.unref();
 -			closed.then(() => {
 +			closed.then((result) => {
- 				clearTimeout(timeout);
--				resolve(true);
++				clearTimeout(timeout);
 +				resolve(result !== false);
 +			}, () => {
-+				clearTimeout(timeout);
+ 				clearTimeout(timeout);
+-				resolve(true);
 +				resolve(false);
  			});
  		});
  	}
-@@ -611,6 +633,7 @@ function startConnection(ctx, config, policy) {
+@@ -611,6 +633,13 @@ function startConnection(ctx, config, policy) {
  		let attemptSettled = false;
  		let closeObserved = false;
  		let transport;
 +		let closing;
++		const startupSyncs = [];
++		function enqueueStartupSync() {
++			const run = enqueueSync(generation, { ...(startup ? startupOpts : opts), startupSignal: startupAbort.signal });
++			startupSyncs.push(run);
++			return run;
++		}
  		const hasClosed = () => closeObserved;
  		client = generation;
  		closeClient = closeGeneration;
-@@ -620,7 +643,11 @@ function startConnection(ctx, config, policy) {
+@@ -620,7 +649,11 @@ function startConnection(ctx, config, policy) {
  			if (attemptSettled) generationDown(generation);
  		};
  		/** Unattached probes close through their transport; attached clients must also report transport closure. */
@@ -76,12 +82,12 @@ index a0c19c8..3019921 100644
  			const attached = generation.transport !== void 0;
  			try {
  				await (attached ? generation.close() : transport?.close());
-@@ -633,15 +660,21 @@ function startConnection(ctx, config, policy) {
+@@ -633,15 +666,21 @@ function startConnection(ctx, config, policy) {
  			if (!isCurrent(generation)) return;
  			ctx.logger.info(`${label}: tool list changed, re-syncing`);
  			try {
 -				await enqueueSync(generation);
-+				await enqueueSync(generation, attemptSettled ? opts : { ...opts, startupSignal: startupAbort.signal });
++				await (attemptSettled ? enqueueSync(generation) : enqueueStartupSync());
  			} catch (error) {
  				if (!disposed) ctx.logger.error(`${label}: tool re-sync failed: ${String(error)}`);
  			}
@@ -100,17 +106,30 @@ index a0c19c8..3019921 100644
  			if (hasClosed()) {
  				attemptSettled = true;
  				generationDown(generation);
-@@ -654,7 +687,8 @@ function startConnection(ctx, config, policy) {
+@@ -654,14 +693,30 @@ function startConnection(ctx, config, policy) {
  			const serverText = generation.getInstructions()?.trimEnd() ?? "";
  			instructions = serverText ? `### MCP server: ${config.serverName}\n\n${serverText}` : "";
  			if (Buffer.byteLength(instructions) > maxInstructionBytes) throw new Error(`${label}: server instructions exceed maxInstructionBytes (${maxInstructionBytes})`);
 -			await enqueueSync(generation, startup ? startupOpts : opts);
 +			method = "tools/list";
-+			await enqueueSync(generation, { ...(startup ? startupOpts : opts), startupSignal: startupAbort.signal });
++			await enqueueStartupSync();
++			// A refresh can enqueue another refresh while the initial list is pending.
++			// Await original promises, not syncChain, which intentionally contains errors.
++			let observed;
++			do {
++				observed = startupSyncs.length;
++				await withStartupSignal(Promise.all(startupSyncs), startupAbort.signal);
++				startupAbort.signal.throwIfAborted();
++			} while (observed !== startupSyncs.length);
  		} catch (error) {
  			if (firstAttemptError === void 0) firstAttemptError = error;
  			if (isCurrent(generation)) ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`);
-@@ -662,6 +696,8 @@ function startConnection(ctx, config, policy) {
+ 			const quiesced = await closeGeneration();
++			if (startup) {
++				await syncChain;
++				for (const dispose of disposers.values()) dispose();
++				disposers = new Map();
++			}
  			attemptSettled = true;
  			settleFailedGeneration(generation, quiesced);
  			return;
@@ -119,7 +138,7 @@ index a0c19c8..3019921 100644
  		}
  		attemptSettled = true;
  		if (hasClosed()) {
-@@ -785,6 +821,7 @@ const Config = z.union([z.object({
+@@ -785,6 +840,7 @@ const Config = z.union([z.object({
  	env: z.dict(String).default({}),
  	cwd: z.string().default(""),
  	toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
@@ -127,7 +146,7 @@ index a0c19c8..3019921 100644
  	failOnStartupError: z.boolean().default(false),
  	maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
  	reconnect: Reconnect
-@@ -794,6 +831,7 @@ const Config = z.union([z.object({
+@@ -794,6 +850,7 @@ const Config = z.union([z.object({
  	url: z.string().required(),
  	headers: z.dict(String).default({}),
  	toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
@@ -135,7 +154,7 @@ index a0c19c8..3019921 100644
  	failOnStartupError: z.boolean().default(false),
  	maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
  	reconnect: Reconnect
-@@ -807,6 +845,8 @@ const Config = z.union([z.object({
+@@ -807,6 +864,8 @@ const Config = z.union([z.object({
  * @returns startup readiness after connection and initial tool discovery settle.
  */
  async function apply(ctx, config) {

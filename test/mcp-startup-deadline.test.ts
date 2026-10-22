@@ -13,6 +13,8 @@ const [mode, trace] = process.argv.slice(2);
 const record = value => appendFileSync(trace, JSON.stringify({ pid: process.pid, ...value }) + '\n');
 record({ event: 'spawn' });
 let page = 0;
+let lists = 0;
+const notify = () => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' }) + '\n');
 createInterface({ input: process.stdin }).on('line', line => {
   const request = JSON.parse(line);
   record({ method: request.method, cursor: request.params?.cursor });
@@ -21,13 +23,32 @@ createInterface({ input: process.stdin }).on('line', line => {
     process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Legacy fixture' } }) + '\n');
   }
   if (request.method === 'initialize' && mode !== 'silent') {
-    const initialize = () => reply({ protocolVersion: '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } });
+    const initialize = () => reply({ protocolVersion: '2025-11-25', capabilities: { tools: { listChanged: true } }, serverInfo: { name: 'fixture', version: '1' } });
     if (mode === 'slow-connect') setTimeout(initialize, 350);
     else initialize();
+  }
+  if (request.method === 'tools/call') {
+    notify();
+    reply({ content: [] });
   }
   if (request.method === 'tools/list') {
     if (mode === 'hang') return;
     const tool = { name: 'ping', inputSchema: { type: 'object' } };
+    lists++;
+    if (mode.startsWith('runtime-')) {
+      if (lists === 1) reply({ tools: [tool] });
+      else setTimeout(() => reply({ tools: [{ ...tool, name: 'runtime' }] }), 1000);
+      return;
+    }
+    if (mode.startsWith('notify-')) {
+      if (lists === 1 || (mode === 'notify-drain' && lists === 2)) {
+        notify();
+        setTimeout(() => reply({ tools: [tool] }), 100);
+      } else if (mode === 'notify-register-error') reply({ tools: [{ ...tool, name: 'rejected' }] });
+      else if (mode === 'notify-error') reply({ tools: [tool, tool] });
+      else if (mode === 'notify-drain') reply({ tools: [{ ...tool, name: 'final' }] });
+      return;
+    }
     if (mode === 'pages') {
       page++;
       setTimeout(() => reply({ tools: [], nextCursor: String(page) }), 150);
@@ -78,15 +99,25 @@ async function runProfile({ mode = 'hang', strict = false, startupTimeoutMs = 90
         };
       ` : ''}
       const live = new Set();
+      const runtimeReady = Promise.withResolvers();
+      let triggerRuntime;
       const profile = loadProfile('fixture', 'fixture', ${JSON.stringify(resolve('node_modules/@deepseek-ai/dsh/package.json'))}, ${JSON.stringify(home)});
       const ctx = await boot('fixture', ${JSON.stringify(join(profile, 'cordis.yml'))}, profile.layers.flatMap(layer => layer.patches), ctx => {
-        ctx.logger.exporter({ levels: { default: 3 }, export: record => console.error(record.args.map(String).join(' ')) });
+        ctx.logger.exporter({ levels: { default: 3 }, export: record => {
+          const message = record.args.map(String).join(' ');
+          console.error(message);
+          if (${JSON.stringify(mode)} === 'runtime-register-error' && message.includes('tool registration failed')) runtimeReady.resolve();
+        } });
         ctx.provide('tools', { register(definition) {
+          if (definition.name === 'mcp__stalled__rejected' || (${JSON.stringify(mode)} === 'runtime-register-error' && definition.name === 'mcp__stalled__runtime')) throw new Error('fixture registry rejection');
+          if (definition.name === 'mcp__stalled__ping') triggerRuntime = () => definition.execute({}, { signal: new AbortController().signal });
           live.add(definition.name);
+          if (definition.name === 'mcp__stalled__runtime') runtimeReady.resolve();
           return () => live.delete(definition.name);
         } });
       });
       console.log('PROFILE_READY:' + JSON.stringify([...live]));
+      ${mode.startsWith('runtime-') ? `await triggerRuntime(); await runtimeReady.promise; console.log('RUNTIME_READY:' + JSON.stringify([...live]));` : ''}
       await ctx.fiber.dispose();
       console.log('PROFILE_DISPOSED:' + live.size);
     `)
@@ -109,6 +140,52 @@ async function runProfile({ mode = 'hang', strict = false, startupTimeoutMs = 90
 }
 
 describe('MCP entry startup deadline through the real Profile loader', () => {
+  it.each([false, true])('bounds notifications queued during initial discovery (strict=%s)', async strict => {
+    const result = await runProfile({ mode: 'notify-stall', strict })
+    expect(result.status, result.stderr).toBe(strict ? 1 : 0)
+    expect(result.traffic.filter(item => item.method === 'tools/list').length).toBeGreaterThanOrEqual(3)
+    expect(result.stderr).toContain('mcp-client(stalled): tools/list startup deadline exceeded after 900ms')
+    if (strict) expect(result.stdout).not.toContain('PROFILE_READY:')
+    else expect(result.stdout).toContain('PROFILE_READY:["mcp__healthy__ping"]')
+  }, 15_000)
+
+  it('waits until every startup notification refresh has published its final tool set', async () => {
+    const result = await runProfile({ mode: 'notify-drain', strict: true })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('mcp__stalled__final')
+    expect(result.stdout).not.toContain('mcp__stalled__ping')
+  }, 15_000)
+
+  it('propagates a startup notification refresh error instead of swallowing the queue rejection', async () => {
+    const result = await runProfile({ mode: 'notify-error', strict: true })
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stdout).not.toContain('PROFILE_READY:')
+    expect(result.stderr).toContain('more than once')
+  }, 15_000)
+
+  it('preserves strict startup registration failure from a queued notification', async () => {
+    const result = await runProfile({ mode: 'notify-register-error', strict: true })
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stdout).not.toContain('PROFILE_READY:')
+    expect(result.stderr).toContain('fixture registry rejection')
+  }, 15_000)
+
+  it('contains runtime registration failure even with strict startup enabled', async () => {
+    const result = await runProfile({ mode: 'runtime-register-error', strict: true })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('RUNTIME_READY:["mcp__healthy__ping"]')
+    expect(result.stderr).toContain('fixture registry rejection')
+    expect(result.stderr).not.toContain('startup deadline exceeded')
+  }, 15_000)
+
+  it('keeps post-startup notification refreshes outside the startup budget', async () => {
+    const result = await runProfile({ mode: 'runtime-refresh', strict: true })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('mcp__stalled__ping')
+    expect(result.stdout).toMatch(/RUNTIME_READY:.*mcp__stalled__runtime/)
+    expect(result.stderr).not.toContain('startup deadline exceeded')
+  }, 15_000)
+
   it('exposes a 20s default for both transports and rejects invalid programmatic budgets', () => {
     const source = `
       import assert from 'node:assert/strict';
