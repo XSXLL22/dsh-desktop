@@ -5,6 +5,10 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { it, expect } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import '@deepseek-ai/dsh-session-persistence'
 import { RepairAgentService } from '../src/main/repair-agent'
 import { RepairSessionStore } from '../src/main/state/repair-agent-sessions'
 import { HarnessRuntime } from '../src/main/runtime/harness-runtime'
@@ -104,6 +108,28 @@ registerHooks({ resolve(specifier, context, next) {
       } } } })
     })
     expect((await admitted.json()).result?.ok).toBe(true)
+    // Prompt admission only queues a live event; JSONL batches writes for
+    // 200 ms. Windows SIGTERM stops the process without draining that batch.
+    // Observe the actual stored prompt through an independent read-only
+    // backend before exercising cold restoration, rather than assuming the
+    // acknowledgement (or a fixed sleep) is a durability checkpoint.
+    const observer = new Context()
+    await observer.plugin(SessionStore)
+    const persistence = await observer.plugin(JsonlSessionPersistence, { root: join(home, 'sessions') })
+    try {
+      const sessionId = SessionId(envelope.result.value.sessionId)
+      await expect.poll(async () => {
+        if (!await observer.sessionPersistence.stat(sessionId)) return ''
+        const handle = await observer.sessionPersistence.open(sessionId, 'read')
+        try {
+          return JSON.stringify((await handle.read(0, 100)).events)
+        } finally {
+          await handle.close()
+        }
+      }, { timeout: 10_000 }).toContain('repair-persist-request')
+    } finally {
+      await persistence.dispose()
+    }
     const sessionStateDirectory = join(home, 'desktop-repair-state')
     await new RepairSessionStore(sessionStateDirectory).save('safe', {
       sessionId: envelope.result.value.sessionId, briefed: false
