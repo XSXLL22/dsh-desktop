@@ -5,6 +5,7 @@ import ts from 'typescript'
 import { afterEach, expect, it, vi } from 'vitest'
 import { navigateDesktopWindow, registerNavigationOwner } from '../src/main/desktop-navigation'
 import { RendererNavigationRecovery } from '../src/main/renderer-navigation-recovery'
+import { loadDesktopWindowAfterStop } from '../src/main/desktop-window-load'
 import { shouldReloadAfterMainWindowRendererLoss, MAIN_WINDOW_RECOVERY_RELOAD_COOLDOWN_MS } from '../src/main/main-window-recovery'
 
 function fixture() {
@@ -20,13 +21,13 @@ function fixture() {
   const target = Object.assign(window, {
     isDestroyed: () => false,
     webContents: Object.assign(contents, {
-      isDestroyed: () => false, getURL: vi.fn(() => 'file:///splash.html'), reload: vi.fn(), stop: vi.fn()
+      isDestroyed: () => false, isLoading: vi.fn(() => false), getURL: vi.fn(() => 'file:///splash.html'), reload: vi.fn(), stop: vi.fn()
     }),
     loadURL: vi.fn(() => new Promise<void>((resolve, reject) => loads.push({ resolve, reject })))
   })
   const error = vi.fn()
   const context = {
-    RendererNavigationRecovery, registerNavigationOwner, shouldReloadAfterMainWindowRendererLoss,
+    RendererNavigationRecovery, loadDesktopWindowAfterStop, registerNavigationOwner, shouldReloadAfterMainWindowRendererLoss,
     MAIN_WINDOW_RECOVERY_RELOAD_COOLDOWN_MS, mainWindowRecoveryReloadAt: 0,
     mainWindowRecoveryReloadCount: 0, quitting: false, gpuFallbackRelaunching: false,
     harnessRendered: false, clearProfileBootConfirmation: vi.fn(), recordMainWindowRendererLoss: vi.fn(),
@@ -39,6 +40,27 @@ function fixture() {
 }
 
 afterEach(() => vi.useRealTimers())
+it('drains the previous native load before installing the replacement load promise', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  const result = navigateDesktopWindow(f.target, 'file:///splash.html', () => false)
+  const outcome = result.then(value => ({ value }), error => ({ error }))
+  f.target.webContents.isLoading.mockReturnValue(true)
+  f.contents.emit('render-process-gone', { preventDefault() {} }, { reason: 'launch-failed', exitCode: 18 })
+  await vi.advanceTimersByTimeAsync(5_000)
+  // Windows can deliver the old abort after the replacement would have started.
+  expect(f.target.loadURL).toHaveBeenCalledTimes(1)
+  f.loads[0]?.reject(Object.assign(new Error('old load aborted'), { errno: -3, code: '' }))
+  f.contents.emit('did-fail-load', {}, -3, '', 'file:///splash.html', true)
+  f.target.webContents.isLoading.mockReturnValue(false)
+  f.contents.emit('did-stop-loading')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(f.target.loadURL).toHaveBeenCalledTimes(2)
+  f.loads[1]?.resolve()
+  await expect(outcome).resolves.toEqual({ value: true })
+  f.target.emit('closed')
+})
+
 it('actual callbacks recover a settled client route after direct reload failure', async () => {
   vi.useFakeTimers()
   const f = fixture()

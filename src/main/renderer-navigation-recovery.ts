@@ -1,7 +1,7 @@
 import { MAIN_WINDOW_RECOVERY_MAX_RELOADS, MAIN_WINDOW_RECOVERY_RELOAD_COOLDOWN_MS } from './main-window-recovery'
 
 interface RecoveryOptions {
-  load: (url: string) => Promise<void>
+  load: (url: string, cancelled: () => boolean) => Promise<void>
   cancelled: () => boolean
   onError: (error: unknown) => void
   cooldownMs?: number
@@ -47,20 +47,29 @@ export class RendererNavigationRecovery {
     return this.disposed || operation.cancelled || operation.superseded() || this.options.cancelled()
   }
 
-  private async bounded<T>(operation: Operation, action: () => Promise<T>, timeoutMs: number, signal = true): Promise<T | false> {
+  private async bounded<T>(operation: Operation, action: (cancelled: () => boolean) => Promise<T>, timeoutMs: number, signal = true): Promise<T | false> {
     let timer: ReturnType<typeof setTimeout> | undefined
+    let active = true
     const interrupted = new Promise<false>((resolve, reject) => {
-      operation.cancel = () => { operation.cancelled = true; resolve(false) }
-      operation.fail = signal ? reject : undefined
-      timer = setTimeout(() => reject(lossError()), timeoutMs)
+      operation.cancel = () => { active = false; operation.cancelled = true; resolve(false) }
+      operation.fail = signal ? (error) => { active = false; reject(error) } : undefined
+      timer = setTimeout(() => { active = false; reject(lossError()) }, timeoutMs)
       this.timers.add(timer)
     })
     try {
-      return await Promise.race([action(), interrupted])
+      return await Promise.race([action(() => !active || this.inactive(operation)), interrupted])
     } finally {
+      active = false
       operation.fail = undefined
       if (timer !== undefined) { clearTimeout(timer); this.timers.delete(timer) }
     }
+  }
+
+  private async load(operation: Operation): Promise<boolean> {
+    const result = await this.bounded(operation,
+      (cancelled) => this.options.load(operation.url, cancelled).then(() => true),
+      this.options.timeoutMs ?? 30_000)
+    return result !== false
   }
 
   private async backoff(operation: Operation): Promise<boolean> {
@@ -89,7 +98,7 @@ export class RendererNavigationRecovery {
       if (replacement && !await this.backoff(operation)) return false
       while (!this.inactive(operation)) {
         try {
-          const loaded = await this.bounded(operation, () => this.options.load(url).then(() => true), this.options.timeoutMs ?? 30_000)
+          const loaded = await this.load(operation)
           if (!loaded || this.inactive(operation)) return false
           operation.pending = false
           this.healthyTimer = setTimeout(() => {

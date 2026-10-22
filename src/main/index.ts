@@ -192,6 +192,7 @@ import { aboutDetail, bundledHarnessVersion } from './version-info'
 import { parseWindowsMenuRequest, windowsMenuTemplate, type EditingKey } from './windows-menu'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import { RendererNavigationRecovery } from './renderer-navigation-recovery'
+import { loadDesktopWindowAfterStop } from './desktop-window-load'
 
 type PluginRecoveryAction = `upgrade:${string}` | `uninstall:${string}` | `agent:${string}` | 'uninstall' | 'upgrade' | 'show-log' | 'quit' | 'restart' | 'refresh' | 'safe-mode' | 'auto-process' | 'check-updates' | 'market-upgrade' | 'market-remove'
 type WebImportAction = 'import' | 'skip'
@@ -389,10 +390,7 @@ function recordMainWindowRendererLoss(
 function installMainWindowRendererRecovery(window: BrowserWindow): void {
   const webContents = window.webContents
   const recovery = new RendererNavigationRecovery({
-    load: (url) => {
-      webContents.stop()
-      return window.loadURL(url)
-    },
+    load: (url, cancelled) => loadDesktopWindowAfterStop(window, url, cancelled),
     cancelled: () => quitting || gpuFallbackRelaunching || window.isDestroyed() || webContents.isDestroyed(),
     onError: showUnexpectedError
   })

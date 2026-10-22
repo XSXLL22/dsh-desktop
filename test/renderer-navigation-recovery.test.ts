@@ -28,7 +28,7 @@ describe('owned renderer navigation recovery', () => {
     await initial
     f.recovery.loadFailed('http://127.0.0.1/clean', -2, 'http://127.0.0.1/clean')
     await vi.advanceTimersByTimeAsync(50)
-    expect(f.load).toHaveBeenLastCalledWith('http://127.0.0.1/clean')
+    expect(f.load).toHaveBeenLastCalledWith('http://127.0.0.1/clean', expect.any(Function))
     f.loads[1]?.resolve()
     await vi.advanceTimersByTimeAsync(0)
     f.recovery.dispose()
@@ -66,7 +66,7 @@ describe('owned renderer navigation recovery', () => {
     await initial
     f.recovery.rendererGone('http://127.0.0.1/session/current')
     await vi.advanceTimersByTimeAsync(50)
-    expect(f.load).toHaveBeenLastCalledWith('http://127.0.0.1/session/current')
+    expect(f.load).toHaveBeenLastCalledWith('http://127.0.0.1/session/current', expect.any(Function))
     f.loads[1]?.resolve()
     await vi.advanceTimersByTimeAsync(0)
     f.recovery.dispose()

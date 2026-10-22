@@ -21,7 +21,8 @@ it.skipIf(!enabled)('recovers real sandboxed Electron navigation and renderer lo
     await writeFile(join(root, 'page.html'), '<!doctype html><title>Recovery fixture</title><main id="marker">renderer-recovered</main>')
     await build({
       stdin: {
-        contents: 'import { RendererNavigationRecovery } from ' + JSON.stringify(controller) + '\n' + fixture,
+        contents: 'import { RendererNavigationRecovery } from ' + JSON.stringify(controller) + '\n' +
+          'import { loadDesktopWindowAfterStop } from ' + JSON.stringify(resolve('src/main/desktop-window-load.ts')) + '\n' + fixture,
         resolveDir: process.cwd(), loader: 'ts'
       },
       bundle: true, platform: 'node', format: 'cjs', external: ['electron'], outfile: entry
@@ -96,17 +97,16 @@ function setup(timeoutMs = 5_000) {
     event, windowId, elapsedMs: Date.now() - startedAt, activeLoad: loads, ...details
   }))
   const owner = new RendererNavigationRecovery({
-    load: async url => {
+    load: async (url, cancelled) => {
       const id = ++loads
       trace('load-start', { id, url, loading: window.webContents.isLoading() })
-      window.webContents.stop()
-      trace('stop-requested', { id })
       try {
-        await window.loadURL(url)
+        await loadDesktopWindowAfterStop(window, url, cancelled)
       } catch (error) {
         trace('load-rejected', { id, url, code: error.code, errno: error.errno, message: error.message })
         throw error
       }
+      if (cancelled()) { trace('load-cancelled', { id, url }); return }
       trace('load-resolved', { id, url, currentUrl: window.webContents.getURL() })
       events.emit('loaded')
     },
