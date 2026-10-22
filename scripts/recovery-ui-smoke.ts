@@ -121,13 +121,14 @@ async function main(): Promise<void> {
       if (page === 'plugin-recovery') {
         const visibleLabels = (selector: string) => contents.executeJavaScript(`Array.from(document.querySelectorAll(${JSON.stringify(selector)})).filter(b => b.getBoundingClientRect().height > 0).map(b => b.textContent)`)
         const actions = await visibleLabels('.actions button')
-        const agentLabel = locale === 'zh' ? '进入维修 Agent（安全模式）' : 'Open repair Agent (Safe Mode)'
+        const agentLabel = locale === 'zh' ? '让 Agent 帮我修' : 'Ask Agent to help'
         const decision = await visibleLabels('#decision-row button')
         assert.equal(decision.filter((label: string) => label === agentLabel).length, scenario === 'unidentified-plugin' ? 1 : 0)
         if (scenario === 'unidentified-plugin') assert.deepEqual(actions, [agentLabel])
         else {
           assert.equal(actions.includes(locale === 'zh' ? '一键修复' : 'Repair now'), true)
-          assert.equal(actions.includes(locale === 'zh' ? '回退应用至 0.12.0' : 'Restore app 0.12.0'), true)
+          const aside = await visibleLabels('.decision-aside button')
+          assert.equal(aside.includes(locale === 'zh' ? '回退应用至 0.12.0' : 'Restore app 0.12.0'), true, 'Rollback remains available on the left of the decision row')
         }
         assert.equal(await contents.executeJavaScript('document.querySelectorAll("[role=progressbar]").length'), 0)
         assert.equal(await contents.executeJavaScript('document.querySelectorAll("#plugins button").length'), 0)
