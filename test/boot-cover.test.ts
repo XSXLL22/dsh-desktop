@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  BOOT_COVER_DARK_MARK_URL,
   BOOT_COVER_ID,
+  BOOT_COVER_LIGHT_MARK_URL,
   BOOT_COVER_STYLE_ID,
   isHarnessBootCoverTarget,
   mountBootCover,
@@ -106,7 +108,11 @@ describe('boot cover lifecycle', () => {
     expect(first).not.toBeNull()
     expect(harness.doc.querySelectorAll(`#${BOOT_COVER_ID}`)).toHaveLength(1)
     expect(repeat).toBe(harness.cover)
-    expect(first?.shadowRoot?.querySelector('h1')?.textContent).toBe('Starting DSH Desktop')
+    const shadow = first?.shadowRoot
+    expect(shadow?.querySelector('h1')?.textContent).toBe('Starting DSH Desktop')
+    expect(shadow?.querySelector('img.markLight')?.getAttribute('src')).toBe(BOOT_COVER_LIGHT_MARK_URL)
+    expect(shadow?.querySelector('img.markDark')?.getAttribute('src')).toBe(BOOT_COVER_DARK_MARK_URL)
+    expect(shadow?.querySelector('.markFrame')?.getAttribute('aria-hidden')).toBe('true')
 
     const desktop = document.implementation.createHTMLDocument()
     expect(mountBootCover('file:///tmp/splash.html', { document: desktop, locale: 'zh' })).toBeUndefined()
@@ -114,7 +120,7 @@ describe('boot cover lifecycle', () => {
     harness.cover?.dispose()
   })
 
-  it('waits for the parser to create body before inserting the cover', async () => {
+  it('paints the splash before the parser creates body and keeps a single cover', async () => {
     const doc = document.implementation.createHTMLDocument()
     doc.body?.remove()
     const timers = createTimers()
@@ -126,16 +132,22 @@ describe('boot cover lifecycle', () => {
       subscribePageHide: () => () => {}
     })
     expect(doc.body).toBeNull()
-    expect(doc.getElementById(BOOT_COVER_ID)).toBeNull()
-    expect(doc.getElementById(BOOT_COVER_STYLE_ID)).toBeNull()
+    const painted = doc.getElementById(BOOT_COVER_ID)
+    expect(painted?.shadowRoot?.querySelector('h1')?.textContent).toBe('正在启动 DSH Desktop')
+    expect(painted?.shadowRoot?.querySelector('img.markLight')?.getAttribute('src')).toBe(BOOT_COVER_LIGHT_MARK_URL)
+    expect(doc.getElementById(BOOT_COVER_STYLE_ID)?.textContent).toContain('body, body *')
+
+    painted?.remove()
+    doc.getElementById(BOOT_COVER_STYLE_ID)?.remove()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(doc.getElementById(BOOT_COVER_ID)).not.toBeNull()
 
     const body = doc.createElement('body')
     doc.documentElement?.append(body)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(doc.body).toBe(body)
-    expect(doc.getElementById(BOOT_COVER_ID)).not.toBeNull()
-    expect(doc.getElementById(BOOT_COVER_STYLE_ID)?.textContent).toContain('body, body *')
+    expect(doc.querySelectorAll(`#${BOOT_COVER_ID}`)).toHaveLength(1)
     cover?.dispose()
     expect(timers.pending()).toBe(0)
   })
@@ -146,11 +158,24 @@ describe('boot cover lifecycle', () => {
     cover?.dispose()
   })
 
-  it('follows the dark color scheme', () => {
+  it('follows the dark color scheme and reserves the splash mark', () => {
     const { doc, cover } = mountHarnessCover({
       matchMedia: () => createThemeQuery(true)
     })
-    expect(doc.getElementById(BOOT_COVER_ID)?.dataset.theme).toBe('dark')
+    const root = doc.getElementById(BOOT_COVER_ID)
+    const css = root?.shadowRoot?.querySelector('style')?.textContent ?? ''
+    expect(root?.dataset.theme).toBe('dark')
+    expect(css).toContain(':host([data-theme="dark"]) .markLight { display:none; }')
+    expect(css).toContain('brightness(2.4) saturate(0.72)')
+    expect(css).toContain('aspect-ratio:640 / 360')
+    cover?.dispose()
+  })
+
+  it('insets the splash below the Windows caption, matching the startup page', () => {
+    const { doc, cover } = mountHarnessCover({ platform: 'win32' })
+    const root = doc.getElementById(BOOT_COVER_ID)
+    expect(root?.dataset.platform).toBe('windows')
+    expect(root?.shadowRoot?.querySelector('style')?.textContent).toContain('padding-top:70px')
     cover?.dispose()
   })
 

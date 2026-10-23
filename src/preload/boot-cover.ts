@@ -1,14 +1,21 @@
 export const BOOT_COVER_ID = 'dsh-desktop-boot-cover'
 export const BOOT_COVER_STYLE_ID = 'dsh-desktop-boot-cover-style'
 export const BOOT_COVER_STALL_MS = 20_000
+/** Same files splash.html loads, served by the desktop protocol so the Harness origin can paint them. */
+export const BOOT_COVER_LIGHT_MARK_URL = 'dsh-desktop://desktop/dsh-loader.gif'
+export const BOOT_COVER_DARK_MARK_URL = 'dsh-desktop://desktop/dsh-loader-dark.gif'
 
 const LIGHT_BACKGROUND = '#f8f8f6'
 const DARK_BACKGROUND = '#141416'
+const MARK_WIDTH_PX = 196
+const MARK_ASPECT_RATIO = '640 / 360'
 
 export interface BootCoverOptions {
   document: Document
   locale: 'en' | 'zh'
   stallMs?: number
+  /** Defaults to the current process. Tests pass this to check the Windows inset. */
+  platform?: string
   schedule?: (callback: () => void, delayMs: number) => number
   cancel?: (timer: number) => void
   matchMedia?: (query: string) => MediaQueryList
@@ -64,6 +71,7 @@ export function mountBootCover(href: string, options: BootCoverOptions): BootCov
 
   const doc = options.document
   const locale = options.locale
+  const platform = options.platform ?? process.platform
   const stallMs = options.stallMs ?? BOOT_COVER_STALL_MS
   const schedule = options.schedule ?? ((callback, delayMs): number => {
     const view = doc.defaultView
@@ -105,29 +113,68 @@ export function mountBootCover(href: string, options: BootCoverOptions): BootCov
   cover.id = BOOT_COVER_ID
   cover.setAttribute('role', 'status')
   cover.setAttribute('aria-live', 'polite')
+  if (platform === 'win32') cover.dataset.platform = 'windows'
   cover.style.cssText = [
     'position:fixed',
     'inset:0',
     'z-index:2147483646',
-    'display:grid',
-    'place-items:center',
     `background:${LIGHT_BACKGROUND}`,
     'color:#17181a'
   ].join(';')
   const shadow = cover.attachShadow({ mode: 'open' })
+  // Matches build/splash.html. The outer visibility rule cannot enter this
+  // shadow tree, so the splash itself forces visibility.
   const style = doc.createElement('style')
   style.textContent = `
+    :host, :host * { visibility: visible !important; }
     :host { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    .panel { display:grid; justify-items:center; gap:12px; max-width:28rem; padding:32px; text-align:center; }
+    .panel {
+      position:fixed;
+      inset:0;
+      box-sizing:border-box;
+      display:grid;
+      align-content:center;
+      justify-items:center;
+      gap:12px;
+      padding:32px;
+      text-align:center;
+    }
+    :host([data-platform="windows"]) .panel { padding-top:70px; }
+    .markFrame { display:grid; place-items:center; }
+    .mark {
+      grid-area:1 / 1;
+      width:${MARK_WIDTH_PX}px;
+      aspect-ratio:${MARK_ASPECT_RATIO};
+      height:auto;
+      image-rendering:pixelated;
+    }
+    .markDark { display:none; }
     h1 { margin:0; font-size:23px; font-weight:650; letter-spacing:-0.02em; }
     p { margin:-4px 0 0; color:#777a80; font-size:13px; }
     button { min-height:32px; padding:6px 12px; border:1px solid rgba(120,120,125,.45); border-radius:8px; color:inherit; background:transparent; cursor:pointer; font:inherit; font-size:13px; font-weight:600; }
     button:focus-visible { outline:2px solid #4d6bfe; outline-offset:2px; }
-    :host([data-theme="dark"]) { color:#f3f4f6; background:${DARK_BACKGROUND}; }
+    :host([data-theme="dark"]) { color:#f3f4f6; background:${DARK_BACKGROUND}; color-scheme:dark; }
+    :host([data-theme="dark"]) .markLight { display:none; }
+    :host([data-theme="dark"]) .markDark {
+      display:block;
+      filter:brightness(2.4) saturate(0.72) drop-shadow(0 0 7px rgba(111, 134, 255, 0.16));
+    }
     :host([data-theme="dark"]) p { color:#9ca0a8; }
   `
   const panel = doc.createElement('div')
   panel.className = 'panel'
+  const markFrame = doc.createElement('div')
+  markFrame.className = 'markFrame'
+  markFrame.setAttribute('aria-hidden', 'true')
+  const markLight = doc.createElement('img')
+  markLight.className = 'mark markLight'
+  markLight.alt = ''
+  markLight.src = BOOT_COVER_LIGHT_MARK_URL
+  const markDark = doc.createElement('img')
+  markDark.className = 'mark markDark'
+  markDark.alt = ''
+  markDark.src = BOOT_COVER_DARK_MARK_URL
+  markFrame.append(markLight, markDark)
   const title = doc.createElement('h1')
   const status = doc.createElement('p')
   const details = doc.createElement('button')
@@ -151,7 +198,7 @@ export function mountBootCover(href: string, options: BootCoverOptions): BootCov
   status.textContent = starting.status
   details.textContent = stalled.action
   details.setAttribute('aria-label', stalled.action)
-  panel.append(title, status, details)
+  panel.append(markFrame, title, status, details)
   shadow.append(style, panel)
 
   const colorScheme = options.matchMedia ?? doc.defaultView?.matchMedia?.bind(doc.defaultView)
@@ -174,10 +221,10 @@ export function mountBootCover(href: string, options: BootCoverOptions): BootCov
   let observedRoot: Node | undefined
   const unsubscribePageHide = subscribePageHide(() => dispose())
 
-  // The HTML parser can discard nodes inserted before the real document is
-  // built, and Harness can replace the boot tree later. Keep putting the cover
-  // back until Desktop decides the client is ready. Never insert it before
-  // <body> exists: that leaves document.body null and aborts the theme probe.
+  // Paint as soon as <html> exists. Waiting for <body> is the blank frame
+  // between splash and this cover. Do not synthesize a <body>: the parser owns
+  // it, and a stand-in leaves the theme probe looking at the wrong element.
+  // The parser can still discard nodes inserted before it finishes the tree.
   const attach = (): void => {
     if (disposed || released) return
     const root = doc.documentElement
@@ -188,7 +235,7 @@ export function mountBootCover(href: string, options: BootCoverOptions): BootCov
       rootObserver.observe(root, { childList: true })
       observedRoot = root
     }
-    if (!doc.body || (cover.isConnected && pageStyle.isConnected)) return
+    if (cover.isConnected && pageStyle.isConnected) return
     if (!pageStyle.isConnected) root.append(pageStyle)
     if (!cover.isConnected) root.append(cover)
   }
