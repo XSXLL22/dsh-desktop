@@ -48,7 +48,7 @@ async function main(): Promise<void> {
       autoHideMenuBar: true
     } : {}),
     backgroundColor: '#18181b',
-    webPreferences: { sandbox: true, contextIsolation: true }
+    webPreferences: { sandbox: true, contextIsolation: true, preload: process.env.RECOVERY_UI_TITLEBAR_PRELOAD }
   })
   parent.setMenuBarVisibility(false)
   secureWindow(parent)
@@ -108,9 +108,12 @@ async function main(): Promise<void> {
           buttonsVisible:[...document.querySelectorAll('.actions button:not([hidden])')].filter(b=>b.getBoundingClientRect().height).every(b=>{const r=b.getBoundingClientRect();return r.top>=cr.top-epsilon&&r.bottom<=cr.bottom+epsilon&&r.right<=vw+epsilon}),
           footerBottom:fr.bottom,
           footerVisible:fr.bottom<=vh+epsilon,
+          headerTop:document.querySelector('.header').getBoundingClientRect().top,
+          captionBottom:document.querySelector('[data-dsh-windows-menu]').getBoundingClientRect().bottom,
           wechatLabel:document.querySelector('#community-wechat').innerText }
       })()`)
       const where = `${scenario} ${locale} ${theme} ${width}x${height} -> ${JSON.stringify(layout)}`
+      assert.ok(layout.headerTop >= layout.captionBottom - 0.5, `page header must stay below Windows caption menus: ${where}`)
       assert.equal(layout.outerScroll, false, `page must not scroll as a whole: ${where}`)
       assert.equal(layout.footerVisible, true, `footer must end inside the viewport: ${where}`)
       if (page === 'safe-mode') {
@@ -173,6 +176,13 @@ async function main(): Promise<void> {
     }
     assert.deepEqual(rendererErrors, [])
   }
+  await parent.loadFile(join(process.cwd(), 'build', 'application-rollback.html'), { query: { state: '{}' } })
+  await delay(100)
+  const rollbackCaption = await parent.webContents.executeJavaScript(`(() => ({
+    headerTop: document.querySelector('header').getBoundingClientRect().top,
+    captionBottom: document.querySelector('[data-dsh-windows-menu]').getBoundingClientRect().bottom
+  }))()`)
+  assert.ok(rollbackCaption.headerTop >= rollbackCaption.captionBottom, 'Rollback header must clear Windows caption menus')
   // The Safe Mode frame is driven over IPC to the host page: the URL to show,
   // in-place model updates, and null to take the page down. Closing is
   // idempotent and follows the parent window.
