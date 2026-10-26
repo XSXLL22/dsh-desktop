@@ -1,8 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-client-file-upload/lib/index.js b/node_modules/@deepseek-ai/dsh-client-file-upload/lib/index.js
+index deb9ccf761..3d2c2ea737 100644
 --- a/node_modules/@deepseek-ai/dsh-client-file-upload/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-client-file-upload/lib/index.js
-@@ -228,8 +228,21 @@
- 		resolve(agent, receiptId) {
+@@ -229,6 +229,19 @@ let FileUploads = (() => {
  			return this.stagedFiles.get(agent.session)?.get(receiptId)?.file;
  		}
  		/**
@@ -22,4 +22,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-client-file-upload/lib/index.js b/nod
  		* Bind receipts while one prompt enters an Agent inbox.
  		* Disposal restores every prior binding unless the caller commits successful delivery.
  		* @param agent - receiving Agent.
- 		* @param receiptIds - distinct staged receipts referenced by the prompt.

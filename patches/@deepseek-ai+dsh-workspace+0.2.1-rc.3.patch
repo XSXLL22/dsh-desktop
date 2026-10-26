@@ -1,8 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/index.js b/node_modules/@deepseek-ai/dsh-workspace/lib/index.js
+index 323d5acca5..12c39419f8 100644
 --- a/node_modules/@deepseek-ai/dsh-workspace/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-workspace/lib/index.js
-@@ -539,8 +539,28 @@
- 			});
+@@ -540,6 +540,26 @@ var WorkspaceRegistry = class extends Service {
  			if (options.stopActivity === true) await this.stopSessionActivity(sessionId);
  		});
  	}
@@ -29,12 +29,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/index.js b/node_modules
  	/**
  	* Unarchive one session durably by dropping it from the registry-global
  	* archive set; the accounting slot was never touched, so the session
- 	* returns to its recorded position. Unarchiving runs no session-existence
 diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.d.ts b/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.d.ts
+index 7da153b98e..f80242214e 100644
 --- a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.d.ts
 +++ b/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.d.ts
-@@ -211,8 +211,10 @@
-      * @param options - Whether running work is stopped instead of refusing.
+@@ -212,6 +212,8 @@ export declare class WorkspaceRegistry extends Service {
       * @returns resolution after durability and, with `stopActivity`, after every stop request was issued.
       */
      archiveSession(sessionId: SessionId, options?: ArchiveSessionOptions): Promise<void>;
@@ -43,12 +42,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.d.ts b/node
      /**
       * Unarchive one session durably by dropping it from the registry-global
       * archive set; the accounting slot was never touched, so the session
-      * returns to its recorded position. Unarchiving runs no session-existence
 diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.js b/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.js
+index 86e46bfb98..c2695d2f64 100644
 --- a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.js
 +++ b/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.js
-@@ -302,8 +302,33 @@
-             if (options.stopActivity === true)
+@@ -303,6 +303,31 @@ export class WorkspaceRegistry extends Service {
                  await this.stopSessionActivity(sessionId);
          });
      }
@@ -80,4 +78,3 @@ diff --git a/node_modules/@deepseek-ai/dsh-workspace/lib/types/index.js b/node_m
      /**
       * Unarchive one session durably by dropping it from the registry-global
       * archive set; the accounting slot was never touched, so the session
-      * returns to its recorded position. Unarchiving runs no session-existence
