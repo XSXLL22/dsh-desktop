@@ -268,6 +268,13 @@ describe('image tool and durable Office assets', () => {
     })
     expect(writerEnvironment({ env, platform: 'darwin', versions: { node: '24.9.0' } }).ELECTRON_RUN_AS_NODE).toBeUndefined()
   })
+  it('keeps Windows temp paths available to the ACL runner without passing host secrets', () => {
+    const env = { SystemRoot: 'C:\\Windows', Temp: 'C:\\Users\\test\\Temp', TMP: 'C:\\Users\\test\\Temp', API_KEY: 'secret', NODE_OPTIONS: '--require secret.js' }
+    expect(writerEnvironment({ env, platform: 'win32', versions: {} })).toEqual({
+      ...env, API_KEY: undefined, NODE_OPTIONS: undefined,
+    })
+    expect(writerEnvironment({ env, platform: 'linux', versions: {} }).Temp).toBeUndefined()
+  })
   it.each(['openai', 'bytedance'])('executes %s through ToolRuntime and writes a verifiable PNG', async provider => {
     const f = await fixture(); const s = await server()
     await f.settings.save(saveInput(provider, s.baseUrl))
