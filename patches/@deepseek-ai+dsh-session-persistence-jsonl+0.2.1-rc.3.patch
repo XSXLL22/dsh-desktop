@@ -1,8 +1,8 @@
 diff --git a/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js b/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
+index 8247fd4f6f..4ccb328dc3 100644
 --- a/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
 +++ b/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
-@@ -2559,8 +2559,42 @@
- 	*/
+@@ -2560,6 +2560,40 @@ var JsonlSessionPersistence = class extends SessionPersistence {
  	flush() {
  		return this.tracker.flushAll();
  	}
@@ -43,12 +43,11 @@ diff --git a/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.j
  	/**
  	* Observe one stored session without reading its event log.
  	* @param id - the stored session to observe.
- 	* @param options - optional cancellation.
 diff --git a/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/types/index.d.ts b/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/types/index.d.ts
+index 3db8e84900..8bdb1857b7 100644
 --- a/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/types/index.d.ts
 +++ b/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/types/index.d.ts
-@@ -42,5 +42,5 @@
-  * @param config - the storage root, physical encoding, and listing concurrency.
+@@ -43,4 +43,4 @@ export declare const Config: z<Config>;
   * @returns resolves when the service is ready.
   */
  export declare function apply(ctx: Context, config: Config): Promise<void>;
