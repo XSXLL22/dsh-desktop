@@ -1,3 +1,4 @@
+import { isMemoryExit } from '../resource-diagnostics'
 import { execFile, execFileSync, type SpawnOptionsWithoutStdio } from 'node:child_process'
 import type { EventEmitter } from 'node:events'
 import { createWriteStream, existsSync, mkdirSync, type WriteStream } from 'node:fs'
@@ -627,12 +628,16 @@ export class HarnessRuntime {
       return
     }
     this.child = child
+    let fatalMemoryFailure = false
+    let memoryEvidenceTail = ''
 
     child.stdout.on('data', (chunk: Buffer) => {
       if (this.child === child) this.writeChunk('stdout', chunk)
     })
     child.stderr.on('data', (chunk: Buffer) => {
       if (this.child !== child) return
+      memoryEvidenceTail = (memoryEvidenceTail + chunk.toString()).slice(-8192)
+      fatalMemoryFailure ||= /(?:^|\n)FATAL ERROR:.*(?:heap|[Aa]llocation)|OOM error in V8:/.test(memoryEvidenceTail)
       this.writeChunk('stderr', chunk)
       if (this.child !== child || this.phase !== 'starting') return
 
@@ -672,7 +677,8 @@ export class HarnessRuntime {
         cause
           ? `Harness stopped unexpectedly (${detail}).
 ${cause}`
-          : `Harness stopped unexpectedly (${detail}).`
+          : `Harness stopped unexpectedly (${detail}).`,
+        fatalMemoryFailure || isMemoryExit('', code ?? -1) ? 'memory-exhausted' : undefined
       )
     })
 

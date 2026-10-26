@@ -1,3 +1,4 @@
+import { isMemoryExit } from '../src/main/resource-diagnostics'
 import { rendererDiagnosticText, rendererDiagnosticUrl } from '../src/main/renderer-diagnostics'
 import { freemem, release, totalmem } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -35,6 +36,7 @@ function fixture(note: (line: string) => void = () => {}) {
   const error = vi.fn()
   const context = {
     rendererDiagnosticText, rendererDiagnosticUrl, freemem, release, totalmem, randomUUID, RendererNavigationRecovery, loadDesktopWindowAfterStop, registerNavigationOwner,
+    processRecovery: { blocked: false, start: vi.fn() }, isMemoryExit,
     quitting: false, gpuFallbackRelaunching: false,
     harnessRendered: false, clearProfileBootConfirmation: vi.fn(), recordMainWindowRendererLoss: vi.fn((source, details) => note(source + ": " + details)),
     showUnexpectedError: error, isRendererGpuFallbackCandidate: () => false,
@@ -106,7 +108,9 @@ it('distinguishes a running renderer loss and retains its last live PID in the c
   const loss = events.find(event => event.phase === 'renderer-gone')
   expect(loss).toMatchObject({ stage: 'running', harnessPhase: 'ready', lastRendererPid: 1234,
     reason: 'oom', exitCode: 14, systemMemory: { freeBytes: expect.any(Number), totalBytes: expect.any(Number) } })
-  expect(events.at(-1)).toMatchObject({ phase: 'load-completed', stage: 'running', reloadCount: 1 })
+  expect(events.at(-1)).toMatchObject({ phase: 'renderer-gone', stage: 'running' })
+  expect(f.context.processRecovery.start).toHaveBeenCalledWith('memory')
+  expect(f.loads).toHaveLength(1)
   const otherNotes: string[] = []
   const other = fixture(line => otherNotes.push(line))
   const otherLoad = navigateDesktopWindow(other.target, 'file:///splash.html', () => false)
@@ -208,5 +212,15 @@ it.each(['gone-first', 'load-first'])('actual main callbacks await splash replac
   expect(f.target.loadURL).toHaveBeenCalledTimes(2)
   f.loads[1]?.resolve()
   await expect(outcome).resolves.toEqual({ value: true })
+  f.target.emit('closed')
+})
+
+
+it('allows OOM escalation through an existing recovery gate without retrying navigation', async () => {
+  const f = fixture()
+  f.context.processRecovery.blocked = true
+  f.contents.emit('render-process-gone', { preventDefault() {} }, { reason: 'oom', exitCode: 14 })
+  expect(f.context.processRecovery.start).toHaveBeenCalledExactlyOnceWith('memory')
+  expect(f.loads).toHaveLength(0)
   f.target.emit('closed')
 })

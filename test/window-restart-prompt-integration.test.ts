@@ -1,10 +1,11 @@
+import { ProcessRecovery } from '../src/main/process-recovery'
 import { applicationText } from '../src/main/application-locale'
 import type { MessageBoxOptions } from 'electron'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { showWindowRestartPrompt } from '../src/main/window-restart-prompt'
+import { requestWindowRestart } from '../src/main/window-restart-prompt'
 import { rendererDiagnosticText } from '../src/main/renderer-diagnostics'
 
 function deferred<T>() {
@@ -20,13 +21,15 @@ function fixture() {
   const handler = parsed.statements.find((statement) =>
     ts.isFunctionDeclaration(statement) && statement.name?.text === 'showUnexpectedError')
   if (!handler) throw new Error('Missing showUnexpectedError entry point')
-  const code = ts.transpileModule(handler.getText(parsed), {
+  const fallback = parsed.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'reportNativeRecoveryFailure')
+  if (!fallback) throw new Error('Missing native fallback')
+  const code = ts.transpileModule(handler.getText(parsed) + '\n' + fallback.getText(parsed), {
     compilerOptions: { target: ts.ScriptTarget.ES2022 }
   }).outputText
   const actions: string[] = []
   const context = {
-    Error, applicationText, showWindowRestartPrompt: vi.fn(showWindowRestartPrompt), rendererDiagnosticText,
-    nativeRecoveryActive: false, quitting: false, gpuFallbackRelaunching: false,
+    Error, applicationText, requestWindowRestart: vi.fn(requestWindowRestart), rendererDiagnosticText,
+    quitting: false, gpuFallbackRelaunching: false,
     harnessLocale: vi.fn(() => 'en'),
     runtime: {
       note: vi.fn((_line: string) => {}),
@@ -42,8 +45,23 @@ function fixture() {
     },
     console: { error: vi.fn() }
   }
-  const report: (error: unknown) => void = runInNewContext(code + ';showUnexpectedError', context)
-  return { context, report, actions }
+  const handlers = runInNewContext(code + ';({ report: showUnexpectedError, fallback: reportNativeRecoveryFailure })', context)
+  const processRecovery = new ProcessRecovery({
+    cancelled: () => context.quitting || context.gpuFallbackRelaunching,
+    stop: async () => {}, releasePage: async () => {},
+    prompt: kind => context.requestWindowRestart({
+      locale: context.harnessLocale() === 'zh' ? 'zh' : 'en',
+      cancelled: () => context.quitting || context.gpuFallbackRelaunching,
+      flushDiagnostics: () => context.runtime.flushLog(),
+      show: options => context.dialog.showMessageBox(options),
+      note: line => context.runtime.note(rendererDiagnosticText(line))
+    }, kind),
+    restart: () => context.app.relaunch(), quit: () => context.app.quit(),
+    onError: handlers.fallback
+  })
+  const boundContext = Object.assign(context, { processRecovery })
+  const report: (error: unknown) => void = handlers.report
+  return { context: boundContext, report, actions }
 }
 
 beforeEach(() => { vi.useFakeTimers() })
@@ -57,7 +75,7 @@ describe('window restart prompt entry point', () => {
     context.runtime.flushLog.mockReturnValue(flush.promise)
     context.dialog.showMessageBox.mockReturnValue(dialog.promise)
     report(new Error('first renderer failure'))
-    expect(context.nativeRecoveryActive).toBe(true)
+    expect(context.processRecovery.blocked).toBe(true)
     report(new Error('duplicate before flush starts'))
     await vi.advanceTimersByTimeAsync(0)
     expect(context.runtime.flushLog).toHaveBeenCalledOnce()
@@ -66,7 +84,7 @@ describe('window restart prompt entry point', () => {
     flush.resolve()
     await vi.advanceTimersByTimeAsync(0)
     expect(context.dialog.showMessageBox).toHaveBeenCalledOnce()
-    expect(context.nativeRecoveryActive).toBe(true)
+    expect(context.processRecovery.blocked).toBe(true)
     report(new Error('duplicate while dialog is open'))
     expect(context.runtime.flushLog).toHaveBeenCalledOnce()
     expect(context.dialog.showMessageBox).toHaveBeenCalledOnce()
@@ -74,7 +92,7 @@ describe('window restart prompt entry point', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(context.app.relaunch).toHaveBeenCalledOnce()
     expect(context.app.quit).toHaveBeenCalledOnce()
-    expect(context.nativeRecoveryActive).toBe(false)
+    expect(context.processRecovery.blocked).toBe(false)
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -92,7 +110,7 @@ describe('window restart prompt entry point', () => {
       defaultId: 0, cancelId: 0, noLink: true
     })
     expect(JSON.stringify(shown)).not.toMatch(/load failed|http:|credential-secret|query-secret|fragment-secret|Error:| at /)
-    const recoveryOptions = context.showWindowRestartPrompt.mock.calls[0]?.[0]
+    const recoveryOptions = context.requestWindowRestart.mock.calls[0]?.[0]
     expect(recoveryOptions?.locale).toBe('zh')
     const notes = context.runtime.note.mock.calls.map(([line]) => line).join('\n')
     expect(notes).toContain('unexpected error: Error: load failed: http://127.0.0.1:4321/route')
@@ -112,7 +130,7 @@ describe('window restart prompt entry point', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(context.app.relaunch).not.toHaveBeenCalled()
     expect(context.app.quit).not.toHaveBeenCalled()
-    expect(context.nativeRecoveryActive).toBe(false)
+    expect(context.processRecovery.blocked).toBe(false)
   })
 
   it('suppresses a deferred dialog rejection after quit and releases the guard', async () => {
@@ -121,7 +139,7 @@ describe('window restart prompt entry point', () => {
     context.dialog.showMessageBox.mockReturnValue(dialog.promise)
     report(new Error('renderer failed'))
     await vi.advanceTimersByTimeAsync(0)
-    expect(context.nativeRecoveryActive).toBe(true)
+    expect(context.processRecovery.blocked).toBe(true)
     expect(context.dialog.showMessageBox).toHaveBeenCalledOnce()
     context.quitting = true
     const failure = new Error('late failure http://user:credential-secret@127.0.0.1:4321/route?token=query-secret#fragment-secret')
@@ -130,7 +148,7 @@ describe('window restart prompt entry point', () => {
     expect(context.dialog.showErrorBox).not.toHaveBeenCalled()
     expect(context.app.relaunch).not.toHaveBeenCalled()
     expect(context.app.quit).not.toHaveBeenCalled()
-    expect(context.nativeRecoveryActive).toBe(false)
+    expect(context.processRecovery.blocked).toBe(false)
     expect(context.console.error).toHaveBeenCalledWith('[desktop] native recovery failed', rendererDiagnosticText(String(failure)))
     const logged = context.runtime.note.mock.calls.map(([line]) => line).join('\n')
     expect(logged).toContain('native recovery failed')
@@ -152,7 +170,7 @@ describe('window restart prompt entry point', () => {
     expect(fallbackText).toMatch(/restart/i)
     expect(fallbackText).not.toMatch(/credential-secret|query-secret|fragment-secret|http:|Error:| at |native dialog unavailable/)
     expect(context.runtime.note.mock.calls.map(([line]) => line).join('\n')).toContain('native recovery failed')
-    expect(context.nativeRecoveryActive).toBe(false)
+    expect(context.processRecovery.blocked).toBe(false)
     expect(context.app.relaunch).not.toHaveBeenCalled()
     expect(context.app.quit).not.toHaveBeenCalled()
   })

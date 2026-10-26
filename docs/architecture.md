@@ -121,3 +121,7 @@ Update metadata and artifacts are produced by the native release workflow. macOS
 Most of the product UI remains upstream Harness. DSH Desktop adds native host surfaces through Electron Main and preload code, uses Harness extension slots where available, and tracks unavoidable upstream package changes as reproducible `patch-package` files. This keeps the desktop layer reviewable while making upstream upgrades an explicit compatibility exercise.
 
 Harness 0.1.7 replaces directory based `dsh-agent-presets` with Profile composition entries. Before launching the normal web Profile, Desktop converts valid user directories into those entries, backs up the original tree and Profile patch, and leaves the original directories untouched. Safe Mode continues to resolve its bundled preset and client packages from the installation anchor; the recovery subprocess regression creates a default-preset session through the authenticated RPC with `profiles/node_modules` absent.
+
+### 进程故障恢复边界
+
+应用级 `ProcessRecovery` 统一持有退出证据、GPU 设备丢失探测及窗口/GPU/OOM 最终恢复门禁，并负责释放监听器与探测计时器。窗口级 `RendererNavigationRecovery` 只负责导航和有限重试，通过取消回调服从应用门禁。GPU 降级策略、原生提示、故障上报分别保持纯策略、交互、诊断职责；诊断显式注入退出上下文，不依赖全局共享注册表。配置和 Profile 修复不并入进程故障控制器。详见 [GPU 与 OOM 故障恢复](stability-protection.md)。

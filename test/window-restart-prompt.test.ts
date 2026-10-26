@@ -5,7 +5,7 @@ import { HarnessRuntime } from '../src/main/runtime/harness-runtime'
 import type { HarnessLocale } from '../src/main/application-locale'
 import type { MessageBoxOptions } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { showWindowRestartPrompt } from '../src/main/window-restart-prompt'
+import { requestWindowRestart, showWindowRestartPrompt } from '../src/main/window-restart-prompt'
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => { throw new Error('Promise not initialized') }
@@ -152,4 +152,17 @@ it('keeps native recovery available after a real asynchronous log-file write err
     warn.mockRestore()
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+
+it.each(['memory', 'graphics'] as const)('requires an explicit restart choice for %s', async kind => {
+  const options = setup()
+  expect(await requestWindowRestart(options, kind)).toBe('quit')
+  expect(options.show.mock.calls[0]?.[0]).toMatchObject({ defaultId: 0, cancelId: 0 })
+  options.show.mockResolvedValue({ response: 1 })
+  expect(await requestWindowRestart(options, kind)).toBe(kind === 'memory' ? 'restart' : 'software')
+  options.show.mockResolvedValue({ response: -1 })
+  expect(await requestWindowRestart(options, kind)).toBeUndefined()
+  expect(options.restart).not.toHaveBeenCalled()
+  expect(options.quit).not.toHaveBeenCalled()
 })

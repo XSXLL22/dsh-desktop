@@ -1,3 +1,4 @@
+import { createProcessRecovery } from './helpers/process-recovery'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,6 +18,45 @@ function queued(service: DesktopService, dir: string) {
   return service.pending().map(name => JSON.parse(readFileSync(join(dir, 'state', 'outbox', name), 'utf8')))
 }
 describe('desktop service', () => {
+  it('captures bounded fault-time resource evidence without dropping faults when sampling fails', () => {
+    const { service, dir } = fixture()
+    const app = new EventEmitter(), events = new EventEmitter(), onError = vi.fn()
+    const sample = vi.fn().mockReturnValueOnce('freeMb=100').mockImplementationOnce(() => { throw Error('metrics unavailable') })
+    const diagnostics = attachDiagnostics(app, service, { processEvents: events, resourceEvidence: sample, onError })
+    disposers.push(() => diagnostics.dispose())
+    expect(sample).not.toHaveBeenCalled()
+    app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed', exitCode: 34 })
+    app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed', exitCode: 2 })
+    const reports = queued(service, dir)
+    expect(reports).toHaveLength(2)
+    expect(reports.some(r => r.message.includes('resources=freeMb=100'))).toBe(true)
+    expect(reports.some(r => r.message.includes('exitCode=2'))).toBe(true)
+    expect(onError).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves logoff reports and distinguishes unknown impact from confirmed session end', () => {
+    const { service, dir } = fixture()
+    const app = new EventEmitter(), window = new EventEmitter(), events = new EventEmitter()
+    const recovery = createProcessRecovery()
+    recovery.attach(app)
+    disposers.push(() => recovery.dispose())
+    const diagnostics = attachDiagnostics(app, service, { processEvents: events, platform: 'win32', getExitContext: () => recovery.exitContext })
+    disposers.push(() => diagnostics.dispose())
+    app.emit('browser-window-created', {}, window)
+    const loss = () => app.emit('child-process-gone', {}, { type: 'GPU', reason: 'crashed', exitCode: -1073741205 })
+    loss()
+    window.emit('query-session-end', {})
+    loss()
+    window.emit('session-end', {})
+    loss()
+    const reports = queued(service, dir)
+    expect(reports).toHaveLength(3)
+    expect(reports.every(r => r.kind === 'gpu-crash')).toBe(true)
+    expect(reports.filter(r => r.message.includes('classification=logoff-impact-unknown'))).toHaveLength(2)
+    expect(reports.filter(r => r.message.includes('classification=logoff-during-exit'))).toHaveLength(1)
+    expect(reports.some(r => r.message.includes('sessionEndRequested=true sessionEnding=false'))).toBe(true)
+  })
+
   it('persists identity and maps only supported hardware to the new API platforms', () => {
     const { service, options } = fixture()
     expect(new DesktopService(options).installationId).toBe(service.installationId)
