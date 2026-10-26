@@ -3,7 +3,7 @@ import { ProcessRecovery } from './process-recovery'
 import { ApplicationRollbackFlow } from './application-rollback-flow'
 import { developmentEnvironment } from './development-environment'
 import { createDevelopmentRepairDemo } from './development-repair-demo'
-import { desktopFileUrl, navigateDesktopWindow, registerNavigationOwner } from './desktop-navigation'
+import { desktopFileUrl, registerNavigationOwner, replaceDesktopWindowPage, type ShellNavigationTarget } from './desktop-navigation'
 import { recoverStartupConfiguration } from './startup-config-recovery'
 import { inspectStartupConfiguration, repairStartupConfig } from './state/startup-config-recovery'
 import { initializeDesktopService, desktopDiagnostics } from './desktop-service'
@@ -701,15 +701,13 @@ function desktopResourcePath(name: string): string {
 }
 
 async function loadDesktopResource(
-  target: {
-    isDestroyed: () => boolean
-    loadURL: (url: string) => Promise<void>
-  },
+  target: ShellNavigationTarget,
   filePath: string,
   options?: { query?: Record<string, string> }
 ): Promise<boolean> {
   const version = mainWindowNavigationVersion
-  return navigateDesktopWindow(target, desktopFileUrl(filePath, options?.query),
+  // Startup/import/recovery surfaces are lifecycle states, not browsable pages.
+  return replaceDesktopWindowPage(target, desktopFileUrl(filePath, options?.query),
     () => quitting || gpuFallbackRelaunching || version !== mainWindowNavigationVersion)
 }
 
@@ -1168,7 +1166,9 @@ function prepareHarnessPage(): void {
   const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow()
   const navigationVersion = ++mainWindowNavigationVersion
   window.webContents.stop()
-  harnessPagePreparation = navigateDesktopWindow(window, desktopHarnessUrl(HARNESS_SHELL_URL, process.platform),
+  // Preloading replaces the startup surface before the backend is ready. Clear
+  // that obsolete history here; openHarness normally reuses this same document.
+  harnessPagePreparation = replaceDesktopWindowPage(window, desktopHarnessUrl(HARNESS_SHELL_URL, process.platform),
     () => processRecovery.blocked || quitting || gpuFallbackRelaunching || navigationVersion !== mainWindowNavigationVersion)
   void harnessPagePreparation.then((loaded) => {
     if (loaded) runtime.note('[desktop] local Harness shell prepared; waiting for backend boot')
@@ -1205,7 +1205,9 @@ async function openHarness(
     navigationVersion !== mainWindowNavigationVersion || runtime.snapshot().url !== url) return
   if (!isHarnessShellUrl(window.webContents.getURL())) {
     navigationVersion = ++mainWindowNavigationVersion
-    const loaded = await navigateDesktopWindow(window, desktopHarnessUrl(HARNESS_SHELL_URL, process.platform),
+    // Recovery can reach Harness without a prepared page. This is the same
+    // lifecycle replacement, while ordinary application routing keeps history.
+    const loaded = await replaceDesktopWindowPage(window, desktopHarnessUrl(HARNESS_SHELL_URL, process.platform),
       () => processRecovery.blocked || quitting || gpuFallbackRelaunching || navigationVersion !== mainWindowNavigationVersion)
     if (!loaded) return
   }
