@@ -18,3 +18,29 @@ Verification: behavior tests for local serving, traversal and origin rejection, 
 - In a normal development run, the local shell was loaded while the boot graph/bootstrap were still unavailable (955 ms), then the full workspace mounted at 4210 ms. These are isolated-Profile measurements, not a comparison with a production Profile.
 - The final signed development application was launched directly from its packaged output. Its local page preceded backend readiness; boot payload HTTP 200 returned 12 injection rows, the bootstrap registered, the workspace mounted at 4109 ms, and no renderer exceptions were captured. This is a development test build, not a published release.
 - The application uses a separate development data directory. No installed production application or existing production Profile was replaced. Backend stopping time and plugin failure policy were not optimized by this change.
+
+## Startup failure cover
+
+The host cover applies during HTML bootstrapping and client activation, on both
+`dsh-desktop://harness/` and legacy loopback HTTP pages. It uses packaged Desktop
+loader images and a preload-owned shadow root because plugin slots are not yet
+available. It does not change Profile composition, module resolution, bootstrap
+ordering, API routing, or the normal/Safe Mode backend anchors.
+
+A mounted sidebar releases the cover only when no startup failure is pending.
+The desktop boot-failure bridge holds the cover before sending the original
+message to main. DOM-based diagnostics remain readable beneath the cover. Main
+collects failure evidence before replacing the failed document with the splash,
+then performs market checks and opens the existing recovery page. Slow startup
+exposes a bilingual “Show details” action after 20 seconds. The action only
+reveals a document containing a recognized startup failure; while scripts are
+still loading it keeps the cover and explains that no error details are available.
+It checks again after asynchronous CSS removal in case the failure content has
+disappeared. Failed CSS removal also keeps the cover and allows retry.
+
+CSS insertion/removal belongs to each window and document generation. Late
+insertion is removed after navigation or an explicit reveal, failed removals
+remain retryable, and recovery/splash documents are not covered. Renderer
+navigation continues using the existing bounded recovery owner, including its
+`ERR_ABORTED` handling. Inspector/WebSocket errors do not select another transport;
+this change adds no HTTP fallback or compatibility-mode setting.

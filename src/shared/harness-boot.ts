@@ -15,3 +15,14 @@ export function isHarnessShellUrl(rawUrl: string): boolean {
     return false
   }
 }
+
+/** Host startup UI targets the packaged shell and legacy loopback Harness pages. */
+export function isHarnessBootPage(rawUrl: string): boolean {
+  if (isHarnessShellUrl(rawUrl)) return true
+  try {
+    const url = new URL(rawUrl)
+    return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password
+  } catch {
+    return false
+  }
+}

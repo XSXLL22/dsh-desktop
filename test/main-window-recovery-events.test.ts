@@ -1,3 +1,4 @@
+import { HarnessBootCover } from '../src/main/harness-boot-cover'
 import { isMemoryExit } from '../src/main/resource-diagnostics'
 import { rendererDiagnosticText, rendererDiagnosticUrl } from '../src/main/renderer-diagnostics'
 import { freemem, release, totalmem } from 'node:os'
@@ -35,7 +36,7 @@ function fixture(note: (line: string) => void = () => {}) {
   })
   const error = vi.fn()
   const context = {
-    rendererDiagnosticText, rendererDiagnosticUrl, freemem, release, totalmem, randomUUID, RendererNavigationRecovery, loadDesktopWindowAfterStop, registerNavigationOwner,
+    HarnessBootCover, rendererDiagnosticText, rendererDiagnosticUrl, freemem, release, totalmem, randomUUID, RendererNavigationRecovery, loadDesktopWindowAfterStop, registerNavigationOwner,
     processRecovery: { blocked: false, start: vi.fn() }, isMemoryExit,
     quitting: false, gpuFallbackRelaunching: false,
     harnessRendered: false, clearProfileBootConfirmation: vi.fn(), recordMainWindowRendererLoss: vi.fn((source, details) => note(source + ": " + details)),

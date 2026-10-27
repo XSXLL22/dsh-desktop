@@ -56,6 +56,17 @@ describe('local Harness boot bridge', () => {
     installHarnessBootBridge()
     expect(electron.contextBridge.exposeInMainWorld).not.toHaveBeenCalled()
   })
+  it('holds the startup cover before sending the original failure to main', async () => {
+    const order = []
+    installHarnessBootBridge(() => order.push('covered'))
+    electron.ipcRenderer.invoke.mockImplementation(async (channel, message) => {
+      order.push([channel, message])
+      return { ok: true }
+    })
+    const bridge = electron.contextBridge.exposeInMainWorld.mock.calls[0][1]
+    await bridge.failed('client-modules: test-package import failed')
+    expect(order).toEqual(['covered', ['harness:boot-failed', 'client-modules: test-package import failed']])
+  })
   it('reports bounded textual errors using the dedicated recovery channel', async () => {
     installHarnessBootBridge()
     const bridge = electron.contextBridge.exposeInMainWorld.mock.calls[0][1]

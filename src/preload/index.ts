@@ -6,6 +6,7 @@ import { setupDesktopNotificationBridge } from './desktop-notification'
 import { mountDesktopUpdateUi } from './desktop-update-ui'
 import { isPluginLoadError } from './plugin-error-view'
 import { findBootFailureText } from './boot-failure'
+import { mountBootCover, shouldReleaseBootCover } from './boot-cover'
 import { markWindowsTitlebar, mountWindowsTitlebarLayout } from './windows-titlebar'
 import { mountMacosWindowChrome } from './macos-window-chrome'
 import { createHostPathsBridge, HOST_PATHS_BRIDGE } from './host-paths'
@@ -26,10 +27,20 @@ if (process.platform === 'win32') markWindowsTitlebar(document)
 // Intercept and persist localStorage to disk storage before any page script executes
 setupDesktopStoragePersistence()
 setupDesktopNotificationBridge()
-installHarnessBootBridge()
 
 const SAFE_MODE_BANNER_ID = 'dsh-desktop-safe-mode-banner'
 const locale: UpdateLocale = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+// Cover the Harness document before its own scripts paint the boot failure screen.
+const bootCover = mountBootCover(location.href, {
+  document,
+  locale,
+  revealPage: () => ipcRenderer.invoke('harness:reveal-boot-cover')
+})
+
+installHarnessBootBridge(() => {
+  bootFailureTriggered = true
+  bootCover?.holdForFailure()
+})
 
 let sidebarSettingsArea: HTMLElement | undefined
 let sidebarRoot: HTMLElement | undefined
@@ -80,6 +91,7 @@ function queueBootFailure(message?: string): void {
   addBootFailureMessage(currentBootFailureText())
   if (pendingBootFailureMessages.length === 0) return
 
+  bootCover?.holdForFailure()
   if (bootFailureTimer !== undefined) window.clearTimeout(bootFailureTimer)
   bootFailureTimer = window.setTimeout(() => {
     bootFailureTimer = undefined
@@ -118,6 +130,34 @@ function scheduleDomSync(): void {
   window.requestAnimationFrame(runDomSync)
 }
 
+function syncBootCover(): void {
+  if (bootScanSettled) return
+  sidebarRoot = liveElement(sidebarRoot, '[data-dsh-sidebar-root]')
+  // Read the boot screen before trusting the sidebar. Harness can briefly
+  // expose both while a client module is still failing.
+  checkBootFailureInDom()
+  const bootFailurePending = bootFailureTriggered || bootFailureTimer !== undefined
+  if (!shouldReleaseBootCover({
+    bootFailurePending,
+    clientReady: sidebarRoot?.isConnected === true
+  })) {
+    if (bootFailurePending) bootCover?.holdForFailure()
+    return
+  }
+  // Drop the main-process hide before the preload cover, so the shell is not
+  // uncovered while its document is still forced invisible.
+  if (rendererHealthReportInFlight) return
+  rendererHealthReportInFlight = true
+  void ipcRenderer.invoke('harness:reveal-boot-cover').then(() => {
+    if (bootFailureTriggered || bootFailureTimer !== undefined) return
+    bootScanSettled = true
+    bootCover?.releaseWhenReady()
+    startRendererHealthHeartbeat()
+  }).catch((error: unknown) => {
+    console.warn('[desktop] could not reveal the startup page', error)
+  }).finally(() => { rendererHealthReportInFlight = false })
+}
+
 function runDomSync(): void {
   domSyncScheduled = false
   positionSafeModeFrame()
@@ -127,10 +167,7 @@ function runDomSync(): void {
   // sidebar appearing is that moment. Past it the selector can never match
   // again, so scanning on would walk the conversation tree every frame for a
   // guaranteed miss. The window error handlers stay as the real backstop.
-  if (sidebarRoot?.isConnected) {
-    bootScanSettled = true
-    startRendererHealthHeartbeat()
-  } else checkBootFailureInDom()
+  syncBootCover()
 }
 
 contextBridge.exposeInMainWorld('__DSH_DIRECTORY_PICKER__', {
@@ -271,7 +308,7 @@ function initializeUi(): void {
     mountWindowsTitlebarLayout({ document, ipcRenderer })
   }
   mountDesktopUpdateUi()
-  checkBootFailureInDom()
+  syncBootCover()
   domObserver.observe(document.documentElement, {
     childList: true,
     subtree: true

@@ -35,7 +35,7 @@ import {
   type MessageBoxOptions
 } from 'electron'
 import { HarnessShell } from './harness-shell'
-import { HARNESS_SHELL_URL, HARNESS_BOOT_CHANNEL, HARNESS_BOOT_FAILED_CHANNEL, isHarnessShellUrl } from '../shared/harness-boot'
+import { HARNESS_SHELL_URL, HARNESS_BOOT_CHANNEL, HARNESS_BOOT_FAILED_CHANNEL, isHarnessShellUrl, isHarnessBootPage } from '../shared/harness-boot'
 import {
   DEFAULT_HARNESS_PORT,
   extractFailureCause,
@@ -203,6 +203,7 @@ import {
 import { upgradeMarketInSharedTree, upgradePluginToGeneration } from './state/plugin-upgrade'
 import { aboutDetail, bundledHarnessVersion } from './version-info'
 import { parseWindowsMenuRequest, windowsMenuTemplate, type EditingKey } from './windows-menu'
+import { HarnessBootCover } from './harness-boot-cover'
 import { shouldKeepRunningInBackground } from './close-to-tray'
 import { RendererNavigationRecovery } from './main-window-recovery'
 import { rendererDiagnosticText, rendererDiagnosticUrl } from './renderer-diagnostics'
@@ -551,9 +552,32 @@ function installMainWindowRendererRecovery(window: BrowserWindow): void {
     if (!runtime) return
     runtime.note('[desktop] main window webContents became responsive again')
   })
-  webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-    if (isMainFrame) clearProfileBootConfirmation()
+  webContents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame) return
+    clearProfileBootConfirmation()
+    if (isInPlace) return
+    // The document that owned the previous rule is going away. Drop the key
+    // without removing the rule, so a failure page stays covered until the
+    // next document commits. In-place updates keep the same document and rule.
+    bootCoverFor(webContents).navigate(url)
   })
+  webContents.on('dom-ready', () => {
+    if (webContents.isDestroyed()) return
+    const url = webContents.getURL()
+    void bootCoverFor(webContents).conceal(url).catch(error => {
+      runtime.note('[desktop] could not cover startup page: ' + String(error))
+    })
+  })
+}
+
+const harnessBootCovers = new WeakMap<Electron.WebContents, HarnessBootCover>()
+function bootCoverFor(contents: Electron.WebContents): HarnessBootCover {
+  let cover = harnessBootCovers.get(contents)
+  if (!cover) {
+    cover = new HarnessBootCover(contents)
+    harnessBootCovers.set(contents, cover)
+  }
+  return cover
 }
 
 function windowsTitleBarOverlay(isDark: boolean): Electron.TitleBarOverlayOptions {
@@ -595,9 +619,11 @@ async function syncNativeTheme(window: BrowserWindow): Promise<void> {
   // also works when macOS renders a transparent page over native vibrancy.
   const isDark = await window.webContents.executeJavaScript(
     `(() => {
-      if (${process.platform === 'darwin'}) return document.body.hasAttribute('data-ds-dark-theme')
-      if (document.body.hasAttribute('data-ds-dark-theme')) return true
-      const color = getComputedStyle(document.body).backgroundColor
+      const body = document.body
+      if (!body) return matchMedia('(prefers-color-scheme: dark)').matches
+      if (${process.platform === 'darwin'}) return body.hasAttribute('data-ds-dark-theme')
+      if (body.hasAttribute('data-ds-dark-theme')) return true
+      const color = getComputedStyle(body).backgroundColor
       const channels = color.match(/[\\d.]+/g)?.slice(0, 3).map(Number)
       if (!channels || channels.length < 3) {
         return matchMedia('(prefers-color-scheme: dark)').matches
@@ -2235,6 +2261,15 @@ async function showPluginRecovery(options?: {
       waitForRendererEvidence = false
       if (applyPendingFrontendEvidence()) continue
 
+      // Keep the failed document alive through evidence collection. Only then
+      // replace it before potentially slow market checks; the original error
+      // and plugin ownership are retained in detection/lastCrashEvidence.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        await showSplash().catch((error: unknown) => {
+          runtime.note('[desktop] could not cover plugin recovery with the splash: ' + String(error))
+        })
+      }
+
       const runtimeVersion =
         (await readBundledDshVersion(join(bundledRuntimeRoot(), 'node_modules'))) || '0.1.2-alpha.1'
       const demoChecks: PluginRecoveryCheck[] = []
@@ -3541,6 +3576,13 @@ async function bootstrap(): Promise<void> {
     }
     const errorMessage = await shell.openPath(path)
     if (errorMessage) throw new Error(errorMessage)
+    return { ok: true }
+  })
+  ipcMain.removeHandler('harness:reveal-boot-cover')
+  ipcMain.handle('harness:reveal-boot-cover', async (event) => {
+    assertTrustedMainWindowEvent(event)
+    if (!isHarnessBootPage(event.senderFrame?.url ?? '')) throw new Error('The Harness startup page is not active.')
+    await bootCoverFor(event.sender).reveal()
     return { ok: true }
   })
   ipcMain.removeHandler('harness:renderer-healthy')
