@@ -13,12 +13,16 @@ export interface NavigationTarget {
   loadURL(url: string): Promise<void>
 }
 
+export interface ShellNavigationTarget extends NavigationTarget {
+  webContents: { navigationHistory: { clear(): void } }
+}
+
 export function isCancelledNavigation(error: unknown): boolean {
   return isAbortedNavigationError(error) ||
     (error instanceof Error && 'code' in error && error.code === -3)
 }
 
-/** A failed navigation must never start a second load on a closing or superseded window. */
+/** Preserve ordinary Back/Forward history; lifecycle replacements opt in separately. */
 export async function navigateDesktopWindow(
   target: NavigationTarget,
   url: string,
@@ -35,6 +39,23 @@ export async function navigateDesktopWindow(
     throw error
   }
   return !cancelled() && !target.isDestroyed()
+}
+
+/**
+ * Discard obsolete startup/import/recovery history after a shell replacement.
+ * Native Back must not restore a static page that cannot restart main (#612).
+ * Ordinary routes use navigateDesktopWindow and retain their history.
+ */
+export async function replaceDesktopWindowPage(
+  target: ShellNavigationTarget,
+  url: string,
+  cancelled: () => boolean
+): Promise<boolean> {
+  if (!await navigateDesktopWindow(target, url, cancelled)) return false
+  // A newer navigation or shutdown can take ownership between continuations.
+  if (cancelled() || target.isDestroyed()) return false
+  target.webContents.navigationHistory.clear()
+  return true
 }
 
 export function desktopFileUrl(filePath: string, query: Record<string, string> = {}): string {
